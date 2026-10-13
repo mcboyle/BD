@@ -9,10 +9,43 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
+import re
 import sys
 from flask import Blueprint, jsonify, request
 
 global_config_bp = Blueprint("global_config", __name__)
+
+# BD-SEC-1: GET echoed dict(_app_cfg), and only three hand-listed keys were
+# masked, so the runtime-minted api_auth_token_secret / stream_token_secret and
+# oidc_client_secret went out in plaintext. Mask by NAME instead, at any depth.
+# A new secret field is covered the day it is added, without anyone having to
+# remember this list. Lookalikes (secrets_audit*, auth_throttle*) do not match.
+_SECRET_NAME_RE = re.compile(
+    r"(?:^|_)(?:secret|token|password|passwd|api_key|private_key|key)$", re.I)
+_SECRET_MASK = "<configured>"
+
+
+def _is_secret_name(key) -> bool:
+    return isinstance(key, str) and bool(_SECRET_NAME_RE.search(key))
+
+
+def _mask_secret(value):
+    """Presence-only view: "" when unset, the mask when set. An "@cred:" vault
+    reference is not itself a secret and passes through (v3.43.43)."""
+    if isinstance(value, str) and value.startswith("@cred:"):
+        return value
+    if value is None or not str(value).strip():
+        return ""
+    return _SECRET_MASK
+
+
+def _redact_secrets(value):
+    if isinstance(value, dict):
+        return {k: (_mask_secret(v) if _is_secret_name(k) else _redact_secrets(v))
+                for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_secrets(v) for v in value]
+    return value
 
 def _origins_env_locked(*_a, **_k):
     """Delegate to app._origins_env_locked at call time (lazy; avoids an import cycle)."""
@@ -104,7 +137,7 @@ def api_global_config_defaults():
     their default. Returns the _app_cfg seed snapshot, never the live (and
     possibly operator-modified) config."""
     _APP_CFG_DEFAULTS = _app__APP_CFG_DEFAULTS()
-    return jsonify(dict(_APP_CFG_DEFAULTS))
+    return jsonify(_redact_secrets(dict(_APP_CFG_DEFAULTS)))
 @global_config_bp.route("/api/global_config/origins", methods=["GET"])
 def api_global_config_origins():
     """Per-field origin + apply-timing classification (read-only).
@@ -436,8 +469,9 @@ def api_global_config():
             # means "leave the stored token unchanged" so a Settings save can't
             # silently clear the credential (or write the mask back as the token).
             # To actually clear a stored token, edit app_config.json / the env.
-            if _k in ("auth_token", "bd_token") and (
-                    not str(_v).strip() or _v == "<configured>"):
+            # BD-SEC-1: the same write-only rule for every secret-named key.
+            if _is_secret_name(_k) and (
+                    not str(_v).strip() or _v == _SECRET_MASK):
                 continue
             _exp = _spec.get("type")
             _bad = (_exp is not None) and (
@@ -474,7 +508,8 @@ def api_global_config():
     for _sk in ("auth_token", "bd_token"):
         if str(out.get(_sk) or "").strip():
             out[_sk] = "<configured>"
-    return jsonify(out)
+    # BD-SEC-1: then every other secret-named field, at any depth.
+    return jsonify(_redact_secrets(out))
 
 def register_routes(app) -> int:
     app.register_blueprint(global_config_bp)
