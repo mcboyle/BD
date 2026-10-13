@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (825)
+## /api/* routes (826)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -140,7 +140,8 @@ POST    /api/crash_recovery/resume                             CSRF: yes  — Re
 GET     /api/crash_recovery/scan                               CSRF: no   — List orphan .part files across all sites. Files <24h old or
 GET     /api/crash_recovery/stats                              CSRF: no
 GET     /api/csrf                                              CSRF: no   — Return the CSRF token derived from the caller's session cookie.
-GET     /api/daily_budget/history/<sid>                        CSRF: no   — Daily usage history for charting. Query: ?days=30 (max 365).
+GET     /api/daily_budget/history                              CSRF: no   — Daily usage history for charting. Query: ?days=30 (max 365); ?site=<id> on the bare route.
+GET     /api/daily_budget/history/<path:sid>                   CSRF: no   — Daily usage history for charting. Query: ?days=30 (max 365); ?site=<id> on the bare route.
 POST    /api/daily_budget/reset/<sid>                          CSRF: yes  — Zero today's counter for one site. Used in emergencies or for
 GET     /api/daily_budget/status                               CSRF: no   — Snapshot of every site's today usage + budget status.
 GET     /api/dashboard                                         CSRF: no

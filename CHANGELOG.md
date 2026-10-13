@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1844 - train281a: row
+
+T281a-G on main 03d20465 (18 members; operator O3051 + PM ACK-pm-A3-A-O3051-1822Z.md; PM RULING-pm-A3-A-T281a-eject-1955Z.md ejected 4 after the T281a-F band; every leg BOARD on O1672, pins re-verified at assembly):
+SECURITY: BD-SEC-6 (app.py token auth F1-F4, DNS-rebinding Host allow-list; BOARD x2 D165-D + D166-D).
+FIXES: svam-fix, dva-accounts, dsf-fix r2, dax-pages r2, dax-cdn, at-fix r2, aac-fix r2, ct-fix r2,
+stb-fix r3, sltm-fix r2, dsw-fix, bm-fix r2, br-f4 r2, br-f7 r2, ddr-fix, dtr-fix, na-fix r2 (bughunt fix cuts; one BOARD leg each).
+Ejected to T281b (train-caused band failures, ROW-integrator-T281a-band-1946Z.md): ah-fix r4, ab-fix r3, hl-library r2, hl-history-search r2.
+Not in this train: cockpit-rest (cockpit repo, lands on the cockpit clone).
+
+
 ## v3.66.1843 - train280: row
 
 T280 on main b0ea77a6 (4 members; operator O3026 via AGY, ORDER-operator-O3026-O3027-O3028.md + ORDER-pm-A3-A-T280-sequencing.md + GO-pm-A3-A-T280-add-BD-SEC-4.md + GO-pm-A3-A-T280-add-BD-SEC-5.md):

@@ -32,7 +32,7 @@
     {
       "bytes": 2066,
       "key": "tests/test_spa_root_routing_contract.py::test_bootstrap_hook_covers_spa_root::src[pos:pos + 2000]::1",
-      "sha256": "1451aa5d4e5474a9588cdd1a0552e5caa3b760efd58656173c1c28a38990aae8"
+      "sha256": "96d21002d8029eb0458867a93b23ba2328e25999e7e12f81e0370f9e7109d339"
     },
     {
       "bytes": 2006,
@@ -305,14 +305,14 @@
       "sha256": "4a42569ab398524d9647a2b59fe5d2423e691c26172850ec7895dcb1393f5a96"
     },
     {
-      "bytes": 6018,
+      "bytes": 6012,
       "key": "tests/test_v3_43_46_audit.py::test_x_bd_token_header_accepted_as_bearer::src[pos:pos + 6000]::1",
-      "sha256": "5efd6fbaadc3aae3fb50b9406264b4419f2fa6d3ea62601abdfe745bec2bfd6e"
+      "sha256": "638854454e1a947ce7811514262de6436faa1d6ee74ebfc378768d52498dbc86"
     },
     {
-      "bytes": 6018,
+      "bytes": 6012,
       "key": "tests/test_v3_43_46_audit.py::test_x_bd_token_matches_authorization_bearer_semantics::src[pos:pos + 6000]::1",
-      "sha256": "5efd6fbaadc3aae3fb50b9406264b4419f2fa6d3ea62601abdfe745bec2bfd6e"
+      "sha256": "638854454e1a947ce7811514262de6436faa1d6ee74ebfc378768d52498dbc86"
     },
     {
       "bytes": 400,
@@ -460,9 +460,9 @@
       "sha256": "0e344265b3d6947ad9041ca685973f101cdba169ba63ce1bb79b6915326892bb"
     },
     {
-      "bytes": 10046,
+      "bytes": 10018,
       "key": "tests/test_v3_66_714_endpoint_reachability.py::test_killswitch_apply_is_confirm_gated::src[max(0, i - 4000):i + 6000]::1",
-      "sha256": "ff667fcf746baeea36a2e503ed8378389bf2b4641d36397b16d7a62841c3d69b"
+      "sha256": "5f2d7ee4f9041656ea8b738c58d6def99e7cce5f862645a7690c4d3e1c3f12a3"
     },
     {
       "bytes": 1220,
