@@ -13,7 +13,9 @@ What's in a backup (in order of importance):
   - learned/*.json          captured selectors per site
   - user_templates.json     custom templates
   - vault_tokens.json       browser-extension pairings
-  - queue.db, queue.db-wal, queue.db-shm   SQLite + WAL
+  - downloader_history.db   SQLite store, one consistent snapshot (no -wal/-shm)
+
+Restore writes only those members (BD-SEC-4); anything else is refused.
 
 What's NOT in a backup:
   - Downloaded media files (way too big; user manages those)
@@ -37,6 +39,7 @@ import io
 import json
 import os
 import shutil
+import sqlite3
 import tempfile
 import time
 import zipfile
@@ -78,11 +81,89 @@ BACKUP_TARGETS = [
     ("vault_tokens.json", "vault_tokens.json"),
     # State (push subscription keys, heartbeat)
     ("state", "state"),
-    # SQLite DB — last because it's the biggest and most rebuildable
+    # SQLite DB — last because it's the biggest and most rebuildable.
+    # BD-SEC-4 F1: the app's store is constants.DB_PATH (downloader_history.db);
+    # queue.db is the legacy name. Each DB rides as ONE consistent snapshot
+    # (sqlite backup API), so -wal/-shm sidecars are never archived.
+    ("downloader_history.db", "downloader_history.db"),
     ("queue.db", "queue.db"),
-    ("queue.db-wal", "queue.db-wal"),
-    ("queue.db-shm", "queue.db-shm"),
 ]
+
+_DB_MEMBERS = frozenset(("downloader_history.db", "queue.db"))
+# Restore's per-member cap (zip-bomb defense). A DB snapshot over it would be
+# refused on restore, so create_backup leaves it out and names it in `skipped`.
+_RESTORE_MEMBER_CAP = 256 * 1024 * 1024
+
+# BD-SEC-4 F2: restore writes ONLY members a backup can contain -- the file
+# targets above, or files under their data dirs. Code (any .py, sitecustomize,
+# executables) and unknown members are refused and listed, never written.
+_RESTORE_DIRS = ("cookies/", "learned/", "state/")
+_RESTORE_FILES = frozenset(arc for _src, arc in BACKUP_TARGETS
+                           if arc + "/" not in _RESTORE_DIRS)
+_CODE_SUFFIXES = frozenset((".py", ".pyc", ".pyo", ".pyd", ".pth", ".so",
+                            ".dll", ".dylib", ".exe", ".sh", ".bat", ".cmd",
+                            ".ps1"))
+
+
+def _restore_allowed(name: str) -> bool:
+    if name in _RESTORE_FILES:
+        return True
+    if not name.startswith(_RESTORE_DIRS) or name.endswith("/"):
+        return False
+    leaf = Path(name)
+    return (leaf.suffix.lower() not in _CODE_SUFFIXES
+            and leaf.stem not in ("sitecustomize", "usercustomize"))
+
+
+def _snapshot_db(src: Path, out: Path) -> None:
+    """Copy a live SQLite DB (db + its WAL) into one self-contained file."""
+    s = sqlite3.connect(str(src), timeout=30)
+    try:
+        d = sqlite3.connect(str(out))
+        try:
+            s.backup(d)
+            d.execute("PRAGMA journal_mode=DELETE")
+        finally:
+            d.close()
+    finally:
+        s.close()
+
+
+def _unlink_sidecars(db: Path) -> None:
+    for sfx in ("-wal", "-shm"):
+        Path(str(db) + sfx).unlink(missing_ok=True)
+
+
+def _restore_db(tmp: Path, dest: Path) -> str | None:
+    """BD-SEC-4 F3: put the restored DB at `dest` without a stale WAL replay.
+
+    A live dest is overwritten THROUGH SQLite (backup API: page writes go via
+    its own locks and WAL, so open app handles see the restored content and the
+    old WAL frames are superseded). If that fails (dest not a DB, page-size
+    clash), the file is swapped and the old -wal/-shm deleted BEFORE the swap.
+    Returns a warning, or None."""
+    warn = None
+    if dest.exists():
+        try:
+            s = sqlite3.connect(str(tmp))
+            try:
+                d = sqlite3.connect(str(dest), timeout=30)
+                try:
+                    s.backup(d)
+                finally:
+                    d.close()
+            finally:
+                s.close()
+            tmp.unlink()
+            _unlink_sidecars(tmp)
+            return None
+        except sqlite3.Error as e:
+            warn = (f"{dest.name}: in-place DB restore failed "
+                    f"({type(e).__name__}); file swapped, stale -wal/-shm removed")
+    _unlink_sidecars(tmp)
+    _unlink_sidecars(dest)
+    tmp.replace(dest)
+    return warn
 
 
 # POS-1 (v3.66.663): members that carry secrets/session data. In encrypt_scope=
@@ -165,7 +246,7 @@ def create_backup(out_path: str | Path, base_dir: str | Path = ".",
     skipped = []
     targets = list(BACKUP_TARGETS)
     if not include_db:
-        targets = [t for t in targets if not t[0].startswith("queue.db")]
+        targets = [t for t in targets if t[0] not in _DB_MEMBERS]
 
     # POS-1: sensitive-scope encrypts only the secret/session members in-place.
     do_sensitive = bool(passphrase) and encrypt_scope == "sensitive"
@@ -202,6 +283,24 @@ def create_backup(out_path: str | Path, base_dir: str | Path = ".",
                 src = base / src_rel
                 if not src.exists():
                     skipped.append(src_rel)
+                    continue
+                if src_rel in _DB_MEMBERS:
+                    try:
+                        with tempfile.TemporaryDirectory(prefix="bdback_db_") as _td:
+                            snap = Path(_td) / src_rel
+                            _snapshot_db(src, snap)
+                            _size = snap.stat().st_size
+                            if _size > _RESTORE_MEMBER_CAP:
+                                skipped.append(
+                                    f"{arc_dir}: {_size} bytes > restore cap "
+                                    f"{_RESTORE_MEMBER_CAP}")
+                                continue
+                            zf.write(snap, arc_dir)
+                            checksums[arc_dir] = hashlib.sha256(
+                                snap.read_bytes()).hexdigest()
+                        files_written += 1
+                    except (OSError, sqlite3.Error) as e:
+                        skipped.append(f"{arc_dir}: {type(e).__name__}")
                     continue
                 for file_path, arcname in _iter_files(base, src):
                     try:
@@ -391,6 +490,7 @@ def restore_backup(backup_path: str | Path,
                  "elapsed_ms": round((time.time() - t0) * 1000, 1)}
 
     warnings = []
+    refused: list = []
     files_restored = 0
     files_skipped = 0
     manifest = None
@@ -403,7 +503,7 @@ def restore_backup(backup_path: str | Path,
     # restored bytes at 10GB. Real backups are well under either
     # bound (sites_config + cookies + learned selectors compress
     # to a few hundred KB).
-    MAX_MEMBER_BYTES = 256 * 1024 * 1024
+    MAX_MEMBER_BYTES = _RESTORE_MEMBER_CAP
     MAX_TOTAL_BYTES = 10 * 1024 * 1024 * 1024
     total_bytes = 0
 
@@ -461,6 +561,10 @@ def restore_backup(backup_path: str | Path,
         for name in zf.namelist():
             if name == "_manifest.json":
                 continue
+            # BD-SEC-4 F5: directory entries (zip -r / 7z / Finder) are not
+            # files; writing one would plant a FILE where the dir belongs.
+            if name.endswith("/"):
+                continue
             # Reject path traversal and absolute paths
             if name.startswith("/") or ".." in Path(name).parts:
                 warnings.append(f"skipped unsafe path: {name}")
@@ -491,6 +595,11 @@ def restore_backup(backup_path: str | Path,
             except KeyError:
                 # Member listed in namelist but getinfo fails — skip
                 warnings.append(f"skipped (no zipinfo): {name}")
+                files_skipped += 1
+                continue
+            if not _restore_allowed(name):
+                warnings.append(f"refused non-backup member: {name}")
+                refused.append(name)
                 files_skipped += 1
                 continue
             if dry_run:
@@ -538,7 +647,12 @@ def restore_backup(backup_path: str | Path,
                         checksums_verified += 1
                 tmp_dest = dest.with_suffix(dest.suffix + ".bdtmp")
                 tmp_dest.write_bytes(data)
-                tmp_dest.replace(dest)
+                if name in _DB_MEMBERS:
+                    _warn = _restore_db(tmp_dest, dest)
+                    if _warn:
+                        warnings.append(_warn)
+                else:
+                    tmp_dest.replace(dest)
                 files_restored += 1
                 total_bytes += len(data)
             except OSError as e:
@@ -553,6 +667,7 @@ def restore_backup(backup_path: str | Path,
         "files_skipped": files_skipped,
         "manifest": manifest,
         "warnings": warnings,
+        "refused": refused,
         "dry_run": dry_run,
         # CAP-4 integrity signal: True when every checksummed member matched
         # (or the backup predates checksums -- nothing to verify).

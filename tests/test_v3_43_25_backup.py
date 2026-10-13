@@ -141,13 +141,13 @@ def test_restore_rejects_path_traversal():
         with zipfile.ZipFile(backup_path, "w") as zf:
             zf.writestr("_manifest.json", '{"format_version": 1}')
             zf.writestr("../../../etc/passwd_pwned", "ohno")
-            zf.writestr("good_file.txt", "I am safe")
+            zf.writestr("sites_config.json", "I am safe")
         result = bd_backup.restore_backup(
             backup_path, target_dir=dst_d, passphrase=None,
         )
         assert result["ok"]
         # The good file must restore; the bad one must be skipped
-        assert (Path(dst_d) / "good_file.txt").exists()
+        assert (Path(dst_d) / "sites_config.json").exists()
         # The traversal target must NOT exist anywhere outside dst_d
         assert not (Path(dst_d).parent.parent.parent / "etc" / "passwd_pwned").exists()
         # And the warnings should mention the rejection
