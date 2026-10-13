@@ -58,8 +58,11 @@ def load_cookies_from_file(path):
         return []
     with open(path,"r",encoding="utf-8") as f: raw=json.load(f)
     items=[]
-    for v in (raw.values() if isinstance(raw,dict) else [raw]):
-        if isinstance(v,list): items.extend(v)
+    for k,v in (raw.items() if isinstance(raw,dict) else [(None,raw)]):
+        # aac-fix r2 (D170 R1): a Playwright storage_state's "origins" holds
+        # localStorage per origin, not cookies; read as cookies it added a
+        # nameless, domainless entry that fails the whole add_cookies batch.
+        if isinstance(v,list) and k!="origins": items.extend(v)
     return [normalize_stored_cookie(c) for c in items]
 
 def cookie_jar_state(path):
@@ -96,6 +99,56 @@ def pw_to_json(cookies):
         out.append(e)
     return out
 
+def is_cookie_jar_text(text):
+    """True when `text` is a cookie jar in a shape load_cookies_from_file
+    reads. The one jar test for /cookies/import, the export and every saver
+    (aac-fix r2, D170 R1: import took jars that export and the login savers
+    then refused, so a site's cookies stopped persisting):
+
+      * a JSON list of cookie objects (each with "name" and "value");
+      * an object holding at least one such list (a "cookies" key may hold an
+        empty one), where every other list is a storage_state "origins" list
+        of {"origin": ...} objects and anything else is metadata ("saved_at",
+        a version, ...) -- a Playwright storage_state is one;
+      * an empty jar, [] or {}.
+
+    aac-fix F12: cookie_file is an operator-set path. Export reads it back and
+    the savers replace it, so neither may treat an arbitrary file under the
+    allowed roots (config, state, vault.key) as a jar."""
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return False
+
+    def _is_cookie(c):
+        return isinstance(c, dict) and "name" in c and "value" in c
+
+    if isinstance(data, list):
+        return all(_is_cookie(c) for c in data)
+    if not isinstance(data, dict):
+        return False
+    if not data:
+        return True
+    cookie_lists = 0
+    for key, v in data.items():
+        if not isinstance(v, list):
+            continue
+        if (v and all(_is_cookie(c) for c in v)) or (key == "cookies" and not v):
+            cookie_lists += 1
+        elif key == "origins" and all(
+                isinstance(o, dict) and "origin" in o for o in v):
+            continue
+        else:
+            return False
+    return cookie_lists > 0
+
+
+class CookieFileNotAJarError(ValueError):
+    """save_cookies_to_file refused to replace an existing non-empty file that
+    is not a cookie jar (aac-fix F12). A ValueError, so the login savers'
+    existing `except (OSError, ValueError)` log it instead of crashing."""
+
+
 def save_cookies_to_file(path, cookies, *, validate: bool = True):
     """Persist cookies to JSON. Used after manual takeover login to save
     captured cookies to the configured Cookie File Path.
@@ -130,6 +183,21 @@ def save_cookies_to_file(path, cookies, *, validate: bool = True):
     filesystems).
     """
     p = Path(path)
+    # aac-fix F12: never overwrite a file that is not a cookie jar -- a JSON
+    # document of another shape, or a non-JSON file not named *.json. A *.json
+    # file that does not parse is a damaged jar and stays replaceable, so a
+    # login / keepalive can still heal it.
+    if p.is_file() and p.stat().st_size:
+        try:
+            existing = p.read_text(encoding="utf-8")
+            json.loads(existing)
+            parses = True
+        except (OSError, UnicodeDecodeError, ValueError):
+            existing, parses = None, False
+        if (parses and not is_cookie_jar_text(existing)) or (
+                not parses and p.suffix.lower() != ".json"):
+            raise CookieFileNotAJarError(
+                f"refusing to overwrite {p}: it exists and is not a cookie jar")
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps(cookies, indent=2, ensure_ascii=False),

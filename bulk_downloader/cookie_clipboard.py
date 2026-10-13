@@ -35,78 +35,137 @@ def _cookie_fields_safe(*fields) -> bool:
     return not any(_CTL_RE.search(str(f)) for f in fields if f is not None)
 
 
-def _parse_netscape(text: str) -> list:
+# A cookie name as browsers apply RFC 6265 (aac-fix r2, D170 R2): Chromium
+# stores and sends cart[1], user[id], a:b, x@y, q(1), k/v, "na me" and an empty
+# name; it refuses a name with a control character (TAB included), ';' or '=',
+# or with leading/trailing whitespace. The strict RFC token rule dropped real
+# site cookies. Junk from a half-matched JSON / cURL paste is kept out by
+# parsing those pastes only with their own parser (F2), not by this rule.
+_BAD_NAME_RE = re.compile(r"[\x00-\x1f\x7f;=]")
+
+
+def _valid_cookie_name(name) -> bool:
+    return (isinstance(name, str) and not _BAD_NAME_RE.search(name)
+            and name == name.strip(" "))
+
+
+def _shown_name(name) -> str:
+    """A cookie name as it may appear in a reply or a log: escaped, short.
+    Never the value (aac-fix r2, D170 R3)."""
+    if not isinstance(name, str):
+        return f"<{type(name).__name__}>"
+    return name.encode("unicode_escape").decode("ascii")[:64]
+
+
+def _skip(skipped, name, why) -> None:
+    """Record a cookie a parser left out, so no cookie is dropped silently."""
+    if skipped is not None:
+        skipped.append({"name": _shown_name(name), "why": why})
+
+
+def _expiry(value) -> int:
+    """An expiry field as whole epoch seconds; 0 (session) when it is not a
+    number ("Session", "", None) -- never an exception (aac-fix F6c/F7)."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(0, int(float(value)))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _parse_netscape(text: str, skipped: Optional[list] = None) -> list:
     """Parse Netscape cookies.txt format. Each non-comment line is:
         domain  flag  path  secure  expires  name  value
     Tab-separated."""
     out = []
     for line in text.splitlines():
         line = line.rstrip("\r")
+        http_only = False
         if not line or line.startswith("#"):
-            # Sometimes prefixed with #HttpOnly_ (this prefix indicates
-            # http-only but we accept the cookie either way)
+            # A #HttpOnly_ prefix marks an http-only cookie (curl/yt-dlp).
             if line.startswith("#HttpOnly_"):
                 line = line[len("#HttpOnly_"):]
+                http_only = True
             else:
                 continue
         parts = line.split("\t")
         if len(parts) < 7:
             continue
         domain, flag, path, secure, expires, name, value = parts[:7]
-        try:
-            exp = int(expires)
-        except ValueError:
-            exp = 0
+        if not _valid_cookie_name(name):
+            _skip(skipped, name, "name a browser refuses")
+            continue
         out.append({
             "name": name,
             "value": value,
             "domain": domain,
             "path": path,
             "secure": secure.lower() == "true",
-            "expires": exp,
-            "httpOnly": False,  # netscape format doesn't carry this reliably
+            "expires": _expiry(expires),
+            "httpOnly": http_only,
         })
     return out
 
 
-def _parse_json_array(text: str) -> Optional[list]:
+def _parse_json_array(text: str, skipped: Optional[list] = None) -> Optional[list]:
     """EditThisCookie / Cookie Editor format: a JSON array of
-    {name, value, domain, path, expirationDate, secure, httpOnly}."""
+    {name, value, domain, path, expirationDate, secure, httpOnly}; also a
+    Playwright storage_state object {"cookies": [...]} (whose cookies carry
+    `expires`). A cookie whose name is not a cookie token, or whose value is
+    not text or a number, is skipped (aac-fix F2/F7)."""
     try:
         data = json.loads(text)
     except Exception:
         return None
+    if isinstance(data, dict) and isinstance(data.get("cookies"), list):
+        data = data["cookies"]
     if not isinstance(data, list):
         return None
     out = []
     for c in data:
         if not isinstance(c, dict) or "name" not in c or "value" not in c:
             continue
+        name, value = c.get("name"), c.get("value")
+        if not _valid_cookie_name(name):
+            _skip(skipped, name, "name a browser refuses")
+            continue
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            _skip(skipped, name, "value is not text or a number")
+            continue
+        domain, path = c.get("domain", ""), c.get("path", "/")
         out.append({
-            "name": c.get("name", ""),
-            "value": c.get("value", ""),
-            "domain": c.get("domain", ""),
-            "path": c.get("path", "/"),
+            "name": name,
+            "value": str(value),
+            "domain": domain if isinstance(domain, str) else "",
+            "path": path if isinstance(path, str) and path else "/",
             "secure": bool(c.get("secure", False)),
-            "expires": int(c.get("expirationDate", 0) or 0),
+            "expires": _expiry(c.get("expirationDate", c.get("expires", 0))),
             "httpOnly": bool(c.get("httpOnly", False)),
             "sameSite": c.get("sameSite", "lax"),
         })
     return out
 
 
-def _parse_cookie_header(text: str) -> list:
+def _parse_cookie_header(text: str, skipped: Optional[list] = None) -> list:
     """Parse a raw Cookie header value like 'k1=v1; k2=v2; k3=v3'.
     No metadata available — domain/path/expires defaulted."""
+    text = text.strip()
+    # The docstring's "Cookie:" header form: drop the header name itself.
+    if text[:7].lower() == "cookie:":
+        text = text[7:]
     out = []
     for part in text.split(";"):
         part = part.strip()
         if not part or "=" not in part:
             continue
         name, value = part.split("=", 1)
-        if name and value:
+        name = name.strip()
+        if not _valid_cookie_name(name):
+            _skip(skipped, name, "name a browser refuses")
+        else:  # an empty value is still a cookie
             out.append({
-                "name": name.strip(),
+                "name": name,
                 "value": value.strip(),
                 "domain": "",
                 "path": "/",
@@ -117,50 +176,63 @@ def _parse_cookie_header(text: str) -> list:
     return out
 
 
-def _parse_curl_cookies(text: str) -> Optional[list]:
+def _parse_curl_cookies(text: str, skipped: Optional[list] = None) -> Optional[list]:
     """Extract from a 'curl ... -b "..." ...' command paste."""
-    # Match -b 'value' or -b "value" or --cookie ...
-    m = re.search(r"""(?:-b|--cookie)\s+['"]([^'"]+)['"]""", text)
+    # -b / --cookie 'value' or "value" (each quote style may hold the other),
+    # else a -H / --header 'Cookie: ...' (DevTools "Copy as cURL" form).
+    m = re.search(r"""(?:-b|--cookie)\s+(?:'([^']*)'|"([^"]*)")""", text)
+    if not m:
+        m = re.search(r"""(?:-H|--header)\s+(?:'([Cc]ookie:[^']*)'|"([Cc]ookie:[^"]*)")""", text)
     if not m:
         return None
-    return _parse_cookie_header(m.group(1))
+    return _parse_cookie_header(m.group(1) if m.group(1) is not None else m.group(2), skipped)
 
 
 def auto_detect_and_parse(text: str) -> dict:
     """Try every parser; return whichever produces the most cookies.
 
-    Returns {format, cookies, count, confidence}."""
-    if not text or not text.strip():
+    Returns {format, cookies, count, confidence, all_attempts, skipped}; `skipped`
+    names (never values) each cookie the chosen parser left out, and why."""
+    if not isinstance(text, str) or not text.strip():
         return {"format": None, "cookies": [], "count": 0, "confidence": 0}
 
     candidates = []
+    head = text.lstrip()
+    # aac-fix F2: a JSON value or a cURL command is parsed only by its own
+    # parser. The header parser on such a paste half-matches and returns junk
+    # that a save would write over a good jar.
+    structured = head.startswith(("[", "{")) or head.startswith("curl ")
 
-    # JSON array
-    if text.lstrip().startswith("["):
-        parsed = _parse_json_array(text)
-        if parsed:
-            candidates.append(("json_array", parsed))
+    # JSON array, or a storage_state object
+    if head.startswith(("[", "{")):
+        skipped = []
+        parsed = _parse_json_array(text, skipped)
+        if parsed or skipped:
+            candidates.append(("json_array", parsed or [], skipped))
 
     # Netscape — recognized by leading "# Netscape HTTP Cookie File"
     # or tab-delimited rows
     if "Netscape HTTP Cookie File" in text or \
        any("\t" in line and line.count("\t") >= 5
            for line in text.splitlines()[:20]):
-        parsed = _parse_netscape(text)
-        if parsed:
-            candidates.append(("netscape", parsed))
+        skipped = []
+        parsed = _parse_netscape(text, skipped)
+        if parsed or skipped:
+            candidates.append(("netscape", parsed, skipped))
 
     # cURL command paste
-    if "curl " in text and ("-b " in text or "--cookie" in text):
-        parsed = _parse_curl_cookies(text)
-        if parsed:
-            candidates.append(("curl", parsed))
+    if "curl " in text:
+        skipped = []
+        parsed = _parse_curl_cookies(text, skipped)
+        if parsed or skipped:
+            candidates.append(("curl", parsed or [], skipped))
 
-    # Cookie header (last resort — most permissive)
-    if "=" in text and ";" in text:
-        parsed = _parse_cookie_header(text)
-        if parsed:
-            candidates.append(("cookie_header", parsed))
+    # Cookie header (last resort — most permissive); one "name=value" counts
+    if "=" in text and not structured:
+        skipped = []
+        parsed = _parse_cookie_header(text, skipped)
+        if parsed or skipped:
+            candidates.append(("cookie_header", parsed, skipped))
 
     if not candidates:
         return {"format": None, "cookies": [], "count": 0,
@@ -168,8 +240,8 @@ def auto_detect_and_parse(text: str) -> dict:
                 "error": "no parser matched"}
 
     # Pick the parser that found the most cookies
-    candidates.sort(key=lambda x: -len(x[1]))
-    fmt, cookies = candidates[0]
+    candidates.sort(key=lambda x: (-len(x[1]), -len(x[2])))
+    fmt, cookies, skipped = candidates[0]
     # Confidence: higher when format markers were strong
     confidence = 90 if fmt in ("netscape", "json_array") else (
         70 if fmt == "curl" else 40)
@@ -180,11 +252,13 @@ def auto_detect_and_parse(text: str) -> dict:
         "confidence": confidence,
         "all_attempts": [{"format": c[0], "count": len(c[1])}
                          for c in candidates],
+        "skipped": skipped,
     }
 
 
 def to_playwright_format(cookies: list, *,
-                        default_domain: str = "") -> list:
+                        default_domain: str = "",
+                        skipped: Optional[list] = None) -> list:
     """Convert normalized cookies to Playwright's expected shape.
 
     Playwright wants: name, value, domain (or url), path, expires,
@@ -196,6 +270,7 @@ def to_playwright_format(cookies: list, *,
                                    c.get("path", "/"), domain):
             # drop a cookie carrying a control char (injection vector) rather
             # than pass a malformed name/value/domain to the browser context
+            _skip(skipped, c.get("name", ""), "control character in a field")
             continue
         item = {
             "name": c["name"],
@@ -208,9 +283,14 @@ def to_playwright_format(cookies: list, *,
             item["domain"] = domain.lstrip(".")
         if c.get("expires"):
             item["expires"] = int(c["expires"])
-        ss = (c.get("sameSite") or "lax").lower()
-        item["sameSite"] = {"strict": "Strict", "lax": "Lax",
-                            "none": "None"}.get(ss, "Lax")
+        # Extension exports say "no_restriction" for SameSite=None (aac-fix
+        # F5); None is kept only on a Secure cookie, as cookies.py does.
+        ss = str(c.get("sameSite") or "lax").strip().lower()
+        same_site = {"strict": "Strict", "lax": "Lax", "none": "None",
+                     "no_restriction": "None"}.get(ss, "Lax")
+        if same_site == "None" and not item["secure"]:
+            same_site = "Lax"
+        item["sameSite"] = same_site
         out.append(item)
     return out
 
@@ -220,9 +300,12 @@ def to_netscape_text(cookies: list) -> str:
     lines = ["# Netscape HTTP Cookie File",
              "# Generated by BulkDownloader cookie_clipboard"]
     for c in cookies:
+        # aac-fix F8: a leading dot is a domain cookie (flag TRUE); a bare host
+        # is host-only (flag FALSE). A cookie with no domain cannot be written.
         domain = c.get("domain", "")
-        if domain and not domain.startswith("."):
-            domain = "." + domain
+        if not domain:
+            continue
+        flag = "TRUE" if domain.startswith(".") else "FALSE"
         path = c.get("path", "/")
         name = c.get("name", "")
         value = c.get("value", "")
@@ -230,11 +313,11 @@ def to_netscape_text(cookies: list) -> str:
             # a TAB/CR/LF in any field would terminate a field or forge a row
             continue
         lines.append("\t".join([
-            domain or ".unknown",
-            "TRUE",
+            domain,
+            flag,
             path,
             "TRUE" if c.get("secure") else "FALSE",
-            str(int(c.get("expires", 0))),
+            str(_expiry(c.get("expires", 0))),
             name,
             value,
         ]))
