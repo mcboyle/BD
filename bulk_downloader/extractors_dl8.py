@@ -64,10 +64,12 @@ runner's standard teach path.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from dataclasses import dataclass, field
+from html import unescape as _html_unescape
 from typing import Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 log = logging.getLogger(__name__)
 
@@ -119,6 +121,19 @@ def _etld1(hostname: str) -> str:
     from .registrable_domain import registrable_domain
     rd = registrable_domain(hostname)
     return rd if "." in rd else ""
+
+
+def _site_of(url: str) -> str:
+    """Registrable domain of an http(s) URL's host, or "". Never raises."""
+    if not url or not isinstance(url, str):
+        return ""
+    try:
+        parsed = urlparse(url)
+        if (parsed.scheme or "").lower() not in ("http", "https"):
+            return ""
+        return _etld1(parsed.hostname or "")
+    except ValueError:
+        return ""
 
 
 def is_dl8_url(url: str) -> bool:
@@ -207,8 +222,12 @@ def parse_quality_label(label: str) -> int:
 # ─── DOM parse: <dl8-video> ─────────────────────────────────────────
 
 
+# Attributes of one tag: quoted values may hold ">" (title="Tom > Jerry"), so
+# the attribute run is "anything but > or a quote, or a whole quoted string".
+_TAG_ATTRS = r"""((?:[^>"']|"[^"]*"|'[^']*')*)"""
+
 _DL8_TAG_RE = re.compile(
-    r"<dl8-video\b([^>]*)>(.*?)</dl8-video\s*>",
+    r"<dl8-video\b" + _TAG_ATTRS + r">(.*?)</dl8-video\s*>",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -217,9 +236,10 @@ _ATTR_RE = re.compile(
 )
 
 _SOURCE_TAG_RE = re.compile(
-    # `[^>]*?` (not `[^/>]*?`) — URLs in src= attributes contain `/`.
-    # The trailing `/?>` covers both `<source ... >` and `<source ... />`.
-    r"<source\b([^>]*?)/?>", re.IGNORECASE,
+    # URLs in src= attributes contain `/` (and may contain `>` in a query);
+    # a self-closing `/` before `>` is part of the attribute run and ignored
+    # by _parse_attrs.
+    r"<source\b" + _TAG_ATTRS + r">", re.IGNORECASE,
 )
 
 
@@ -230,8 +250,9 @@ def _parse_attrs(attr_str: str) -> dict:
     for m in _ATTR_RE.finditer(attr_str):
         key = m.group(1).lower()
         val = m.group(2) if m.group(2) is not None else m.group(3)
-        # Decode common HTML entities — fine for our use case
-        val = val.replace("&amp;", "&").replace("&quot;", '"')
+        # Decode HTML entities in ONE pass: chained replaces turned the
+        # text `&amp;quot;` into a quote character.
+        val = _html_unescape(val)
         out[key] = val
     return out
 
@@ -403,14 +424,16 @@ def predict_badoink_filenames(
 
 
 _QUALITY_TAG_RE = re.compile(
-    # Captures the class attribute value AND the tag text. We split the
-    # class value on whitespace and check membership rather than using
-    # \b — `\b` treats `-` as a word boundary, so `\bvideo-tag\b` would
-    # match `not-video-tag` (matching `video-tag` as a sub-token at the
-    # `-` boundary), which is wrong.
-    r'<[^>]*class=["\']([^"\']*)["\'][^>]*>([^<]+)<',
+    # The OPENING tag of an element with a class attribute: tag name and
+    # class value. We split the class value on whitespace and check
+    # membership rather than using \b — `\b` treats `-` as a word boundary,
+    # so `\bvideo-tag\b` would match `not-video-tag`, which is wrong.
+    r'<([a-zA-Z][\w-]*)\b[^>]*class=["\']([^"\']*)["\'][^>]*>',
     re.IGNORECASE,
 )
+_ANY_TAG_RE = re.compile(r"<[^>]*>")
+# How far past the opening tag the label text is looked for.
+_QUALITY_TAG_WINDOW = 400
 
 
 def detect_max_quality_tag(html: str) -> int:
@@ -421,16 +444,23 @@ def detect_max_quality_tag(html: str) -> int:
     Used as `max_tier_hint` for Badoink prediction — if the page says
     "5K" we don't bother HEAD-probing 8K (will 404 and waste a request).
     """
-    if not html:
+    if not html or not isinstance(html, str):
         return 0
     best = 0
     for m in _QUALITY_TAG_RE.finditer(html):
         # Strict class-list check: `video-tag` must be a whole entry
         # in the space-separated class attribute, not a substring.
-        classes = m.group(1).split()
+        classes = m.group(2).split()
         if "video-tag" not in classes:
             continue
-        tier = parse_quality_label(m.group(2))
+        # The label is the element's text, which may sit in a child
+        # (`<a class="video-tag"><span>8K</span></a>`): take everything up
+        # to the element's own closing tag and drop the markup. With no
+        # closing tag in reach, only the text directly after the tag counts.
+        window = html[m.end():m.end() + _QUALITY_TAG_WINDOW]
+        close = re.search(r"</%s\s*>" % re.escape(m.group(1)), window, re.IGNORECASE)
+        inner = window[:close.start()] if close else window.split("<", 1)[0]
+        tier = parse_quality_label(_ANY_TAG_RE.sub(" ", inner))
         if tier > best:
             best = tier
     return best
@@ -454,6 +484,22 @@ class Dl8Result:
     error_detail: str = ""
 
 
+def _pref_height(pref) -> int:
+    """One quality preference as a pixel height, or 0 when it is not one:
+    1080, 1080.0, "1080", "1080p", "1080P", "4K", "8k"."""
+    if isinstance(pref, bool):
+        return 0
+    if isinstance(pref, (int, float)):
+        return int(pref) if math.isfinite(pref) and pref > 0 else 0
+    if not isinstance(pref, str):
+        return 0
+    text = pref.strip()
+    try:
+        return max(0, int(text))
+    except ValueError:
+        return parse_quality_label(text)
+
+
 def _pick_source(
     sources: list, quality_pref: Optional[list],
 ) -> Optional[Dl8Source]:
@@ -468,9 +514,8 @@ def _pick_source(
     for pref in quality_pref:
         if isinstance(pref, str) and pref.lower() in ("best", "highest", "max"):
             return sorted_sources[0]
-        try:
-            target = int(str(pref).rstrip("p"))
-        except (ValueError, TypeError):
+        target = _pref_height(pref)
+        if target <= 0:
             continue
         tolerance = max(50, int(target * 0.05))
         matches = [s for s in sorted_sources
@@ -511,6 +556,26 @@ def extract_from_html(
         return Dl8Result(ok=False, error="no_sources_in_dl8",
                          title=parsed.title, poster=parsed.poster)
 
+    # A <source src> is a URL reference: resolve it against the page when
+    # the page is known (relative and protocol-relative forms), and never
+    # hand back a non-http(s) scheme (`javascript:`, `data:`, `file:` ...)
+    # as the thing to download.
+    usable: list = []
+    for s in parsed.sources:
+        try:
+            url = urljoin(page_url, s.url) if page_url else s.url
+            scheme = (urlparse(url).scheme or "").lower()
+        except ValueError:
+            continue
+        if scheme not in ("", "http", "https"):
+            continue
+        s.url = url
+        usable.append(s)
+    if not usable:
+        return Dl8Result(ok=False, error="no_pickable_source",
+                         title=parsed.title, poster=parsed.poster)
+    parsed.sources = usable
+
     available_tiers = sorted({s.quality_tier for s in parsed.sources
                               if s.quality_tier > 0}, reverse=True)
 
@@ -518,16 +583,18 @@ def extract_from_html(
     if predict_badoink and page_url and is_badoink_url(page_url):
         # The "is this a trailer URL?" check: any source URL with a
         # _trailer / _Nm suffix indicates we're on a public page.
-        any_trailer = any(
-            _TRAILER_SUFFIX_RE.search(s.url) for s in parsed.sources
-        )
+        # ... and only a trailer served by the PAGE'S OWN SITE: the
+        # predicted member-area URLs live on the trailer's host and are
+        # probed with the session's cookies, so a <source> naming another
+        # registrable domain must never seed them.
+        page_site = _site_of(page_url)
+        trailers = [s.url for s in parsed.sources
+                    if _TRAILER_SUFFIX_RE.search(s.url)
+                    and page_site and _site_of(s.url) == page_site]
+        any_trailer = bool(trailers)
         if any_trailer:
             # Take the first trailer URL as the basename source
-            trailer_url = next(
-                (s.url for s in parsed.sources
-                 if _TRAILER_SUFFIX_RE.search(s.url)),
-                None,
-            )
+            trailer_url = trailers[0]
             if trailer_url:
                 max_hint = detect_max_quality_tag(html)
                 candidates = predict_badoink_filenames(
@@ -621,8 +688,17 @@ def probe_badoink_candidates(
         headers["Referer"] = referer
     try:
         from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        # The caller's cookies carry no domain. Scope them to the Badoink
+        # sites the candidates are on: an off-network candidate is still
+        # probed (any URL may be handed in), but neither it nor a redirect
+        # to another site ever receives the cookies.
+        jar = httpx.Cookies()
+        for site in sorted({_site_of(c.url) for c in candidates
+                            if is_badoink_url(c.url)} - {""}):
+            for name, value in (cookies or {}).items():
+                jar.set(str(name), str(value), domain=site)
         with httpx.Client(timeout=timeout_s, follow_redirects=True,
-                          cookies=cookies or None,
+                          cookies=jar,
                           transport=guarded_transport(PINNED)) as client:
             for i, cand in enumerate(candidates):
                 if i >= max_attempts:
@@ -642,10 +718,12 @@ def probe_badoink_candidates(
                         r2 = client.get(cand.url, headers={
                             **headers, "Range": "bytes=0-0",
                         })
-                        if r2.status_code in (200, 206):
-                            return cand
                     except Exception:
                         continue
+                    if r2.status_code in (200, 206):
+                        return cand
+                    # judge the GET's own status below (401/403 aborts)
+                    status = r2.status_code
                 # 401 / 403: cookies don't authorize this URL;
                 # don't keep probing higher tiers either (same auth
                 # error will repeat). Bail.

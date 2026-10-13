@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -165,7 +166,8 @@ def extract_next_data(html: str) -> Optional[dict]:
         return None
     try:
         return json.loads(blob)
-    except json.JSONDecodeError as e:
+    except (ValueError, RecursionError) as e:
+        # RecursionError: a pathologically nested blob; "never raises" holds
         log.debug("vixen: __NEXT_DATA__ JSON parse failed: %s", e)
         return None
 
@@ -201,15 +203,26 @@ _VIDEO_URL_KEYS = (
 )
 
 
+# Registrable domains whose hosts serve Vixen-network media: the brands
+# themselves (cdn.<brand>.com ...) and the shared CDN domain.
+_VIXEN_CDN_SITES = frozenset(VIXEN_BRANDS | {"vixencdn.com"})
+
+
 def _looks_like_vixen_cdn(url: str) -> bool:
     """True if URL points to a Vixen-network CDN host."""
     if not url or not isinstance(url, str):
         return False
-    return bool(re.search(
-        r"https?://(?:[a-z0-9-]+\.)?(?:vixen|blacked|tushy|deeper|"
-        r"slayed|wifey|milfymd|vixenplus|blackedraw|tushyraw|vixencdn)\.com",
-        url, re.IGNORECASE,
-    ))
+    # The HOST decides, not a substring of the URL: `cdn.vixen.com.evil.net`,
+    # `vixen.com@evil.net` and `evil.net/?r=https://cdn.vixen.com` all
+    # contain a brand name and are not Vixen hosts.
+    try:
+        parsed = urlparse(url.strip())
+        if (parsed.scheme or "").lower() not in ("http", "https"):
+            return False
+        host = parsed.hostname or ""
+    except ValueError:
+        return False
+    return _etld1(host) in _VIXEN_CDN_SITES
 
 
 def find_video_record(node, depth=0, max_depth=12) -> Optional[dict]:
@@ -314,12 +327,47 @@ def _collect_urls_from_record(record: dict) -> list:
 
 
 def _int_or_zero(v) -> int:
-    if v is None:
+    """A height / count as an int: 1080, 1820.5 -> 1820, "1080p", "1080P",
+    "1820.5". None, bools, NaN/inf and anything else -> 0."""
+    if v is None or isinstance(v, bool):
         return 0
+    if isinstance(v, (int, float)):
+        return int(v) if math.isfinite(v) else 0
+    text = str(v).strip().rstrip("pP")
     try:
-        return int(str(v).rstrip("p"))
-    except (ValueError, TypeError):
+        return int(text)
+    except ValueError:
+        pass
+    try:
+        number = float(text)
+    except ValueError:
         return 0
+    return int(number) if math.isfinite(number) else 0
+
+
+def _duration_seconds(v) -> int:
+    """A duration as whole seconds: a number, a numeric string, or a clock
+    string ("30:20", "1:02:03"). Anything else -> 0."""
+    seconds = _int_or_zero(v)
+    if seconds or not isinstance(v, str):
+        return max(0, seconds)
+    parts = v.strip().split(":")
+    if 2 <= len(parts) <= 3 and all(p.isascii() and p.isdigit() for p in parts):
+        total = 0
+        for p in parts:
+            total = total * 60 + int(p)
+        return total
+    return 0
+
+
+def _is_hls_url(url: str) -> bool:
+    """True when the URL's PATH names an HLS manifest; a signed manifest
+    carries a query string (`.../index.m3u8?t=1`)."""
+    try:
+        path = urlparse(url).path or ""
+    except ValueError:
+        path = url.split("?", 1)[0]
+    return path.lower().endswith(".m3u8") or "/master.m3u8" in url
 
 
 _TIER_FROM_URL_RE = re.compile(r"mp4_(\d{3,4})|/(\d{3,4})[pP]\.mp4|_(\d{3,4})[pP]\.mp4")
@@ -327,9 +375,10 @@ _TIER_FROM_URL_RE = re.compile(r"mp4_(\d{3,4})|/(\d{3,4})[pP]\.mp4|_(\d{3,4})[pP
 
 def _tier_from_url(url: str) -> int:
     """Extract a tier value from a Vixen CDN URL path segment."""
-    if not url:
+    if not url or not isinstance(url, str):
         return 0
-    m = _TIER_FROM_URL_RE.search(url)
+    # the PATH names the tier; a query value (`?ref=mp4_2160`) does not
+    m = _TIER_FROM_URL_RE.search(url.split("#", 1)[0].split("?", 1)[0])
     if not m:
         return 0
     for g in m.groups():
@@ -359,7 +408,7 @@ def find_video_src_in_html(html: str) -> Optional[str]:
     full DOM — a regex on the rendered HTML is enough for this
     fallback path. Returns the FIRST matching URL.
     """
-    if not html:
+    if not html or not isinstance(html, str):
         return None
     for m in _VIDEO_TAG_RE.finditer(html):
         url = m.group(1)
@@ -389,7 +438,7 @@ def extract_metadata_from_html(html: str) -> dict:
     Returns a dict with whatever keys we found: title, image, description.
     Never raises."""
     out: dict = {}
-    if not html:
+    if not html or not isinstance(html, str):
         return out
     m = _TITLE_TAG_RE.search(html)
     if m:
@@ -451,22 +500,29 @@ def _build_result_from_record(
     title = (record.get("title")
              or record.get("videoTitle")
              or record.get("name") or "")
-    duration = (_int_or_zero(record.get("duration"))
-                or _int_or_zero(record.get("videoLength"))
-                or _int_or_zero(record.get("durationSec"))
+    # `runtime` is the field the GraphQL query (Path C) asks for
+    duration = (_duration_seconds(record.get("duration"))
+                or _duration_seconds(record.get("videoLength"))
+                or _duration_seconds(record.get("durationSec"))
+                or _duration_seconds(record.get("runtime"))
                 or 0)
     thumb = (record.get("poster")
              or record.get("thumbnail")
              or record.get("thumbnailUrl")
              or record.get("posterUrl") or "")
+    if isinstance(thumb, list):
+        # a poster LIST: its first usable entry, never the list's repr
+        thumb = next((t for t in thumb if t and isinstance(t, (str, dict))), "")
     if isinstance(thumb, dict):
         thumb = thumb.get("url", "") or ""
+    if not isinstance(thumb, str):
+        thumb = ""
     description = (record.get("description")
                   or record.get("synopsis") or "")
     return VixenResult(
         ok=True,
         url=picked_url,
-        is_hls=picked_url.endswith(".m3u8") or "/master.m3u8" in picked_url,
+        is_hls=_is_hls_url(picked_url),
         title=str(title)[:255],
         duration_sec=duration,
         thumbnail_url=str(thumb)[:1024],
@@ -514,7 +570,7 @@ def extract_from_html(
         return VixenResult(
             ok=True,
             url=video_src,
-            is_hls=video_src.endswith(".m3u8") or "/master.m3u8" in video_src,
+            is_hls=_is_hls_url(video_src),
             title=meta.get("title", "")[:255],
             duration_sec=int(meta.get("duration", 0) or 0),
             thumbnail_url=meta.get("image", "")[:1024],
@@ -560,9 +616,8 @@ def _pick_url_by_preference(
     for pref in quality_pref:
         if isinstance(pref, str) and pref.lower() in ("best", "highest", "max"):
             return unique[0]
-        try:
-            target = int(str(pref).rstrip("p"))
-        except (ValueError, TypeError):
+        target = _int_or_zero(pref)   # 1080, 1080.0, "1080p", "1080P"
+        if target <= 0:
             continue
         tolerance = max(50, int(target * 0.05))
         matches = [ut for ut in unique
@@ -620,6 +675,13 @@ def extract_from_graphql_response(
         return VixenResult(ok=False, error="graphql_empty")
     record = find_video_record(payload)
     if record is None:
+        errors = payload.get("errors")
+        if errors:
+            # the server ANSWERED with an error; that is not "no such video"
+            first = errors[0] if isinstance(errors, list) else errors
+            message = first.get("message") if isinstance(first, dict) else first
+            return VixenResult(ok=False, error="graphql_errors",
+                               error_detail=str(message)[:200])
         return VixenResult(ok=False, error="graphql_no_record")
     res = _build_result_from_record(record, "graphql", quality_pref)
     if res is None:
@@ -648,6 +710,12 @@ def extract_via_graphql(
         if origin:
             headers["origin"] = origin
         resp = page.request.post(endpoint, data=json.dumps(body), headers=headers)
+        status = getattr(resp, "status", None)
+        if isinstance(status, int) and not isinstance(status, bool) and status >= 400:
+            # 429 / 403 / 5xx: say so, instead of reading the error body as
+            # "no record"
+            return VixenResult(ok=False, error="graphql_http_error",
+                               error_detail=f"HTTP {status}")
         payload = resp.json()
     except Exception as e:
         return VixenResult(ok=False, error="graphql_request_failed",
