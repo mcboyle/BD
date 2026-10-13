@@ -54,6 +54,13 @@ def api_post_reveal_decision(sid):
     if decision not in ("approve", "decline"):
         return jsonify({"ok": False,
                         "error": "decision must be approve|decline"}), 400
+    # aac-fix F11: only a workflow deep_detect surfaced (or one already
+    # decided, to change its answer) can be decided. Any other URL used to be
+    # stored as approved before it was ever seen, with no bound on the map.
+    if not _post_reveal_surfaced(cfg, action_url):
+        return jsonify({"ok": False,
+                        "error": "no surfaced post-reveal workflow for that "
+                                 "action_url"}), 404
     try:
         from . import learn as _learn
         _learn.record_post_reveal_decision(
@@ -63,6 +70,24 @@ def api_post_reveal_decision(sid):
                         "action_url": action_url})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+
+def _post_reveal_surfaced(cfg, action_url):
+    """True when action_url's normalized key is a post_reveal pending entry or
+    already carries a decision (learned.deep_detect, as learn writes it)."""
+    from . import deep_detect as _dd
+    key = _dd._post_reveal_key(action_url)
+    block = ((cfg.get("learned") or {}).get("deep_detect")
+             if isinstance(cfg.get("learned"), dict) else None)
+    if not key or not isinstance(block, dict):
+        return False
+    decided = block.get("post_reveal_decisions")
+    if isinstance(decided, dict) and key in decided:
+        return True
+    pend = block.get("pending_approvals")
+    return isinstance(pend, dict) and any(
+        isinstance(e, dict) and e.get("surface") == "post_reveal"
+        and e.get("key") == key for e in pend.values())
 
 
 @sites_bp.route("/api/sites/<sid>/pending_approvals", methods=["GET"])
@@ -108,6 +133,15 @@ def api_cookies_export(sid):
     except OSError as e:
         return jsonify({"ok": False,
                         "error": f"could not read cookie file: {e}"}), 500
+    except UnicodeDecodeError:  # aac-fix F10: was a 500
+        return jsonify({"ok": False,
+                        "error": "cookie file is not a cookie jar"}), 409
+    # aac-fix F12: cookie_file is operator-set; serve it only if it is a jar,
+    # never another file under the allowed roots (config, state, vault.key).
+    from .cookies import is_cookie_jar_text
+    if not is_cookie_jar_text(body):
+        return jsonify({"ok": False,
+                        "error": "cookie file is not a cookie jar"}), 409
     # Sanitise the site name into a safe download filename.
     raw = (cfg.get("name") or sid) or "site"
     safe = "".join(c if (c.isalnum() or c in "-_") else "_" for c in raw)
@@ -189,6 +223,13 @@ def api_cookies_import(sid):
     if not parsed:
         return jsonify({"ok": False,
                         "error": "file parsed but contained 0 cookies"}), 400
+    # aac-fix r2 (D170 R1): the same jar test export and the savers apply, so
+    # an imported jar can always be exported and replaced by a login later.
+    if not _ck.is_cookie_jar_text(text):
+        return jsonify({"ok": False,
+                        "error": "not a cookie jar: expected a JSON list of "
+                                 "cookies, a Playwright storage_state, or an "
+                                 "object holding cookie lists"}), 400
     # Write into BD's own cookies dir and repoint the site. Atomic
     # write (.tmp + replace) per the v3.43.19 state-file invariant —
     # a mid-write crash must never leave a half-written cookie file.
@@ -202,6 +243,10 @@ def api_cookies_import(sid):
                         "error": f"could not save into BD: {e}"}), 500
     cfg["cookie_file"] = str(dest)
     _save_sites_config()
+    # aac-fix F9: publish to the live runner, as load_cookies does.
+    runner = (_app_runners() or {}).get(sid)
+    if runner is not None:
+        runner.set_cookies_from_file(str(dest))
     return jsonify({"ok": True, "count": len(parsed),
                     "source": src, "cookie_file": str(dest)})
 
@@ -233,6 +278,10 @@ def api_account_pool_reset(sid, account_idx):
     try:
         from bulk_downloader import account_pool as _ap
         pool = _ap.get_pool(sid)
+        # aac-fix F10: an index the pool does not hold is a 404, not ok:true.
+        if account_idx not in {a.get("idx") for a in pool.get_status()["accounts"]}:
+            return jsonify({"ok": False,
+                            "error": f"no account {account_idx} in the pool"}), 404
         pool.reset(account_idx)
         # Persist immediately so it survives restart
         runners[sid]._persist_pool_state()
@@ -304,6 +353,14 @@ def _login_refused(reason):
     return jsonify({"ok": False, "error": str(reason)}), 503
 
 
+def _cooldown_until(account):
+    """An account's cooldown_until as a float; 0.0 when it is not a number."""
+    try:
+        return float(account.get("cooldown_until", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 @sites_bp.route("/api/sites/<sid>/accounts")
 def api_accounts_get(sid):
     """List accounts with their state. Passwords masked; cookie_file
@@ -317,7 +374,7 @@ def api_accounts_get(sid):
     now = time.time()
     out = []
     for i, a in enumerate(accounts):
-        cd = float(a.get("cooldown_until", 0) or 0)
+        cd = _cooldown_until(a)  # aac-fix F10: "soon" was a 500
         out.append({
             "index": i,
             "label": a.get("label", "") or f"Account {i+1}",
@@ -351,15 +408,21 @@ def api_accounts_reset_cooldown(sid):
     cfg = s_cfg.get(sid, {})
     accounts = cfg.get("accounts") or []
     cleared = []
-    if body.get("all"):
+    # aac-fix F10: "all" must be JSON true ("false" cleared every account);
+    # account_index must be a whole number (0.9 cleared account 0).
+    if body.get("all") is True:
         for i, a in enumerate(accounts):
-            if float(a.get("cooldown_until", 0) or 0) > 0:
+            if _cooldown_until(a) > 0:
                 a["cooldown_until"] = 0
                 a["last_failure"] = ""
                 cleared.append(i)
     else:
-        try: idx = int(body.get("account_index", -1))
-        except Exception: idx = -1
+        raw_idx = body.get("account_index", -1)
+        if isinstance(raw_idx, bool) or not isinstance(raw_idx, (int, str)):
+            idx = -1
+        else:
+            try: idx = int(raw_idx)
+            except ValueError: idx = -1
         if not (0 <= idx < len(accounts)):
             return jsonify({"error": "account_index out of range"}), 400
         accounts[idx]["cooldown_until"] = 0
@@ -530,6 +593,10 @@ def api_login_verify(sid):
         return jsonify({"ok": False, "error": "site not found"}), 404
     body = request.get_json(silent=True) or {}
     member_url = (body.get("member_url") or "").strip()
+    # aac-fix F12 (static): the member probe is a page.goto; only http(s).
+    if member_url and not re.match(r"(?i)^https?://[^/?#\s]+", member_url):
+        return jsonify({"ok": False,
+                        "error": "member_url must be an http(s) URL"}), 400
     try:
         result = runners[sid].verify_login_after_wizard(
             member_url=member_url)
