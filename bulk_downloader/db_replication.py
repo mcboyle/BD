@@ -63,12 +63,29 @@ _PID_SCHEMA = "bd-litestream-pid/1"
 # ── paths / config ──────────────────────────────────────────────────────
 
 def _install_root() -> str:
-    """Project root == the dir containing the ``bulk_downloader`` package.
+    """The app's working root: where the app itself reads and writes ``app_config.json``
+    (``global_config._CONFIG_FILE`` and ``app.APP_CFG_FILE`` are cwd-relative) and opens
+    its other relative stores (``video_hashes.db``, ``queue.db``). The service cwds into
+    its install dir, the package parent, so there this is the old value byte for byte.
 
-    Mirrors the idiom in ``healthcheck._check_disk`` so replication resolves the
-    same base the rest of the app treats as the install root.
+    br-f7 r2: this is NOT ``BD_INSTALL_DIR``. That variable moves only the main DB
+    (``db._resolve_db_path``), which ``_store_path`` asks the DB owner for; reading the
+    config there missed the file the app's writer had just saved (cx149).
     """
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.abspath(os.getcwd())
+
+
+def _store_path(base_dir: str | os.PathLike | None, name: str) -> Path:
+    """Where the app opens store ``name``. An explicit ``base_dir`` holds every store.
+    Otherwise the main DB is wherever its owner resolves it (``BD_INSTALL_DIR``, an
+    absolute ``DB_PATH``, or the cwd -- same function, so same answer, whitespace and
+    all) and every other store is cwd-relative, like the code that opens it."""
+    if not base_dir:
+        from . import db as _db
+        main = _db._resolve_db_path()
+        if name == os.path.basename(main):
+            return Path(os.path.abspath(main))
+    return Path(_base(base_dir)) / name
 
 
 def _base(base_dir: str | os.PathLike | None) -> str:
@@ -108,16 +125,16 @@ def replication_stores(base_dir: str | os.PathLike | None = None) -> list[Path]:
 
     If the config names an explicit ``stores`` list, those basenames are used;
     otherwise the default candidate set. In both cases only stores that exist on
-    disk under ``base`` are returned (Litestream errors on a missing db path).
+    disk where the app opens them (``_store_path``) are returned (Litestream errors
+    on a missing db path).
     """
-    base = _base(base_dir)
     cfg = _load_repl_cfg(base_dir)
     names = cfg["stores"] or list(REPLICABLE_STORES)
     out: list[Path] = []
     for name in names:
         # names are basenames by contract; guard against traversal in config.
         safe = os.path.basename(str(name))
-        p = Path(base) / safe
+        p = _store_path(base_dir, safe)
         if p.exists():
             out.append(p.resolve())
     return out
