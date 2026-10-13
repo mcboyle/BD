@@ -13,6 +13,7 @@
 import * as React from "react";
 
 import { useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { apiPost } from "@/lib/api-client";
 import type { AiChatRequest, AiChatResponse } from "@/lib/api-types";
@@ -27,7 +28,16 @@ export function useAiChat() {
       controllerRef.current = controller;
       return apiPost<AiChatResponse>("/api/ai/chat", req, controller.signal);
     },
+    // A user Cancel/Clear aborts the fetch; that is intent, not a failure, so it must
+    // not reach the global MutationCache error toast. Real failures still toast.
+    onError: (e) => {
+      if (e?.name === "AbortError") return;
+      toast.error(e?.message || "Action failed");
+    },
   });
+
+  // Leaving the page must not leave the backend turn running.
+  React.useEffect(() => () => controllerRef.current?.abort(), []);
 
   const cancel = React.useCallback(() => {
     controllerRef.current?.abort();

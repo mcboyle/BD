@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { AiScratchpad } from "@/components/AiScratchpad";
 import { AiHelpersPanel } from "@/components/ui/AiHelpersPanel";
+import { useAiStatus } from "@/hooks/useIntegrations";
 import { apiPost } from "@/lib/api-client";
 
 interface ModelsResponse {
@@ -19,9 +20,15 @@ interface ModelsResponse {
 }
 
 export default function AiAssist() {
+  // /api/ai/models contacts the provider (cloud providers get the stored key), so the
+  // page asks only once the AI master switch is on -- the same /api/ai/status gate
+  // AiHelpersPanel uses (one shared query). The settings-page picker is unaffected.
+  const status = useAiStatus();
+  const aiEnabled = status.data?.enabled === true;
   // The model list rides the existing /api/ai/models endpoint (already
   // spa_wired). Failure is non-fatal: the picker just falls back to free text.
   const models = useQuery<ModelsResponse>({
+    enabled: aiEnabled,
     queryKey: ["ai-models", "scratchpad"],
     queryFn: ({ signal }) =>
       apiPost<ModelsResponse>("/api/ai/models", {}, signal),

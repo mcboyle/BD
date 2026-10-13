@@ -117,7 +117,8 @@
 /api/crash_recovery/scan	GET	api_crash_recovery_scan
 /api/crash_recovery/stats	GET	api_crash_recovery_stats
 /api/csrf	GET	api_csrf
-/api/daily_budget/history/<sid>	GET	api_daily_budget_history
+/api/daily_budget/history	GET	api_daily_budget_history
+/api/daily_budget/history/<path:sid>	GET	api_daily_budget_history
 /api/daily_budget/reset/<sid>	POST	api_daily_budget_reset
 /api/daily_budget/status	GET	api_daily_budget_status
 /api/dashboard	GET	api_dashboard

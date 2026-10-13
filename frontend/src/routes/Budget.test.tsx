@@ -22,14 +22,14 @@ describe("Budget (380)", () => {
     // A bare <div className="space-y-4 p-4"> route has no banner -> RED pre-fix.
     expect(screen.getByRole("banner")).toBeTruthy();
   });
-  it("loads history from GET /api/daily_budget/history/<sid> and renders rows", async () => {
+  it("loads history from GET /api/daily_budget/history?site=<sid> and renders rows", async () => {
     apiGetMock.mockResolvedValue({ site_id: "ex.com", history: [{ ymd: "2026-06-24", bytes: 1048576 }] });
     mount();
     fireEvent.change(screen.getByLabelText("site id"), { target: { value: "ex.com" } });
     fireEvent.click(screen.getByRole("button", { name: /load/i }));
     await waitFor(() =>
       expect(apiGetMock).toHaveBeenCalledWith(
-        expect.stringContaining("/api/daily_budget/history/ex.com"),
+        expect.stringContaining("/api/daily_budget/history?site=ex.com"),
         expect.anything(),
       ),
     );

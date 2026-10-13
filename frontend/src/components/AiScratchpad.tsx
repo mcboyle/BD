@@ -78,7 +78,7 @@ export function AiScratchpad({
   function onClear() {
     setPrompt("");
     setImageB64("");
-    chat.reset();
+    chat.cancel(); // aborts an in-flight turn, then resets
   }
 
   async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
