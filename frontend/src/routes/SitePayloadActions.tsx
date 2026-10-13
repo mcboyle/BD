@@ -279,10 +279,10 @@ export function SitePayloadActions() {
     <AppShell
       title={`Site payload actions — ${siteId}`}
       subtitle="Body-bearing per-site writes · gated"
-      backTo={{ to: `/sites/${siteId}`, label: "Back to site" }}
+      backTo={{ to: `/sites/${encodeURIComponent(siteId)}`, label: "Back to site" }}
       breadcrumb={`Sites › ${siteId} › Payload actions`}
     >
-      <Link to={`/sites/${siteId}`} className="mb-3 inline-flex items-center text-sm text-ink-3">
+      <Link to={`/sites/${encodeURIComponent(siteId)}`} className="mb-3 inline-flex items-center text-sm text-ink-3">
         <ArrowLeft className="mr-1 h-4 w-4" /> Back to site
       </Link>
 

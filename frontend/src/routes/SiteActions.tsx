@@ -203,10 +203,10 @@ export function SiteActions() {
     <AppShell
       title={`Site actions — ${siteId}`}
       subtitle="Lifecycle · login · accounts · diagnostics"
-      backTo={{ to: `/sites/${siteId}`, label: "Back to site" }}
+      backTo={{ to: `/sites/${encodeURIComponent(siteId)}`, label: "Back to site" }}
       breadcrumb={`Sites › ${siteId} › Actions`}
     >
-      <Link to={`/sites/${siteId}`} className="mb-3 inline-flex items-center text-sm text-muted-foreground">
+      <Link to={`/sites/${encodeURIComponent(siteId)}`} className="mb-3 inline-flex items-center text-sm text-muted-foreground">
         <ArrowLeft className="mr-1 h-4 w-4" /> Back to site
       </Link>
       {GROUPS.map((g) => (
