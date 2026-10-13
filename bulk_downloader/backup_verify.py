@@ -256,6 +256,14 @@ def smoke_restore(path: str, *, expected_tables: Optional[list] = None) -> dict:
                 v["extracted_files"] = os.listdir(sandbox)[:20]
             _record(path, "smoke_restore", v, started)
             return v
+        if path.endswith(".bdbk"):
+            # BR-F4: a whole-wrapped encrypted backup cannot be opened without its
+            # passphrase, which is never stored -- say so; never call it restorable.
+            result = {"ok": False, "state": _STATE_UNKNOWN,
+                      "error": f"encrypted backup (.bdbk) cannot be rehearsed "
+                               f"without its passphrase: {path}"}
+            _record(path, "smoke_restore", result, started)
+            return result
         result = {"ok": False, "state": _STATE_UNKNOWN,
                   "error": f"unknown backup format: {path}"}
         _record(path, "smoke_restore", result, started)
@@ -374,14 +382,50 @@ def last_rehearsal() -> Optional[dict]:
         return None
 
 
+# BR-F4: what the app writes as a backup -- backup.default_backup_filename() is a .zip,
+# renamed .bdbk when whole-wrapped with a passphrase -- plus DB dumps kept in backups/.
+# NOT a *.db at the BD_HOME root: those are the LIVE stores (downloader_history.db), and
+# counting them made the rehearsal "restore" the live DB and pass with no backup on disk.
+_BACKUP_PATTERNS = ("*.zip", "*.bdbk", "backups/*.zip", "backups/*.bdbk", "backups/*.db")
+
+
+def _file_id(path) -> Optional[tuple]:
+    """(st_dev, st_ino) of the file `path` resolves to, or None."""
+    try:
+        st = os.stat(path)
+    except (OSError, TypeError, ValueError):
+        return None
+    return (st.st_dev, st.st_ino)
+
+
+def _live_store_ids() -> set:
+    """BR-F4 r2 (cx147): file identities of the LIVE stores -- the app DB wherever
+    db._resolve_db_path() puts it, plus every *.db at the BD_HOME / BD_INSTALL_DIR
+    root. A candidate that IS one of them (a symlink or hard link in backups/) is the
+    live database under another name, not a backup."""
+    import glob as _glob
+    paths = []
+    for root in (os.environ.get("BD_HOME") or ".", os.environ.get("BD_INSTALL_DIR")):
+        if root:
+            paths.extend(_glob.glob(os.path.join(root, "*.db")))
+    try:
+        from . import db as _db
+        paths.append(_db._resolve_db_path())
+    except Exception:
+        pass
+    return {i for i in (_file_id(p) for p in paths) if i is not None}
+
+
 def _latest_backup() -> Optional[str]:
     """The newest backup on disk, or None."""
     import glob as _glob
     base = os.environ.get("BD_HOME") or "."
     cands = []
-    for pat in ("*.zip", "backups/*.zip", "*.db", "backups/*.db"):
+    for pat in _BACKUP_PATTERNS:
         cands.extend(_glob.glob(os.path.join(base, pat)))
-    cands = [c for c in cands if os.path.isfile(c)]
+    live = _live_store_ids()
+    cands = [c for c in cands
+             if os.path.isfile(c) and _file_id(c) not in live]
     if not cands:
         return None
     return max(cands, key=os.path.getmtime)
