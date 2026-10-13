@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1842 - train279: row
+
+T279 on main fe1b4dc9 (9 members; GO-train-harness-and-product.md, GO-pm-A3-A-trains-0745Z.md, GO-pm-A3-A-bd-window-add-0805Z.md; operator via AGY, O2814):
+SECURITY: BD-SEC-1 (/api/global_config + notify never echo secret fields; BOARD x2 D48-D + D51-D), BD-AIKEY-1 (blank/whitespace ai_api_key keeps the stored key; D70-D).
+FEATURES: BD-WATCH-ARCHIVE (Settings shows watch_archive default; cx123), APPFEAT F002 (/dashboard time-range filters; cx88), APPFEAT F019 (/library grid/list toggle; cx89), dl95-xvideos-2 (detect.py other-scene admission; cx83).
+TEST HALVES (opt-in; green against today's live harness bytes): bh1-41 legacy verdict store 14/14, o1698-reap-timer 3/3, o1698-c1-train-farm-suite 16/16.
+LEFT OUT (measured): o1698-adapter-control-roles (41 of 67 fail vs live), o1698-ugrep-reaper (host-dependent: fails on NFS-symlinked bd-persist test hosts).
+Train fix: narrow gitleaks allowlist for the BD-SEC-1 synthetic canaries (bdsec1-canary-<name>-<XXXX>; real-key control still fires).
+
+
 ## v3.66.1841 - train278: row974
 
 T278 on main da1ecde0: FIX-R-388 r1 row974-port-bind (L528; PRODUCT test-only, tests/test_row974_asgi_cutover.py +32/-3: the three serve_asgi fallback/injection tests no longer attempt a real bind on 127.0.0.1:5555 when a server module is importable on the host; product side of H929; cx19 BOARD, one-lens T2 shape by the router's tier call; fixer FX152-B; built on 7b914cb9, applied on da1ecde0). (O2018)
