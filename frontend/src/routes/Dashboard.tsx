@@ -23,6 +23,8 @@ import {
   useStatsBandwidth,
   useStatsTimeline,
   useHourlyStats,
+  STATS_RANGES,
+  DEFAULT_STATS_RANGE_DAYS,
   useCapacity,
   useStatus,
   useSessionStatus,
@@ -32,7 +34,7 @@ import {
   useChangelog,
   useRouteUrlsLookup,
 } from "@/hooks/useDashboardData";
-import { formatBytes, formatCount, formatRate } from "@/lib/format";
+import { formatBytes, formatCount, formatPercent, formatRate } from "@/lib/format";
 import { apiGet } from "@/lib/api-client";
 import { useEventStream } from "@/hooks/useEventStream";
 
@@ -179,21 +181,57 @@ function CapacityPanel() {
 }
 
 function StatsPanel() {
-  // Three throughput/stat reads consolidated into one panel.
+  // Throughput/stat reads consolidated into one panel. F002: the time-range
+  // filter drives the timeline + hourly windows; the totals below are summed
+  // from the API's real shapes (timeline `buckets`, hourly `rows`).
+  const [days, setDays] = useState<number>(DEFAULT_STATS_RANGE_DAYS);
   const { data: stats } = useStats();
   const { data: bandwidth } = useStatsBandwidth();
-  const { data: timeline } = useStatsTimeline();
-  const { data: hourly } = useHourlyStats();
+  const { data: timeline } = useStatsTimeline(days);
+  const { data: hourly } = useHourlyStats(days);
   const bwPoints = bandwidth?.series?.length ?? 0;
-  const tlPoints = timeline?.points?.length ?? 0;
-  const hourBuckets = hourly?.hours?.length ?? 0;
   const statKeys = stats ? Object.keys(stats).length : 0;
+  const buckets = timeline?.buckets ?? [];
+  const sum = (key: "done" | "failed" | "bytes") =>
+    buckets.reduce((n, b) => n + (Number(b[key]) || 0), 0);
+  const rows = hourly?.rows ?? [];
+  const hourTotal = rows.reduce((n, r) => n + (Number(r.total) || 0), 0);
+  const hourDone = rows.reduce((n, r) => n + (Number(r.done) || 0), 0);
   return (
-    <div className="grid grid-cols-2 gap-4">
-      <Stat label="Stat counters" value={statKeys} />
-      <Stat label="Bandwidth samples" value={bwPoints} />
-      <Stat label="Timeline points" value={tlPoints} />
-      <Stat label="Hourly buckets" value={hourBuckets} />
+    <div className="flex flex-col gap-3">
+      <div
+        role="group"
+        aria-label="Time range"
+        className="inline-flex self-start overflow-hidden rounded-md border border-border"
+      >
+        {STATS_RANGES.map((r) => (
+          <button
+            key={r.days}
+            type="button"
+            aria-pressed={days === r.days}
+            onClick={() => setDays(r.days)}
+            className={
+              "px-3 py-1 text-xs font-medium transition-colors " +
+              (days === r.days
+                ? "bg-primary text-white"
+                : "bg-surface text-ink-2 hover:bg-surface-2")
+            }
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Stat label="Done" value={formatCount(sum("done"))} />
+        <Stat label="Failed" value={formatCount(sum("failed"))} />
+        <Stat label="Downloaded" value={formatBytes(sum("bytes"))} />
+        <Stat
+          label="Success rate"
+          value={formatPercent(hourTotal > 0 ? (hourDone / hourTotal) * 100 : null)}
+        />
+        <Stat label="Stat counters" value={statKeys} />
+        <Stat label="Bandwidth samples" value={bwPoints} />
+      </div>
     </div>
   );
 }

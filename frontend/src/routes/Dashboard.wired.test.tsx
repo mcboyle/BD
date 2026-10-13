@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation } from "react-router";
 
@@ -125,7 +125,9 @@ describe("T1 dashboard runtime wiring", () => {
     renderWired(<Dashboard />, "/dashboard");
 
     await waitFor(() => {
-      const calls = new Set(calledPaths(apiGetMock));
+      // Query strings stripped: the Stats time-range filter (F002) sends
+      // ?days= / ?since_days= on the same endpoints the hook names.
+      const calls = new Set(calledPaths(apiGetMock).map((p) => p.split("?")[0]));
       for (const endpoint of AUTOMATIC_ENDPOINTS) {
         expect(calls.has(endpoint), endpoint).toBe(true);
       }
@@ -233,5 +235,90 @@ describe("T1 dashboard runtime wiring", () => {
     renderWired(<Dashboard />, "/dashboard");
     await screen.findByRole("heading", { name: "System Overview" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+// F002 (APP-FEATURE-QUEUE): /dashboard had no time-range filter -- the Stats
+// panel read /api/stats/timeline and /api/hourly_stats at their server
+// defaults, and read fields (points / hours) the API never sends, so it showed
+// 0 whatever the history held. Each range gets its OWN payload in the API's
+// real shape (buckets / rows) so a selector that re-queries but keeps showing
+// the old range, or a panel that ignores the response, cannot pass.
+describe("F002 dashboard Stats time-range filter", () => {
+  const RANGE_FIXTURES = {
+    "/api/stats/timeline?days=30": {
+      days: 30,
+      buckets: [
+        { day: "2026-10-01", done: 4000, failed: 20, review: 0, bytes: 2 * 1024 ** 3 },
+        { day: "2026-10-12", done: 321, failed: 3, review: 1, bytes: 1024 ** 3 },
+      ],
+    },
+    "/api/stats/timeline?days=7": {
+      days: 7,
+      buckets: [{ day: "2026-10-12", done: 87, failed: 13, review: 0, bytes: 1024 ** 2 }],
+    },
+    "/api/hourly_stats?since_days=30": {
+      rows: [{ hour: 1, total: 4344, done: 4321, failed: 23, rate: 4321 / 4344 }],
+    },
+    "/api/hourly_stats?since_days=7": {
+      rows: [{ hour: 3, total: 116, done: 87, failed: 13, rate: 87 / 116 }],
+    },
+  };
+
+  const statsPanel = async () =>
+    (await screen.findByRole("group", { name: "Time range" })).parentElement as HTMLElement;
+  const statValue = (panel: HTMLElement, label: string) =>
+    within(panel).getByText(label, { selector: "span" }).nextElementSibling?.textContent;
+
+  it("defaults to 30d and renders that range's totals from the API shape", async () => {
+    installApiFixtures(apiGetMock, apiPostMock, { ...FIXTURES, ...RANGE_FIXTURES });
+    renderWired(<Dashboard />, "/dashboard");
+    const panel = await statsPanel();
+
+    expect(within(panel).getByRole("button", { name: "30d" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => {
+      expect(statValue(panel, "Done")).toBe("4.3k");
+      expect(statValue(panel, "Failed")).toBe("23");
+      expect(statValue(panel, "Downloaded")).toBe("3.0 GB");
+      expect(statValue(panel, "Success rate")).toBe("99%");
+    });
+    const calls = calledPaths(apiGetMock);
+    expect(calls).toContain("/api/stats/timeline?days=30");
+    expect(calls).toContain("/api/hourly_stats?since_days=30");
+  });
+
+  it("choosing 7d re-queries both endpoints and swaps the rendered totals", async () => {
+    installApiFixtures(apiGetMock, apiPostMock, { ...FIXTURES, ...RANGE_FIXTURES });
+    renderWired(<Dashboard />, "/dashboard");
+    const panel = await statsPanel();
+    await waitFor(() => expect(statValue(panel, "Done")).toBe("4.3k"));
+
+    await userEvent.click(within(panel).getByRole("button", { name: "7d" }));
+
+    expect(within(panel).getByRole("button", { name: "7d" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(panel).getByRole("button", { name: "30d" })).toHaveAttribute("aria-pressed", "false");
+    await waitFor(() => {
+      expect(statValue(panel, "Done")).toBe("87");
+      expect(statValue(panel, "Failed")).toBe("13");
+      expect(statValue(panel, "Downloaded")).toBe("1.0 MB");
+      expect(statValue(panel, "Success rate")).toBe("75%");
+    });
+    const calls = calledPaths(apiGetMock);
+    expect(calls).toContain("/api/stats/timeline?days=7");
+    expect(calls).toContain("/api/hourly_stats?since_days=7");
+  });
+
+  it("every range option sends its own window to both endpoints", async () => {
+    renderWired(<Dashboard />, "/dashboard");
+    const panel = await statsPanel();
+    for (const [label, days] of [["1d", 1], ["7d", 7], ["90d", 90]] as const) {
+      apiGetMock.mockClear();
+      await userEvent.click(within(panel).getByRole("button", { name: label }));
+      await waitFor(() => {
+        const calls = calledPaths(apiGetMock);
+        expect(calls, label).toContain(`/api/stats/timeline?days=${days}`);
+        expect(calls, label).toContain(`/api/hourly_stats?since_days=${days}`);
+      });
+    }
   });
 });

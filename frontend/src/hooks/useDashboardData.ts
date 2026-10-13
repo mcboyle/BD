@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useMutation } from "@tanstack/react-query";
 
 import { apiGet, apiPost } from "@/lib/api-client";
 import { adaptiveInterval } from "@/lib/polling";
@@ -82,23 +82,42 @@ export function useStatsBandwidth() {
   });
 }
 
-/** GET /api/stats/timeline — completion timeline. */
-export function useStatsTimeline() {
+// F002: the dashboard Stats time-range filter. Windows are whole days because
+// both endpoints take a day count (timeline `days`, hourly `since_days`, each
+// clamped server-side to 1..365); 30 is both endpoints' server default.
+export const STATS_RANGES = [
+  { label: "1d", days: 1 },
+  { label: "7d", days: 7 },
+  { label: "30d", days: 30 },
+  { label: "90d", days: 90 },
+] as const;
+export const DEFAULT_STATS_RANGE_DAYS = 30;
+
+// The range rides as a concatenated query string so the bare "/api/…" path
+// stays its own literal for the endpoint derivation in Dashboard.wired.test
+// and gui_parity_inventory.py. keepPreviousData holds the old range's numbers
+// on screen while the new range loads instead of flashing to zero.
+
+/** GET /api/stats/timeline — per-day completion buckets for the range. */
+export function useStatsTimeline(days: number = DEFAULT_STATS_RANGE_DAYS) {
   return useQuery<StatsTimeline>({
-    queryKey: ["stats", "timeline"],
+    queryKey: ["stats", "timeline", days],
     queryFn: ({ signal }) =>
-      apiGet<StatsTimeline>("/api/stats/timeline", signal),
+      apiGet<StatsTimeline>("/api/stats/timeline" + `?days=${days}`, signal),
+    placeholderData: keepPreviousData,
     refetchInterval: SLOW,
     refetchOnWindowFocus: false,
     retry: 0,
   });
 }
 
-/** GET /api/hourly_stats — per-hour completion buckets. */
-export function useHourlyStats() {
+/** GET /api/hourly_stats — hour-of-day success buckets for the range. */
+export function useHourlyStats(days: number = DEFAULT_STATS_RANGE_DAYS) {
   return useQuery<HourlyStats>({
-    queryKey: ["hourly-stats"],
-    queryFn: ({ signal }) => apiGet<HourlyStats>("/api/hourly_stats", signal),
+    queryKey: ["hourly-stats", days],
+    queryFn: ({ signal }) =>
+      apiGet<HourlyStats>("/api/hourly_stats" + `?since_days=${days}`, signal),
+    placeholderData: keepPreviousData,
     refetchInterval: SLOW,
     refetchOnWindowFocus: false,
     retry: 0,
