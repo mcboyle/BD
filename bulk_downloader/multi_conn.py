@@ -332,11 +332,12 @@ def plan_chunks(content_length: int, chunk_count: int) -> list:
     Last chunk gets any remainder. Returns a list of ChunkPlan.
 
     chunk_count is clamped to [1, 16] (more than 16 is rarely useful
-    and stresses some servers).
+    and stresses some servers) and to content_length, so no chunk is
+    empty (an end of start-1 would send Range "bytes=0--1").
     """
     if content_length <= 0:
         return []
-    n = max(1, min(16, int(chunk_count)))
+    n = max(1, min(16, int(chunk_count), content_length))
     if n == 1:
         return [ChunkPlan(0, 0, content_length - 1)]
     chunk_size = content_length // n
@@ -444,6 +445,7 @@ def _download_chunk(
                 # Open the output file once, seek to chunk.start, stream
                 # bytes in. Using r+b so we don't truncate the
                 # pre-allocated sparse file.
+                overlong = False
                 with open(output_path, "r+b") as out_f:
                     out_f.seek(chunk.start)
                     for buf in r.iter_bytes(buffer_size):
@@ -451,12 +453,30 @@ def _download_chunk(
                             return False, bytes_written, "cancelled"
                         if not buf:
                             continue
+                        # A body longer than its Content-Range must never
+                        # reach the next chunk's bytes (which may already be
+                        # final): keep only this chunk's share, fail the attempt.
+                        room = chunk.length - bytes_written
+                        if len(buf) > room:
+                            buf = buf[:room]
+                            overlong = True
+                        if not buf:
+                            break
                         out_f.write(buf)
                         bytes_written += len(buf)
                         try:
                             on_progress(chunk.index, bytes_written, len(buf))
                         except Exception:
                             pass
+                        if overlong:
+                            break
+                if overlong:
+                    err = (f"chunk_{chunk.index}_overlong_body_past_"
+                           f"{chunk.length}")
+                    if attempt > chunk_retries:
+                        return False, bytes_written, err
+                    log.info("multi_conn: %s; retrying", err)
+                    continue
                 if bytes_written != chunk.length:
                     err = (f"chunk_{chunk.index}_short_"
                            f"{bytes_written}_of_{chunk.length}")
