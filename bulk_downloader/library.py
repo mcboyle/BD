@@ -43,9 +43,11 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import os
 import threading
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
@@ -170,7 +172,8 @@ def library_record(file_path: str, *, history_id: Optional[int] = None,
                    title: str = "", title_source: str = "",
                    duration_s: Optional[float] = None,
                    resolution: str = "", codec: str = "",
-                   cover_thumb: str = "") -> Optional[int]:
+                   cover_thumb: str = "",
+                   skip_missing: bool = False) -> Optional[int]:
     """Insert (or update) a library row. Returns the row id.
 
     Called by:
@@ -179,6 +182,11 @@ def library_record(file_path: str, *, history_id: Optional[int] = None,
 
     Idempotent: file_path is UNIQUE — second insert with the same path
     updates the row in place rather than creating a duplicate.
+
+    skip_missing (the scanner): a file gone from disk by the time it is
+    recorded is neither inserted nor updated -- returns None with the
+    _VANISHED cause. A hard delete racing the scan otherwise came back as
+    a file_exists=0 ghost row (O1789 dhl F4).
     """
     _ensure_schema()
     file_path = str(file_path)
@@ -191,6 +199,9 @@ def library_record(file_path: str, *, history_id: Optional[int] = None,
         file_mtime = stat.st_mtime
         file_exists = 1
     except OSError:
+        if skip_missing:
+            _record_failure.cause = _VANISHED
+            return None
         file_mtime = 0.0
         file_exists = 0
     try:
@@ -274,6 +285,7 @@ def library_record(file_path: str, *, history_id: Optional[int] = None,
 # Cause of this thread's last failed library_record, so the scanner can
 # report WHY a record failed while library_record keeps its None contract.
 _record_failure = threading.local()
+_VANISHED = "file vanished before record"
 
 
 def _take_record_failure() -> str:
@@ -347,7 +359,10 @@ def _cursor_position(cx, cursor, sort: str, col: str) -> tuple[object, int]:
     except (ValueError, TypeError):
         raise BrowseCursorError("cursor_invalid") from None
     if (key != sort or type(row_id) is not int or row_id not in _SQLITE_INT
-            or not (v is None or type(v) in (float, str)
+            or not (v is None or type(v) is str
+                    # O1789 dhl F10: json.loads accepts NaN/Infinity, which
+                    # compare false/past every row -- a silent empty page.
+                    or (type(v) is float and math.isfinite(v))
                     or (type(v) is int and v in _SQLITE_INT))):
         raise BrowseCursorError("cursor_invalid")
     return v, row_id
@@ -425,11 +440,18 @@ def library_browse(*, site_id: Optional[str] = None,
     elif watched is False:
         wheres.append("l.watched=0")
     if query:
-        wheres.append(
-            "(l.title LIKE ? ESCAPE '\\' OR l.file_path LIKE ? ESCAPE '\\'"
-            " OR l.notes LIKE ? ESCAPE '\\')")
-        q = like_contains(query)
-        params.extend([q, q, q])
+        # O1789 dhl F11: a name is stored in whichever Unicode form the
+        # filesystem gave it (NFD on macOS volumes), so match both forms.
+        alts = []
+        for form in ("NFC", "NFD"):
+            q = like_contains(unicodedata.normalize(form, query))
+            if q not in alts:
+                alts.append(q)
+        wheres.append("(" + " OR ".join(
+            "l.title LIKE ? ESCAPE '\\' OR l.file_path LIKE ? ESCAPE '\\'"
+            " OR l.notes LIKE ? ESCAPE '\\'" for _ in alts) + ")")
+        for q in alts:
+            params.extend([q, q, q])
     # Whitelist sort keys — never f-string user input.
     # sort -> (column, column ascending?, id tiebreak ascending?)
     SORTS = {
@@ -535,72 +557,90 @@ def library_delete(library_id: int, *, also_delete_file: bool = False) -> dict:
     thumbnail_gen import — keeps the dependency graph edge-neutral); parallel-
     mode thumbs are covered by unlinking the stored cover_thumb.
 
-    Returns {ok, deleted_row, file_removed?, thumbs_removed, error?}."""
+    Returns {ok, deleted_row, file_removed?, thumbs_removed, error?}.
+
+    O1789 dhl F1/F13: the row delete COMMITS before anything is unlinked, so
+    a failed DB write (locked, disk full) leaves file and row both intact
+    instead of a file_exists=1 row naming a deleted file; BEGIN IMMEDIATE
+    makes the read-then-delete one write transaction, so of two concurrent
+    deletes exactly one finds the row. F4: _scan_file_lock is held across the
+    commit and the unlink so a running scan cannot record the path between
+    them (a ghost row)."""
     _ensure_schema()
     out = {"ok": False, "deleted_row": False, "file_removed": False,
            "thumbs_removed": 0}
     try:
-        with db_conn() as cx:
-            row = cx.execute(
-                "SELECT file_path, history_id, cover_thumb FROM library WHERE id=?",
-                (int(library_id),)).fetchone()
-            if not row:
-                out["error"] = "library row not found"
-                return out
-            file_path = row["file_path"]
-            history_id = row["history_id"]
-            cover_thumb = row["cover_thumb"] if "cover_thumb" in row.keys() else ""
-            if also_delete_file and file_path:
-                try:
-                    Path(file_path).unlink(missing_ok=True)
-                    out["file_removed"] = True
-                except Exception as e:
-                    out["error"] = f"file unlink failed: {e}"
-                    # Continue — still drop the library row
-                # LIB-6: cascade the item's thumbnail artifacts. Sidecar mode
-                # is <media-base>.jpg next to the file (thumbnail_gen's default);
-                # cover_thumb is the actually-stored path (covers parallel mode).
-                # A same-named .jpg is only taken as ours when the row records
-                # a thumbnail; otherwise it may be the operator's own poster.
-                _candidates = []
-                if cover_thumb:
-                    try:
-                        _base, _ = os.path.splitext(str(file_path))
-                        _candidates.append(_base + ".jpg")
-                    except Exception:
-                        pass
-                    _candidates.append(str(cover_thumb))
-                _seen = set()
-                for _tp in _candidates:
-                    if not _tp or _tp in _seen or _tp == file_path:
-                        continue
-                    _seen.add(_tp)
-                    try:
-                        _p = Path(_tp)
-                        if _p.is_file():
-                            _p.unlink()
-                            out["thumbs_removed"] += 1
-                    except Exception:
-                        # Best-effort — a stuck thumb must never block the row delete.
-                        pass
-            # Foreign keys are never enabled, so ON DELETE CASCADE on
-            # library_tags does not fire; drop the junction rows here.
-            cx.execute("DELETE FROM library_tags WHERE library_id=?",
-                       (int(library_id),))
-            cx.execute("DELETE FROM library WHERE id=?",
-                       (int(library_id),))
-            # Null the history back-ref so the history row doesn't point
-            # at a deleted library row
-            if history_id:
-                cx.execute(
-                    "UPDATE history SET library_id=NULL WHERE id=?",
-                    (history_id,))
-            out["deleted_row"] = True
-            out["ok"] = True
-            return out
-    except Exception as e:
-        out["error"] = f"db error: {type(e).__name__}: {e}"
+        lid = int(library_id)
+    except (TypeError, ValueError):
+        lid = None
+    if lid is None or lid not in _SQLITE_INT:
+        # F14: an id SQLite cannot hold names no row.
+        out["error"] = "library row not found"
         return out
+    with _scan_file_lock:
+        try:
+            with db_conn() as cx:
+                cx.execute("BEGIN IMMEDIATE")
+                row = cx.execute(
+                    "SELECT file_path, history_id, cover_thumb FROM library WHERE id=?",
+                    (lid,)).fetchone()
+                if not row:
+                    out["error"] = "library row not found"
+                    return out
+                file_path = row["file_path"]
+                history_id = row["history_id"]
+                cover_thumb = row["cover_thumb"] if "cover_thumb" in row.keys() else ""
+                # Foreign keys are never enabled, so ON DELETE CASCADE on
+                # library_tags does not fire; drop the junction rows here.
+                cx.execute("DELETE FROM library_tags WHERE library_id=?",
+                           (lid,))
+                cx.execute("DELETE FROM library WHERE id=?", (lid,))
+                # Null the history back-ref so the history row doesn't point
+                # at a deleted library row -- only if it points at THIS row
+                # (F7: another row may hold the back-ref).
+                if history_id:
+                    cx.execute(
+                        "UPDATE history SET library_id=NULL "
+                        "WHERE id=? AND library_id=?",
+                        (history_id, lid))
+        except Exception as e:
+            out["error"] = f"db error: {type(e).__name__}: {e}"
+            return out
+        out["deleted_row"] = True
+        out["ok"] = True
+        if also_delete_file and file_path:
+            try:
+                Path(file_path).unlink(missing_ok=True)
+                out["file_removed"] = True
+            except Exception as e:
+                out["error"] = f"file unlink failed: {e}"
+            # LIB-6: cascade the item's thumbnail artifacts. Sidecar mode
+            # is <media-base>.jpg next to the file (thumbnail_gen's default);
+            # cover_thumb is the actually-stored path (covers parallel mode).
+            # A same-named .jpg is only taken as ours when the row records
+            # a thumbnail; otherwise it may be the operator's own poster.
+            _candidates = []
+            if cover_thumb:
+                try:
+                    _base, _ = os.path.splitext(str(file_path))
+                    _candidates.append(_base + ".jpg")
+                except Exception:
+                    pass
+                _candidates.append(str(cover_thumb))
+            _seen = set()
+            for _tp in _candidates:
+                if not _tp or _tp in _seen or _tp == file_path:
+                    continue
+                _seen.add(_tp)
+                try:
+                    _p = Path(_tp)
+                    if _p.is_file():
+                        _p.unlink()
+                        out["thumbs_removed"] += 1
+                except Exception:
+                    # Best-effort — a stuck thumb must never fail the delete.
+                    pass
+    return out
 
 
 # ── Tags ────────────────────────────────────────────────────────────────
@@ -692,8 +732,10 @@ def library_add_tag(library_id: int, tag_name: str) -> bool:
 
 def library_remove_tag(library_id: int, tag_name: str) -> bool:
     """Detach a tag from a library row. Returns False only if the join
-    row didn't exist (not an error — idempotent removal)."""
+    row didn't exist (not an error — idempotent removal). The name is
+    trimmed exactly as tag_upsert trims it on add (O1789 dhl F12)."""
     _ensure_schema()
+    tag_name = (tag_name or "").strip()
     try:
         with db_conn() as cx:
             cur = cx.execute(
@@ -787,6 +829,16 @@ def library_restore(snapshot: dict) -> dict:
         cols = list(row.keys())
         placeholders = ",".join("?" for _ in cols)
         with db_conn() as cx:
+            # O1789 dhl F8: OR REPLACE also resolves a UNIQUE(file_path)
+            # conflict by deleting the OTHER row -- a scan that re-added the
+            # path since the snapshot would lose that row and its tags.
+            clash = cx.execute(
+                "SELECT id FROM library WHERE file_path=? AND id<>?",
+                (row.get("file_path"), rid)).fetchone()
+            if clash:
+                out["error"] = (f"file_path is now library row {clash['id']}; "
+                                "not restored")
+                return out
             cx.execute(
                 f"INSERT OR REPLACE INTO library({','.join(cols)}) VALUES ({placeholders})",
                 [row[c] for c in cols])
@@ -888,6 +940,10 @@ class ScanState:
 _scan_state: Optional[ScanState] = None
 _scan_lock = threading.Lock()
 _scan_thread: Optional[threading.Thread] = None
+# Serialises the scanner's per-file record with a hard delete's
+# commit-then-unlink (O1789 dhl F4). Reentrant: a delete issued from the
+# scan thread itself must not deadlock.
+_scan_file_lock = threading.RLock()
 
 
 def scan_status() -> dict:
@@ -1007,19 +1063,63 @@ def _scan_worker(roots: list[str], state: ScanState):
             if len(state.error_samples) < 5:
                 state.error_samples.append(msg[:200])
 
+    def _cancelled():
+        with _scan_lock:
+            return state.cancelled
+
+    def _walk_error(err: OSError):
+        # O1789 dhl F2: os.walk drops an unreadable directory silently.
+        _record_error(f"walk {getattr(err, 'filename', '')}: {err}")
+
+    def _row_id(cx, fp):
+        r = cx.execute("SELECT id FROM library WHERE file_path=?",
+                       (fp,)).fetchone()
+        return r["id"] if r else None
+
     seen_paths: set[str] = set()
     try:
         history_by_name = _done_history_by_basename()
+        # O1789 dhl F7: history id -> the one path holding it, so a second
+        # file with the same basename is not linked to the same history row.
+        # Unreadable -> empty, like the history lookup: each file's record
+        # then fails and is counted on its own.
+        try:
+            with db_conn() as cx:
+                holders = cx.execute(
+                    "SELECT history_id, file_path FROM library "
+                    "WHERE history_id IS NOT NULL ORDER BY id"
+                ).fetchall()
+        except Exception as e:
+            log.warning("library scan: link lookup failed: %s: %s",
+                        type(e).__name__, e)
+            holders = []
+        # O1789 dhl F7r: only a holder whose file is still there keeps the
+        # link (newest such row wins), so a moved or deleted file's stale
+        # row does not block the live file from relinking. Like the
+        # missing pass, only "not there" (ENOENT/ENOTDIR) drops a holder.
+        linked = {}
+        for r in holders:
+            try:
+                os.stat(r["file_path"])
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except OSError:
+                pass
+            linked[r["history_id"]] = r["file_path"]
         for root in roots:
             with _scan_lock:
                 if state.cancelled:
                     break
                 state.current_root = root
-            for dirpath, _dirnames, filenames in os.walk(root):
-                with _scan_lock:
-                    if state.cancelled:
-                        break
+            for dirpath, _dirnames, filenames in os.walk(root,
+                                                         onerror=_walk_error):
+                if _cancelled():
+                    break
                 for fn in filenames:
+                    # O1789 dhl F5: honour cancel at the next FILE, not the
+                    # next directory.
+                    if _cancelled():
+                        break
                     if fn in _SKIP_FILES:
                         continue
                     if fn.endswith(_SKIP_SUFFIXES):
@@ -1027,31 +1127,44 @@ def _scan_worker(roots: list[str], state: ScanState):
                     if Path(fn).suffix.lower() not in _VIDEO_EXTS:
                         continue
                     full = os.path.join(dirpath, fn)
-                    seen_paths.add(full)
                     _bump("seen")
                     # Did this row exist before?
-                    existed = False
                     try:
                         with db_conn() as cx:
-                            r = cx.execute(
-                                "SELECT id FROM library WHERE file_path=?",
-                                (full,)).fetchone()
-                            existed = r is not None
+                            rid = _row_id(cx, full)
+                            if rid is None:
+                                # O1789 dhl F6: a symlinked alias of a
+                                # recorded dir refreshes the real-path row
+                                # instead of adding a duplicate.
+                                real = os.path.realpath(full)
+                                if real != full and _row_id(cx, real):
+                                    full, rid = real, _row_id(cx, real)
                     except Exception as e:
                         _record_error(f"check {full}: {e}")
                         continue
+                    existed = rid is not None
+                    seen_paths.add(full)
                     # Link to the newest done history row with this
-                    # exact basename
+                    # exact basename, unless another path already holds it
                     history_id = history_by_name.get(fn)
+                    if history_id and linked.get(history_id, full) != full:
+                        history_id = None
                     _take_record_failure()
-                    rid = library_record(full, history_id=history_id)
+                    with _scan_file_lock:
+                        rid = library_record(full, history_id=history_id,
+                                             skip_missing=True)
                     if rid is None:
+                        cause = _take_record_failure()
+                        if cause == _VANISHED:
+                            # Deleted since the walk listed it: no row.
+                            seen_paths.discard(full)
+                            continue
                         _record_error(f"record_failed {full}: "
-                                      f"{_take_record_failure() or 'no cause'}")
-                    elif existed:
-                        _bump("updated")
+                                      f"{cause or 'no cause'}")
                     else:
-                        _bump("added")
+                        if history_id:
+                            linked[history_id] = full
+                        _bump("updated" if existed else "added")
         # Second pass: rows in DB whose file_path WASN'T seen this
         # scan. Mark them file_exists=0 (only if their path is under
         # one of our scan roots — paths outside the roots aren't
@@ -1072,13 +1185,30 @@ def _scan_worker(roots: list[str], state: ScanState):
                     # match, not a raw string prefix)
                     if not any(_fp_under_root(fp, root) for root in roots):
                         continue
-                    if fp not in seen_paths:
-                        cx.execute(
-                            "UPDATE library SET file_exists=0 WHERE id=?",
-                            (r["id"],))
-                        missing_count += 1
+                    if fp in seen_paths:
+                        continue
+                    # O1789 dhl F2/F3: unseen is not proof of absence -- the
+                    # walk may have been refused the directory, or a download
+                    # finished after the walk passed it. Flip only a path
+                    # the filesystem says is not there.
+                    try:
+                        os.stat(fp)
+                        continue
+                    except (FileNotFoundError, NotADirectoryError):
+                        pass
+                    except OSError:
+                        continue
+                    cx.execute(
+                        "UPDATE library SET file_exists=0 WHERE id=?",
+                        (r["id"],))
+                    missing_count += 1
                 _mut(missing_marked=missing_count)
         except Exception as e:
             _record_error(f"missing-pass: {e}")
+    except Exception as e:
+        # O1789 dhl F9: a crashed walk must not read as a clean finished
+        # scan. The missing pass is skipped: seen_paths is incomplete.
+        log.warning("library scan aborted: %s: %s", type(e).__name__, e)
+        _record_error(f"scan aborted: {type(e).__name__}: {e}")
     finally:
         _mut(finished_at=time.time())
