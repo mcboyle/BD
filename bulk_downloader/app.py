@@ -129,6 +129,12 @@ _SITE_RUNTIME_ROLLBACK_PENDING = False
 _SITE_RUNTIME_RETIRING = False
 
 
+def _install_secret_key() -> None:
+    """O1671 a07: give the Flask session its key (app_oidc.install_secret_key)."""
+    from . import app_oidc
+    app_oidc.install_secret_key(app)
+
+
 def boot_once(*, force: bool = False) -> bool:
     """Run the one-time startup DB work. Returns True iff this call did it.
 
@@ -170,6 +176,9 @@ def boot_once(*, force: bool = False) -> bool:
         # path self-heals already: the key is only added after every step
         # succeeds, so a raise leaves it absent.)
         _BOOTED_PATHS.discard(key)
+        # O1671 a07: the session key comes before any other boot work. It may
+        # raise (OIDC on, no key), which leaves the path un-booted.
+        _install_secret_key()
         # v3.43.24: the self-test runs FIRST, before db_init(), so
         # auto_recover_sqlite() gets a chance to move a corrupt database aside
         # before db_init() tries to use it. That ordering is the whole reason
