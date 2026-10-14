@@ -103,6 +103,7 @@ _PG_SCHEMA = (
         file_size BIGINT DEFAULT 0,
         lane TEXT DEFAULT 'default',
         depends_on TEXT DEFAULT '',
+        custom_headers TEXT DEFAULT NULL,
         ts_added TEXT DEFAULT {_PG_TS_DEFAULT},
         ts_updated TEXT DEFAULT {_PG_TS_DEFAULT},
         PRIMARY KEY(site_id, url))""",

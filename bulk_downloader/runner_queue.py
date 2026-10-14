@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .runner_util import _ts, _ts_iso, _utc_iso_to_local_iso
 from .db import (
+    queue_headers_decode, queue_headers_encode,
     queue_load, queue_upsert, queue_bulk_upsert, queue_bulk_delete,
     queue_bulk_update, queue_delete_status, queue_reorder, queue_set_priority,
 )
@@ -131,6 +132,10 @@ class QueueMixin:
             }
             if r.get("force_download"):
                 self.jobs[url]["force_download"] = True
+            # qti-queue-f6: per-URL headers come back with the job
+            restored_headers = queue_headers_decode(r.get("custom_headers"))
+            if restored_headers:
+                self.jobs[url]["custom_headers"] = restored_headers
             self.urls.append(url)
         sys.stderr.write(f"[{self.site_id}] restored {len(rows)} queue entries"
                          + (f" ({len(crash_recovered_urls)} mid-download)"
@@ -158,6 +163,7 @@ class QueueMixin:
         restored_urls=set()
         added=dupes=skipped_on_disk=0
         new_urls=[]
+        new_headers={}  # url -> custom headers of a job created by this call
         rearmed=[]  # dl95-africancasting-1: stopped jobs re-armed by this add
         # QueueMixin also has lightweight/direct hosts that predate website
         # title capture. Preserve their enqueue contract with an empty metadata
@@ -384,6 +390,12 @@ class QueueMixin:
                     self.jobs[u]["listing_title"] = listing_title
                 if hdrs:
                     self.jobs[u]["custom_headers"] = hdrs
+                    new_headers[u] = hdrs
+                    if queue_headers_encode(hdrs) is None:
+                        # e.g. an empty header name: usable now, not storable
+                        self.log.warning(
+                            "custom headers for %s cannot be stored and will "
+                            "not survive a restart", u)
                 self.urls.append(u); new_urls.append(u)
                 if pre_done: skipped_on_disk+=1
                 else: added+=1
@@ -405,6 +417,7 @@ class QueueMixin:
                     listing_titles={
                         u: listing_titles.get(u, "") for u in new_urls
                     },
+                    custom_headers=new_headers,
                 )
             except Exception as e: self.log.error("bulk persist failed: %s", e)
             # Persist restored import statuses, one bulk update per (status, message).

@@ -203,6 +203,7 @@ def _db_init_once():
             file_size INTEGER DEFAULT 0,
             lane TEXT DEFAULT 'default',
             depends_on TEXT DEFAULT '',
+            custom_headers TEXT DEFAULT NULL,
             ts_added TEXT DEFAULT(strftime('%Y-%m-%dT%H:%M:%S','now')),
             ts_updated TEXT DEFAULT(strftime('%Y-%m-%dT%H:%M:%S','now')),
             PRIMARY KEY(site_id, url))""")
@@ -221,6 +222,11 @@ def _db_init_once():
             cx.execute("ALTER TABLE queue ADD COLUMN depends_on TEXT DEFAULT ''")
         if "listing_title" not in _qcols:
             cx.execute("ALTER TABLE queue ADD COLUMN listing_title TEXT DEFAULT ''")
+        # qti-queue-f6: per-URL request headers (JSON object text). Additive and
+        # NULL by default: a row without headers is exactly what it was before,
+        # and a build without this column reads and writes the table unchanged.
+        if "custom_headers" not in _qcols:
+            cx.execute("ALTER TABLE queue ADD COLUMN custom_headers TEXT DEFAULT NULL")
         # history schema changes belong to bulk_downloader/migrations.py, which
         # is a versioned framework with a schema_migrations ledger and is
         # applied at app.py:1814. #63 added bytes_fetched here as a bespoke
@@ -2854,8 +2860,63 @@ def queue_group_by(site_id, group_by: str = "host", *, limit=2000) -> dict:
 _QUEUE_COLUMNS = frozenset({
     "status", "message", "retries", "retry_after", "screenshot",
     "force_download", "priority", "ord", "filename", "file_size",
-    "listing_title", "lane", "depends_on",
+    "listing_title", "lane", "depends_on", "custom_headers",
 })
+
+# A header name or value that a line-oriented store would cut in two: the tab
+# that separates "url<TAB>Name=value" pairs and everything str.splitlines()
+# breaks on (queue templates keep one entry per line).
+_HEADER_BREAKS = frozenset("\t\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029")
+
+
+def queue_headers_error(headers) -> str:
+    """Why ``headers`` cannot be a job's custom headers, or "". None and {} are
+    fine (no headers). Names: non-empty text without "=" or surrounding space;
+    names and values: text with no tab / line-break character."""
+    if headers is None:
+        return ""
+    if not isinstance(headers, dict):
+        return "custom_headers must be an object of header name -> value text"
+    for k, v in headers.items():
+        if not isinstance(k, str) or not isinstance(v, str):
+            return "custom_headers must be an object of header name -> value text"
+        if not k or k != k.strip() or "=" in k or v != v.strip():
+            return f"custom_headers: bad header name or value for {k!r}"[:200]
+        if _HEADER_BREAKS & set(k) or _HEADER_BREAKS & set(v):
+            return f"custom_headers: tab or line break in header {k!r}"[:200]
+    return ""
+
+
+def queue_headers_encode(headers):
+    """The queue.custom_headers text for a header dict; None when there are no
+    headers or the dict is not storable (queue_headers_error)."""
+    if not headers or queue_headers_error(headers):
+        return None
+    import json
+    return json.dumps(headers)  # insertion order kept: header order can matter
+
+
+def queue_headers_decode(text) -> dict:
+    """The header dict stored in queue.custom_headers; {} for NULL, "" or
+    anything that is not a storable header object."""
+    if not text or not isinstance(text, str):
+        return {}
+    import json
+    try:
+        headers = json.loads(text)
+    except ValueError:
+        return {}
+    if not isinstance(headers, dict) or not headers or queue_headers_error(headers):
+        return {}
+    return headers
+
+
+def queue_headers_entry(url: str, headers) -> str:
+    """One load_urls entry, "url<TAB>Name=value...", for a URL and its headers
+    (the bare URL when there are none)."""
+    if not headers or queue_headers_error(headers):
+        return url
+    return "\t".join([url] + [f"{k}={v}" for k, v in headers.items()])
 
 # dl95-porndig-3: a stopped row (Cancel, site Stop) is re-armed only through
 # "pending"; a "running" write is an in-flight transfer's trailing progress,
@@ -2914,15 +2975,24 @@ def queue_upsert(site_id, url, **fields):
                     "filename":"","listing_title":"","file_size":0,
                     "lane":"default","depends_on":""}
         defaults.update({k: v for k, v in fields.items() if k != "ts_updated"})
-        cx.execute("""INSERT OR REPLACE INTO queue
-            (site_id,url,status,message,retries,retry_after,screenshot,
-             force_download,priority,ord,filename,listing_title,file_size,lane,depends_on)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (site_id, url, defaults["status"], defaults["message"],
-             defaults["retries"], defaults["retry_after"], defaults["screenshot"],
-             defaults["force_download"], defaults["priority"], defaults["ord"],
-             defaults["filename"], defaults["listing_title"], defaults["file_size"],
-             defaults["lane"], defaults["depends_on"]))
+        row = (site_id, url, defaults["status"], defaults["message"],
+               defaults["retries"], defaults["retry_after"], defaults["screenshot"],
+               defaults["force_download"], defaults["priority"], defaults["ord"],
+               defaults["filename"], defaults["listing_title"], defaults["file_size"],
+               defaults["lane"], defaults["depends_on"])
+        if defaults.get("custom_headers") is None:
+            # no headers: the statement every build has always run
+            cx.execute("""INSERT OR REPLACE INTO queue
+                (site_id,url,status,message,retries,retry_after,screenshot,
+                 force_download,priority,ord,filename,listing_title,file_size,lane,depends_on)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", row)
+        else:
+            cx.execute("""INSERT OR REPLACE INTO queue
+                (site_id,url,status,message,retries,retry_after,screenshot,
+                 force_download,priority,ord,filename,listing_title,file_size,lane,depends_on,
+                 custom_headers)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                row + (defaults["custom_headers"],))
 
 # Row 722 (G26) reset semantics for a re-added URL, shared by the staging
 # transfer below: a conflicting row is a stale leftover and a re-added URL is a
@@ -2935,9 +3005,15 @@ _QUEUE_BULK_UPSERT_CLAUSE = (
     "ts_added=strftime('%Y-%m-%dT%H:%M:%S','now'), "
     "ts_updated=strftime('%Y-%m-%dT%H:%M:%S','now')"
 )
+# With per-URL headers in the batch: a re-added URL is a fresh job, so its
+# headers are the new entry's (NULL when that entry has none).
+_QUEUE_BULK_UPSERT_CLAUSE_HEADERS = _QUEUE_BULK_UPSERT_CLAUSE.replace(
+    "listing_title=excluded.listing_title, ",
+    "listing_title=excluded.listing_title, custom_headers=excluded.custom_headers, ")
 
 
-def queue_bulk_upsert(site_id, urls, ord_start=0, listing_titles=None):
+def queue_bulk_upsert(site_id, urls, ord_start=0, listing_titles=None,
+                      custom_headers=None):
     """Bulk-insert URLs in one transaction. Massively faster than per-URL
     upserts for large lists (one transaction vs N).
 
@@ -2961,9 +3037,22 @@ def queue_bulk_upsert(site_id, urls, ord_start=0, listing_titles=None):
     ]
     if not rows:
         return
+    # qti-queue-f6: ``custom_headers`` is {url: {name: value}}. Every row
+    # carries the column (NULL without headers) so a re-added URL never keeps
+    # a stale row's headers. A queue table that predates the column (db_init
+    # adds it) takes the statement it always took; headers are not stored there.
+    header_text = {u: queue_headers_encode(h)
+                   for u, h in (custom_headers or {}).items()
+                   } if isinstance(custom_headers, dict) else {}
     with db_conn() as cx:
+        clause = _QUEUE_BULK_UPSERT_CLAUSE
+        if any(r[1] == "custom_headers"
+               for r in cx.execute("PRAGMA table_info(queue)").fetchall()):
+            for r in rows:
+                r["custom_headers"] = header_text.get(r["url"])
+            clause = _QUEUE_BULK_UPSERT_CLAUSE_HEADERS
         pipeline = StagingIngestPipeline(cx, owns_connection=False)
-        pipeline.ingest_batch("queue", rows, upsert_clause=_QUEUE_BULK_UPSERT_CLAUSE)
+        pipeline.ingest_batch("queue", rows, upsert_clause=clause)
 
 def queue_delete(site_id, url):
     """Remove one URL from the queue table. Used when a user deletes

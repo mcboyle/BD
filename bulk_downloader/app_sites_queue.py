@@ -379,21 +379,27 @@ def api_queue_export(sid):
     "Export queue" button + included automatically in any /api/backup."""
     runners = _app_runners()
     if sid not in runners: return jsonify({"error": "Not found"}), 404
-    from .db import queue_load
+    from .db import queue_load, queue_headers_decode
     rows = queue_load(sid)
+    out = []
+    for r in rows:
+        row = {"url": r["url"], "priority": r.get("priority", ""),
+               "status": r.get("status", "pending"),
+               "force_download": bool(r.get("force_download")),
+               "message": r.get("message", "")}
+        # qti-queue-f6: per-URL headers ride along, only on rows that have
+        # them (a row without headers is exported exactly as before).
+        headers = queue_headers_decode(r.get("custom_headers"))
+        if headers:
+            row["custom_headers"] = headers
+        out.append(row)
     return jsonify({
         "ok": True,
         "format_version": 1,
         "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "site_id": sid,
         "count": len(rows),
-        "rows": [
-            {"url": r["url"], "priority": r.get("priority", ""),
-             "status": r.get("status", "pending"),
-             "force_download": bool(r.get("force_download")),
-             "message": r.get("message", "")}
-            for r in rows
-        ],
+        "rows": out,
     })
 
 
@@ -436,6 +442,13 @@ def api_queue_import(sid):
         for row in rows
     ):
         return jsonify({"ok": False, "error": "rows must be a list of URL objects"}), 400
+    # qti-queue-f6: a row may carry "custom_headers" (queue/export writes it).
+    # A malformed one refuses the whole import before anything is changed.
+    from .db import queue_headers_entry, queue_headers_error
+    for row in rows:
+        headers_err = queue_headers_error(row.get("custom_headers"))
+        if headers_err:
+            return jsonify({"ok": False, "error": headers_err}), 400
     runner = runners[sid]
     if mode == "replace":
         with runner._lock:
@@ -449,6 +462,7 @@ def api_queue_import(sid):
     # "stopped", done, failed, ...) comes back in that status. It used to come
     # back "pending" and download again. running -> pending: no worker holds it.
     restore = {}
+    entry_of = {}  # id(row) -> the entry handed to load_urls, when rebuilt
     # A row url may be "url<TAB>Header=value" (load_urls, Phase 68). The job is
     # keyed by the URL alone, so status / priority / force are keyed by job_url.
     from .queue_templates import job_url
@@ -457,6 +471,11 @@ def api_queue_import(sid):
         key = job_url(url)
         if not key: continue
         if key in runner.jobs: continue  # already queued — skip
+        if row.get("custom_headers"):
+            # hand load_urls the entry form it already parses and persists;
+            # the row's own "custom_headers" win over any written in the url
+            url = queue_headers_entry(key, row["custom_headers"])
+            entry_of[id(row)] = url
         new_urls.append(url)
         status = row.get("status")
         if isinstance(status, str) and status in _IMPORT_RESTORED_STATUSES:
@@ -477,7 +496,7 @@ def api_queue_import(sid):
         persist = []
         with runner._lock:
             for row in rows:
-                entry = (row.get("url") or "").strip()
+                entry = entry_of.get(id(row), (row.get("url") or "").strip())
                 url = job_url(entry)
                 if entry not in new_url_set or url not in runner.jobs: continue
                 fields = {}
@@ -515,6 +534,8 @@ def api_queue_save_template(sid):
     # Snapshot current state. We use the canonical urls list (not the
     # jobs dict iteration order) so the template preserves the order
     # the operator sees in the UI.
+    from .db import queue_headers_entry, queue_headers_error
+    headers_dropped = 0
     with runner._lock:
         urls = list(runner.urls)
         prio_map = {u: runner.jobs[u].get("priority", "")
@@ -522,12 +543,23 @@ def api_queue_save_template(sid):
                     if runner.jobs.get(u, {}).get("priority")}
         force_set = [u for u in urls
                      if runner.jobs.get(u, {}).get("force_download")]
+        # qti-queue-f6: a job's headers are saved in the entry form apply
+        # hands back to load_urls ("url<TAB>Name=value"). priority_map and
+        # force_set stay keyed by the URL, which apply accepts.
+        entries = []
+        for u in urls:
+            headers = runner.jobs.get(u, {}).get("custom_headers")
+            if headers and queue_headers_error(headers):
+                headers_dropped += 1   # not storable on one line: say so
+                headers = None
+            entries.append(queue_headers_entry(u, headers))
     tid = _qt.create(
-        name=name, origin_site_id=sid, urls=urls,
+        name=name, origin_site_id=sid, urls=entries,
         priority_map=prio_map, force_set=force_set,
         note=body.get("note", ""))
     return jsonify({"ok": True, "id": tid,
-                    "saved": len(urls), "name": name})
+                    "saved": len(urls), "name": name,
+                    "headers_dropped": headers_dropped})
 
 
 _HISTORY_EXPORT_COLS = ("url", "status", "filename", "file_size", "message", "ts")
