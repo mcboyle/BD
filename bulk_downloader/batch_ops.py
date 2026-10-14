@@ -43,6 +43,48 @@ from typing import Optional
 # injection. Allowlist the identifier so a non-`history` value can never reach SQL.
 _ALLOWED_TABLES = frozenset({"history"})
 
+# dsq-batch-ops F1: the status words a batch retry may write. 'pending' re-queues, 'needs_review'
+# marks for manual handling (the bulk_retry docstring); any other word only relabelled history.
+RETRY_STATUSES = ("pending", "needs_review")
+# ...and the history statuses a LIVE retry may touch (PM pm-A3-A 19:56Z, option B): the ones a
+# runner re-queues (runner_queue.BULK_RETRY_STATUSES, pinned equal by tests/test_dsq_batch_ops.py).
+# A done row reset to 'pending' is a row nothing will ever run; it is refused and listed instead.
+RETRYABLE_STATUSES = ("failed", "needs_review", "dead_letter")
+
+_FILTER_TEXT = ("site_id", "status", "message_contains")
+_FILTER_KEYS = frozenset(_FILTER_TEXT + ("older_than_days", "id_in", "limit", "table"))
+
+
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def filter_error(filter_dict) -> Optional[str]:
+    """dsq-batch-ops F4: why the API cannot read this filter, or None when it can.
+
+    _matching_rows stays fail-safe (an unreadable filter selects nothing), so without
+    this the API answered "matched 0" both for "nothing matched" and for a filter it
+    never applied: older_than_days "abc", limit -5, an unknown key, a list."""
+    if not isinstance(filter_dict, dict):
+        return "filter must be a JSON object"
+    unknown = sorted(str(k) for k in filter_dict if k not in _FILTER_KEYS)
+    if unknown:
+        return f"unknown filter key(s): {', '.join(unknown)}"
+    for k in _FILTER_TEXT:
+        if filter_dict.get(k) is not None and not isinstance(filter_dict[k], str):
+            return f"{k} must be text"
+    v = filter_dict.get("older_than_days")
+    if v is not None and not (_is_int(v) and v >= 0):
+        return "older_than_days must be a whole number >= 0"
+    if "limit" in filter_dict and not (_is_int(filter_dict["limit"]) and filter_dict["limit"] >= 0):
+        return "limit must be a whole number >= 0"
+    v = filter_dict.get("id_in")
+    if v is not None and not (isinstance(v, list) and all(_is_int(i) for i in v)):
+        return "id_in must be a list of whole numbers"
+    if filter_dict.get("table") not in (None, "history"):
+        return "table must be history"
+    return None
+
 
 def _build_query(*, table: str = "history",
                 site_id: Optional[str] = None,
@@ -120,19 +162,33 @@ def _matching_rows(filter_dict: dict) -> list:
 
 
 def bulk_retry(filter_dict: dict, *, dry_run: bool = True,
-              reset_to_status: str = "pending") -> dict:
+              reset_to_status: str = "pending", requeue=None) -> dict:
     """Reset matching rows to `reset_to_status` so workers pick them
     up again. Default 'pending' re-queues; 'needs_review' to mark for
-    manual handling."""
-    rows = _matching_rows(filter_dict or {})
-    out = {"ok": True, "candidates_matched": len(rows),
+    manual handling.
+
+    dsq-batch-ops F1: the history UPDATE alone re-queues nothing -- the runners work
+    from their own jobs + queue table, never from history 'pending'. Only rows whose
+    status is in RETRYABLE_STATUSES are reset; the others are counted in `refused`
+    and listed (id, status; first 50) in `refused_rows`. `requeue`
+    ({site_id: [url, ...]} -> {"requeued", "no_runner", "runner_skipped"}) hands the
+    reset URLs to the runners; the answer then carries requeued / not_requeued
+    (distinct URLs) and the reasons."""
+    matched = _matching_rows(filter_dict or {})
+    rows = [r for r in matched if r.get("status") in RETRYABLE_STATUSES]
+    refused = [r for r in matched if r.get("status") not in RETRYABLE_STATUSES]
+    out = {"ok": True, "candidates_matched": len(matched),
+           "retryable": len(rows), "refused": len(refused),
+           "refused_rows": [{"id": r.get("id"), "status": r.get("status")} for r in refused[:50]],
            "processed": 0, "errors": 0, "dry_run": dry_run,
            "reset_to": reset_to_status}
     if dry_run or not rows:
+        rows = matched
         out["sample"] = [{"id": r.get("id"), "url": r.get("url"),
                           "status": r.get("status"),
                           "message": r.get("message")} for r in rows[:10]]
         return out
+    by_site: dict = {}
     try:
         from . import db as _db
         with _db.db_conn() as cx:
@@ -148,11 +204,28 @@ def bulk_retry(filter_dict: dict, *, dry_run: bool = True,
                                (reset_to_status, r["id"]))
                     _db.db_fts_resync(cx, _old)
                     out["processed"] += 1
+                    if r.get("url"):
+                        by_site.setdefault(r.get("site_id"), set()).add(r["url"])
                 except Exception:
                     out["errors"] += 1
     except Exception as e:
         out["ok"] = False
         out["error"] = str(e)[:200]
+    if requeue is not None and reset_to_status == "pending":
+        wanted = sum(len(u) for u in by_site.values())
+        got: dict = {}
+        try:
+            got = dict(requeue({sid: sorted(u) for sid, u in by_site.items()}) or {})
+        except Exception as e:
+            out["requeue_error"] = str(e)[:200]
+        out["requeued"] = int(got.get("requeued", 0))
+        out["not_requeued"] = wanted - out["requeued"]
+        out["not_requeued_reasons"] = {
+            "no_runner": int(got.get("no_runner", 0)),
+            "runner_skipped": int(got.get("runner_skipped", 0)),
+            "requeue_error": out["not_requeued"] - int(got.get("no_runner", 0))
+            - int(got.get("runner_skipped", 0)),
+        }
     return out
 
 
