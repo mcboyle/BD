@@ -6,10 +6,16 @@ revocable, scoped tokens that grant read access to a subset of the
 API, with optional time and IP limits.
 
 Token grants — pick any combination at creation time:
-  • all_stats        — read /api/status_all, /api/capacity, /metrics
-  • recent_events    — read /api/events
+  • all_stats        — read /api/capacity, /api/health/checklist, /api/gamification/report
+  • recent_events    — read /api/events_all
   • library_browse   — read /api/history (but not file paths)
-  • site_view:<sid>  — see one specific site's state
+  • metrics          — read /metrics
+  • all              — every scope above
+
+/api/status is not share-readable: its per-site "config" carries the
+site's integration keys (plex_token, stash_api_key, ...). Every
+SHARE_ROUTES entry must be named here and in KNOWN_SCOPES
+(tests/test_share_scope_status.py).
 
 Tokens are HMAC-signed, stateful (revocable via DB), and all access is
 logged. There is no per-token request-rate limit -- the surface is a
@@ -17,7 +23,7 @@ trusted-LAN operator tool; do not rely on a rate cap here.
 
 Auth flow:
   client → GET /api/something?ro_token=<token>
-       OR  Authorization: Bearer <token>
+       OR  X-Share-Token: <token>
   middleware → verify_share_token(token, requested_scope) → ok/deny
 
 Operator UI:
@@ -298,8 +304,8 @@ def recent_access(*, limit: int = 100) -> list:
 
 # Recognized scopes — documented surface for the UI
 KNOWN_SCOPES = {
-    "all_stats": "Read aggregate stats: /api/status_all, /api/capacity",
-    "recent_events": "Read /api/events (last events)",
+    "all_stats": "Read aggregate stats: /api/capacity, /api/health/checklist, /api/gamification/report",
+    "recent_events": "Read /api/events_all (last events)",
     "library_browse": "Read /api/history (no file paths exposed)",
     "metrics": "Read /metrics for monitoring",
     "all": "Super-scope — grants all of the above",
@@ -312,11 +318,9 @@ KNOWN_SCOPES = {
 # Add new entries cautiously — anything write-shaped should NOT be here.
 SHARE_ROUTES = [
     # (path_prefix, required_scope)
-    ("/api/status", "all_stats"),
     ("/api/capacity", "all_stats"),
     ("/api/health/checklist", "all_stats"),
     ("/api/events_all", "recent_events"),
-    ("/api/ui_events", "recent_events"),
     ("/api/history", "library_browse"),
     ("/api/gamification/report", "all_stats"),
     ("/metrics", "metrics"),
