@@ -68,6 +68,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -302,14 +303,64 @@ def list_installed() -> dict:
 # ─── Install / update / remove ─────────────────────────────────────
 
 
+def _protected_dir_hit(stash_dir: str) -> str:
+    """Name of the app-owned code root `stash_dir` resolves into, or "".
+
+    Scraper companions are third-party .py/.js from GitHub. Written into the
+    plugin dir or the app package they would be imported in-process on the
+    next plugin reload or import (no install ack), and the same holds for a
+    dir that is itself on sys.path. A Stash scrapers dir is none of these.
+
+    Dirs compare by (st_dev, st_ino) up the resolved ancestor chain, so a
+    symlink or a bind mount of a root is the root."""
+    rp = os.path.realpath(stash_dir)
+    try:
+        from .constants import INSTALL_DIR
+        plugin_dir = os.path.join(str(INSTALL_DIR), "plugins")
+    except Exception:
+        plugin_dir = os.path.join(os.getcwd(), "plugins")
+    roots: dict = {}
+    for label, root in (("plugin_dir", plugin_dir),
+                        ("app_package", os.path.dirname(os.path.abspath(__file__)))):
+        k = _dir_key(root)
+        if k is not None:
+            roots.setdefault(k, label)
+    cur = rp
+    while True:
+        k = _dir_key(cur)
+        if k is not None and k in roots:
+            return roots[k]
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    k = _dir_key(rp)
+    # "" on sys.path is the current directory
+    if k is not None and any(_dir_key(e or os.getcwd()) == k for e in sys.path):
+        return "import_path"
+    return ""
+
+
+def _dir_key(path: str):
+    try:
+        st = os.stat(path)
+    except (OSError, ValueError):
+        return None
+    return (st.st_dev, st.st_ino)
+
+
 def _validate_stash_dir(stash_dir: str) -> tuple:
-    """Validate that the Stash scrapers dir exists + is writable.
+    """Validate that the Stash scrapers dir exists + is writable, and is
+    not an app code root (_protected_dir_hit).
 
     Returns (ok, error_or_empty)."""
     if not stash_dir:
         return (False, "stash_scrapers_dir_not_configured")
     if not os.path.isdir(stash_dir):
         return (False, f"not_a_directory:{stash_dir}")
+    hit = _protected_dir_hit(stash_dir)
+    if hit:
+        return (False, f"protected_dir:{hit}")
     # Try writing a probe file to test write access
     probe = os.path.join(stash_dir, ".bd_write_probe")
     try:
@@ -350,6 +401,23 @@ _COMPANION_REF_RE = re.compile(
     rb"script:\s*\n\s*-\s*['\"]?([^'\"\n]+\.(?:py|js))['\"]?",
     re.IGNORECASE,
 )
+
+
+_REF_SEGMENT_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_. -]*")
+
+
+def _safe_companion_rel(ref: str) -> Optional[str]:
+    """The repo-relative fetch path for a companion ref, or None.
+
+    The ref comes from the fetched (third-party) .yml and is placed into the
+    raw-host URL, so only plain relative segments pass: no absolute path, no
+    backslash, no empty/dot-led segment ("..", "."), no URL syntax (?#%:)."""
+    if not ref or "\\" in ref or ref.startswith("/"):
+        return None
+    segs = ref.split("/")
+    if not all(_REF_SEGMENT_RE.fullmatch(seg) for seg in segs):
+        return None
+    return ref if segs[0] == "scrapers" else f"scrapers/{ref}"
 
 
 def _find_companion_files(yml_bytes: bytes) -> list:
@@ -429,9 +497,10 @@ def install_one(
     for ref in companions:
         # Reference may be a bare filename like "BrazzersByLink.py" or
         # a path like "scripts/foo.py". Try the scrapers/ subdir.
-        rel = ref
-        if not rel.startswith("scrapers/"):
-            rel = f"scrapers/{rel}"
+        rel = _safe_companion_rel(ref)
+        if rel is None:
+            companion_errors.append(f"{ref}:refused_ref")
+            continue
         comp_bytes, comp_err = _fetch_raw_file(rel,
                                                 github_token=github_token)
         if comp_err:
@@ -480,14 +549,47 @@ def remove_one(scraper_name: str, *, stash_dir: str) -> InstallResult:
             return InstallResult(ok=False, scraper_name=scraper_name,
                                  error="not_in_manifest")
         files = entry.get("files") or []
-        removed: list = []
-        for f in files:
+        # Only direct children of stash_dir are ours to delete (install_one
+        # writes nothing else); a manifest naming anything else is refused
+        # whole, before any unlink.
+        root = os.path.realpath(stash_dir)
+        # The parent is resolved, not the file: unlink removes the named
+        # entry (a symlink, never its target), so that entry must sit in root.
+        # The raw dirname is resolved as the kernel walks it ("dl/.." through
+        # a symlinked dl is dl's target's parent); abspath would fold it first.
+        outside = [f for f in files
+                   if not isinstance(f, str)
+                   or os.path.basename(f) in ("", ".", "..")
+                   or os.path.realpath(os.path.dirname(f) or os.curdir) != root]
+        if outside:
+            return InstallResult(ok=False, scraper_name=scraper_name,
+                                 error=f"files_outside_stash_dir:{len(outside)}")
+        # Unlink by name inside root opened once (no symlink as the last
+        # component), so a path swapped after the check cannot redirect it.
+        dir_fd = None
+        if os.unlink in os.supports_dir_fd and hasattr(os, "O_DIRECTORY"):
             try:
-                if os.path.exists(f):
-                    os.remove(f)
+                dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY
+                                 | getattr(os, "O_NOFOLLOW", 0))
+            except OSError as e:
+                return InstallResult(ok=False, scraper_name=scraper_name,
+                                     error=f"stash_dir_open:{e}")
+        removed: list = []
+        try:
+            for f in files:
+                try:
+                    if dir_fd is not None:
+                        os.unlink(os.path.basename(f), dir_fd=dir_fd)
+                    else:
+                        os.remove(os.path.join(root, os.path.basename(f)))
                     removed.append(f)
-            except Exception as e:
-                log.info("community_scrapers: remove %s failed: %s", f, e)
+                except FileNotFoundError:
+                    pass
+                except Exception as e:
+                    log.info("community_scrapers: remove %s failed: %s", f, e)
+        finally:
+            if dir_fd is not None:
+                os.close(dir_fd)
         installed.pop(scraper_name, None)
         _save_manifest(m)
         return InstallResult(ok=True, scraper_name=scraper_name,

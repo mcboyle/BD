@@ -28,6 +28,7 @@ a new code path -- which is the whole point of doing it once, centrally, paranoi
 """
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import shutil
@@ -64,6 +65,28 @@ def _allowed_path_roots(scratch: str | None = None) -> tuple:
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")
 
 
+def _url_host_refusal(url: str, resolve: bool) -> str:
+    """Why the tool must not be pointed at url's host, or "" when it may.
+
+    resolve=False is the offline check build_argv makes (IP literals and
+    localhost names); resolve=True is run()'s pre-exec check through the
+    canonical predicate, which resolves the name and fails closed."""
+    from urllib.parse import urlparse
+    from bulk_downloader.provider_resolve_impl._common import _is_safe_public_host
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        return "invalid host"
+    if not resolve:
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            name = host.rstrip(".")
+            return "localhost" if name == "localhost" or name.endswith(".localhost") else ""
+    ok, reason = _is_safe_public_host(host)
+    return "" if ok else (str(reason) or "not public")
+
+
 def _resolve(binary: str) -> str | None:
     """Absolute path to a binary, or None. Captured at import -- the REQUEST never
     supplies a path, only a tool key."""
@@ -91,8 +114,10 @@ def _build_allowlist() -> dict:
                 # a URL to introspect; str, bounded, no control chars. Note: this does
                 # NOT download -- pair it with --dump-json / --simulate at the call site.
                 "--simulate": {"type": "bool"},
+                # public_host: the tool fetches it and --dump-json returns the body to
+                # the caller, so a loopback/private/link-local host is a read-SSRF.
                 "url": {"type": "str", "positional": True, "max_len": 2048,
-                        "scheme": ["http", "https"]},
+                        "scheme": ["http", "https"], "public_host": True},
             },
             "smoke": True,
             "smoke_flags": {"--version": True},
@@ -171,6 +196,10 @@ def _validate_value(flag: str, spec: dict, value, scratch: str | None = None):
             if parsed.scheme.lower() not in schemes or not parsed.netloc:
                 raise BridgeError(
                     "flag %s must be a URL with scheme in %s" % (flag, schemes))
+        if spec.get("public_host"):
+            why = _url_host_refusal(sv, resolve=False)
+            if why:
+                raise BridgeError("flag %s host is not public (%s)" % (flag, why))
         return sv
     if t == "path":
         sv = "" if value is None else str(value)
@@ -230,6 +259,11 @@ def run(tool: str, flags: dict) -> dict:
                                      dir=_scratch_parent()) as scratch:
         # raises BridgeError (-> 400) on any policy violation
         argv = build_argv(tool, flags, scratch)
+        for flag, spec in ALLOWLIST[tool]["flags"].items():
+            if spec.get("public_host") and (flags or {}).get(flag):
+                why = _url_host_refusal(str(flags[flag]), resolve=True)
+                if why:
+                    raise BridgeError("flag %s host is not public (%s)" % (flag, why))
         return _run_in(argv, scratch)
 
 
