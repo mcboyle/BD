@@ -225,7 +225,10 @@ def bundle(s_cfg: Optional[dict] = None,
         # Redact per-site config — sensitive auth/cookie data scrubbed
         redacted_cfg = {}
         for sid, cfg in s_cfg.items():
-            r = redact_secrets(cfg)
+            # BD-SEC-2 ROW 2: notifier URLs, non-plain URL fields and URL
+            # tokens in free text are withheld (egress_withhold.site_view).
+            from .egress_withhold import site_view
+            r = site_view(redact_secrets(cfg))
             # Shorten path fields
             for path_key in ("download_dir", "cookies_path", "log_path"):
                 if path_key in r and r[path_key]:
@@ -319,7 +322,8 @@ def _attach_logs(zf: zipfile.ZipFile):
     for p in candidates:
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
-            redacted = "\n".join(redact_value(ln) for ln in text.splitlines())
+            from .egress_withhold import withhold_text  # BD-SEC-2 ROW 2
+            redacted = "\n".join(withhold_text(redact_value(ln)) for ln in text.splitlines())
             zf.writestr(f"logs/{p.name}", redacted)
         except Exception:
             pass

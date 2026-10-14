@@ -25,7 +25,20 @@ def _check_csrf():
 def api_webhooks_list():
     try:
         from . import webhooks as _wh
-        return jsonify({"subscriptions": _wh.list_subscriptions()})
+        # BD-SEC-2 ROW 2: a webhook target URL is a notifier URL: never
+        # served. "url" keeps a string (the SPA renders it) holding the
+        # masked form; "url_withheld" is the {configured, scheme, masked} view.
+        # last_error quotes the target's path after a failed delivery: every
+        # JSON response serves it withheld (app._withhold_diagnostic_text).
+        from .egress_withhold import credential_url_view
+        subs = []
+        for s in _wh.list_subscriptions():
+            s = dict(s)
+            view = credential_url_view(s.get("url") or "")
+            s["url"] = view["masked"]
+            s["url_withheld"] = view
+            subs.append(s)
+        return jsonify({"subscriptions": subs})
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 

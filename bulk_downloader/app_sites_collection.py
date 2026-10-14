@@ -204,7 +204,15 @@ def api_sites_import():
     if payload is None:
         return jsonify({"ok": False,
                         "errors": ["Request body must be JSON."]}), 400
+    # BD-SEC-2 ROW 2: this route always creates a new site, so a withheld
+    # marker has no stored value to keep: the field is blank, re-enter it.
+    from .egress_withhold import restore_withheld
+    _inner = payload.get("config") if isinstance(payload, dict) else None
+    _reenter = restore_withheld(_inner if isinstance(_inner, dict) else payload, None)
     result = _se.import_config(payload, known_fields=set(CFG_FIELDS))
+    if _reenter:
+        result["warnings"].append("Withheld on export: " + ", ".join(sorted(_reenter))
+                                  + ". Re-enter them after import.")
     if not result["ok"]:
         return jsonify({"ok": False,
                         "errors": result["errors"],

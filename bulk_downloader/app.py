@@ -1305,6 +1305,29 @@ def _dev_metrics_start():
         pass
 
 @app.after_request
+def _withhold_diagnostic_text(response):
+    """BD-SEC-2 ROW 2: an error / status string the app wrote (a webhook's
+    last_error quoting the target's path, an account's reason, ...) is served
+    withheld on every JSON response (egress_withhold.diagnostic_view)."""
+    if (response.mimetype != "application/json" or response.is_streamed
+            or response.direct_passthrough):
+        return response
+    from .egress_withhold import (diagnostic_view, may_hold_diagnostic_text,
+                                  request_app_messages)
+    raw = response.get_data()
+    if not may_hold_diagnostic_text(raw):
+        return response
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return response
+    shown = diagnostic_view(body, request_app_messages())
+    if shown != body:
+        response.set_data(app.json.dumps(shown) + ("\n" if raw.endswith(b"\n") else ""))
+    return response
+
+
+@app.after_request
 def _dev_metrics_record(response):
     try:
         from flask import g
@@ -5422,7 +5445,9 @@ def _status_snapshot(light=True):
                     st["disk_free_gb"] = free_gb
                     api_status._disk_cache[dl_dir] = (now_t, free_gb)
                 except Exception: pass
-        out[sid] = st
+        # BD-SEC-2 ROW 2: same withholding as /api/status (egress_withhold).
+        from . import egress_withhold as _withhold
+        out[sid] = _withhold.status_entry(st)
     return out
 
 

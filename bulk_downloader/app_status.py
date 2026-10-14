@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 from flask import Blueprint, jsonify, request
 from .login_impl.replay import redact_url_credentials
+from . import egress_withhold as _withhold
 
 
 def _runners_generation(mapping):
@@ -79,7 +80,9 @@ def api_status():
                     api_status._disk_cache[dl_dir] = (now, free_gb)
                 except Exception:
                     pass  # path doesn't exist yet — silently skip
-        out[sid]=st
+        # BD-SEC-2 ROW 2: notifier URLs, non-plain URL fields and URL tokens
+        # in free text are withheld from the client (egress_withhold).
+        out[sid]=_withhold.status_entry(st)
     return jsonify(out)
 
 def register_routes(app) -> int:

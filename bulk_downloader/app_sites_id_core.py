@@ -720,6 +720,10 @@ def api_add():
     s_cfg = _app_s_cfg()
     s_meta = _app_s_meta()
     data = dict(request.json or {})
+    # BD-SEC-2 ROW 2: a withheld marker (from an export or a status view) is
+    # never stored; a new site has no value to keep, so the field is blank.
+    from .egress_withhold import restore_withheld
+    restore_withheld(data, None)
     actor = (request.cookies.get("bd_session", "")[:8]
              or request.remote_addr or "unknown")
     # v3.66.326: route the login password to the encrypted secrets vault as a
@@ -796,7 +800,21 @@ def api_sites_diff(sid):
     if sid not in s_cfg:
         return jsonify({"error": "Not found"}), 404
     proposed = request.get_json(silent=True) or {}
+    # BD-SEC-2 ROW 2: a withheld form sent back (as a save would) is the
+    # stored value, so it is no change; old/new are served withheld.
+    from .egress_withhold import (is_credential_url_field, restore_withheld,
+                                  value_view)
+    if isinstance(proposed, dict):
+        proposed = dict(proposed)
+        restore_withheld(proposed, s_cfg[sid])
     diff = _se.diff_config(s_cfg[sid], proposed)
+    for d in diff:
+        if isinstance(d, dict) and not d.get("secret"):
+            for side in ("old", "new"):
+                if side in d:
+                    v = value_view(d.get("field"), d[side])
+                    d[side] = (v["masked"] if is_credential_url_field(d.get("field"))
+                               and isinstance(v, dict) else v)
     return jsonify({"ok": True, "diff": diff, "change_count": len(diff)})
 
 
@@ -925,6 +943,10 @@ def api_update(sid):
     s_meta = _app_s_meta()
     if sid not in runners: return jsonify({"error":"Not found"}),404
     data=request.json or {}
+    # BD-SEC-2 ROW 2: a withheld marker echoed back keeps the stored value.
+    from .egress_withhold import restore_withheld
+    if isinstance(data, dict):
+        restore_withheld(data, s_cfg.get(sid) or {})
     # Row 395: the key is the existing point-of-enable for paid third-party
     # solving.  The acknowledgement is one-shot and must never persist.
     _captcha_egress_error = captcha_egress_disclosure_error(
