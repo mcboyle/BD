@@ -171,13 +171,25 @@ def selector_shape(selector: str) -> str:
         return ""
 
     # Pull out and preserve :has-text("...") chunks verbatim (lowercased).
+    # Same matches as re.sub(r":has-text\([^)]*\)"), in one left-to-right
+    # pass: the regex rescanned to the end from every unclosed opener, which
+    # is quadratic on a long run of ":has-text(" (ste-fix F4). Once no ")"
+    # follows an opener, no later opener can match either.
     has_texts: List[str] = []
-
-    def _grab_has_text(m):
-        has_texts.append(m.group(0).lower())
-        return ""
-
-    s = re.sub(r":has-text\([^)]*\)", _grab_has_text, s)
+    kept: List[str] = []
+    pos = 0
+    while True:
+        start = s.find(":has-text(", pos)
+        if start < 0:
+            break
+        end = s.find(")", start + len(":has-text("))
+        if end < 0:
+            break
+        kept.append(s[pos:start])
+        has_texts.append(s[start:end + 1].lower())
+        pos = end + 1
+    kept.append(s[pos:])
+    s = "".join(kept)
 
     out_parts: List[str] = []
     # Split on descendant combinator (whitespace) — process each simple
