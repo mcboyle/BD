@@ -33,9 +33,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
+import re
 import time
 from typing import Optional
+from urllib.parse import urlparse
 
 
 def _ensure_tables():
@@ -95,6 +98,17 @@ def set_peer_trust(instance_id: str, tier: str) -> bool:
         return False
 
 
+def _peer_registered(instance_id: str) -> bool:
+    _ensure_tables()
+    try:
+        from . import db as _db
+        with _db.db_conn() as cx:
+            return cx.execute("SELECT 1 FROM fed_peers WHERE instance_id = ?",
+                              ((instance_id or "").strip(),)).fetchone() is not None
+    except Exception:
+        return False
+
+
 def peer_trust(instance_id: str) -> str:
     """Return a peer's trust tier, or 'observed' if unknown."""
     _ensure_tables()
@@ -130,18 +144,54 @@ def verify_request(body_bytes: bytes, *, signature: str,
 
 # ─── Peer registry ────────────────────────────────────────────────────
 
+def _peer_base_url_ok(base_url) -> bool:
+    """fed-trust F12: a peer base_url is http(s) with a host, no userinfo, no
+    whitespace, and not a loopback / link-local / unspecified / multicast /
+    reserved address literal (LAN addresses stay allowed: home NAS peers;
+    IPv4-mapped IPv6 sits in the reserved ::/8 and is refused whole).
+    A literal check only -- a DNS name is not resolved here."""
+    if not isinstance(base_url, str) or any(c.isspace() or ord(c) < 32 for c in base_url):
+        return False
+    try:
+        u = urlparse(base_url)
+        host = (u.hostname or "").rstrip(".")
+        u.port  # raises ValueError on a non-numeric / out-of-range port
+    except ValueError:
+        return False
+    if u.scheme not in ("http", "https") or not host or "@" in u.netloc:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        # 2130706433 / 127.1 / 0x7f.1 are not names: resolvers read them as IPs
+        last = host.rsplit(".", 1)[-1]
+        return not (last.isdigit() or last.startswith("0x"))
+    return not (ip.is_loopback or ip.is_link_local or ip.is_unspecified
+                or ip.is_multicast or ip.is_reserved)
+
+
 def register_peer(instance_id: str, base_url: str,
                  *, last_history_id: int = 0,
-                 version: str = "", hostname: str = "") -> bool:
+                 version: str = "", hostname: str = "",
+                 operator: bool = False) -> bool:
     """Insert or refresh a peer's last_seen_ts. Called when a peer
-    POSTs /api/fed/announce."""
+    POSTs /api/fed/announce.
+
+    fed-trust F3: every peer signs with the same shared fed_token, so a
+    signed announce does not prove it comes from the peer it names. A
+    re-announce therefore never moves an existing peer to a different
+    base_url; only an operator call (operator=True) may."""
     if not instance_id or not base_url:
+        return False
+    if not _peer_base_url_ok(base_url):
         return False
     _ensure_tables()
     try:
         from . import db as _db
         with _db.db_conn() as cx:
-            cx.execute("""INSERT INTO fed_peers(
+            cur = cx.execute("""INSERT INTO fed_peers(
                 instance_id, base_url, last_seen_ts, last_history_id,
                 version, hostname
             ) VALUES (?,?,?,?,?,?)
@@ -150,10 +200,11 @@ def register_peer(instance_id: str, base_url: str,
                 last_seen_ts = excluded.last_seen_ts,
                 last_history_id = excluded.last_history_id,
                 version = excluded.version,
-                hostname = excluded.hostname""",
+                hostname = excluded.hostname
+            WHERE ? OR fed_peers.base_url = excluded.base_url""",
                 (instance_id, base_url, time.time(),
-                 int(last_history_id), version, hostname))
-        return True
+                 int(last_history_id), version, hostname, bool(operator)))
+            return cur.rowcount > 0
     except Exception:
         return False
 
@@ -427,11 +478,37 @@ def build_template_bundle(host: str) -> Optional[dict]:
     return bundle
 
 
+_INSTANCE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
+
+
+def _bundle_host_mismatch(bundle: dict) -> bool:
+    """fed-trust F5: the operator reviews a push by its site_id, so a template
+    body naming a different host is refused rather than rewritten."""
+    tmpl = bundle.get("template")
+    body_host = tmpl.get("host") if isinstance(tmpl, dict) else None
+    if body_host in (None, ""):
+        return False
+    site_id = bundle.get("site_id")
+    return not (isinstance(body_host, str) and isinstance(site_id, str)
+                and body_host.strip().lower() == site_id.strip().lower())
+
+
 def receive_template(from_instance: str, bundle: dict) -> dict:
     """Verify + validate a peer's template bundle and queue it for operator
     review. Returns {ok, pending_id} or {ok: False, error}."""
     if not isinstance(bundle, dict):
         return {"ok": False, "error": "bundle not a dict"}
+    # fed-trust F4: from_instance is an id, not free text; a blocked peer's
+    # push is refused like its claims are.
+    if not isinstance(from_instance, str) or not _INSTANCE_ID_RE.fullmatch(from_instance):
+        return {"ok": False, "error": "instance_id must be 1-128 of A-Z a-z 0-9 _ . : -"}
+    if peer_trust(from_instance) == "blocked":
+        return {"ok": False, "error": "peer is blocked"}
+    token = _fed_token()
+    # With a shared token set, a push must name a peer that has announced (or
+    # an operator registered); with no token federation is open by design.
+    if token and not _peer_registered(from_instance):
+        return {"ok": False, "error": "peer is not registered"}
     try:
         from . import marketplace as _mk
     except Exception:
@@ -439,7 +516,8 @@ def receive_template(from_instance: str, bundle: dict) -> dict:
     v = _mk.validate_bundle(bundle)
     if not v.get("ok"):
         return {"ok": False, "error": "; ".join(v.get("errors", [])) or "invalid bundle"}
-    token = _fed_token()
+    if _bundle_host_mismatch(bundle):
+        return {"ok": False, "error": "template host differs from site_id"}
     # If we have a shared token, a signed bundle must verify. An unsigned
     # bundle is allowed only when no token is configured.
     sig = _mk.verify_signature(bundle, secret=token) if token else {"ok": True, "signed": False}
@@ -453,7 +531,7 @@ def receive_template(from_instance: str, bundle: dict) -> dict:
             cur = cx.execute(
                 "INSERT INTO fed_pending_templates(from_instance, site_id, "
                 "bundle_json, received_ts, status) VALUES (?,?,?,?, 'pending')",
-                (str(from_instance or "")[:128], v.get("site_id", ""),
+                (from_instance, v.get("site_id", ""),
                  _json.dumps(bundle), time.time()))
             return {"ok": True, "pending_id": cur.lastrowid}
     except Exception as e:
@@ -529,6 +607,8 @@ def _apply_template_bundle(from_instance: str, bundle: dict) -> dict:
     host = bundle.get("site_id") or (tmpl.get("host") if isinstance(tmpl, dict) else "")
     if not isinstance(tmpl, dict) or not host:
         return {"ok": False, "error": "bundle has no usable template"}
+    if _bundle_host_mismatch(bundle):  # rows queued before the receive-side check
+        return {"ok": False, "error": "template host differs from site_id"}
     dirs = getattr(_tr, "DEFAULT_TEMPLATE_DIRS", None) or []
     if not dirs:
         return {"ok": False, "error": "no template dir configured"}
@@ -537,8 +617,16 @@ def _apply_template_bundle(from_instance: str, bundle: dict) -> dict:
         target_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
-    safe_peer = _re.sub(r"[^A-Za-z0-9_.-]", "_", str(from_instance or "peer"))[:48]
-    safe_host = _re.sub(r"[^A-Za-z0-9_.-]", "_", str(host))[:80]
+    def _safe(raw: str, cap: int) -> str:
+        # fed-trust F5: a name that had to be cut or rewritten carries a hash of
+        # the original, so two long / unusual hosts never share one file.
+        safe = _re.sub(r"[^A-Za-z0-9_.-]", "_", raw)
+        if safe == raw and len(safe) <= cap:
+            return safe
+        return f"{safe[:cap]}~{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:12]}"
+
+    safe_peer = _safe(str(from_instance or "peer"), 48)
+    safe_host = _safe(str(host), 80)
     fname = f"fed_{safe_peer}_{safe_host}.template.json"
     out = dict(tmpl)
     out["host"] = host
