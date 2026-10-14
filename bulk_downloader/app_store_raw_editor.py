@@ -182,6 +182,21 @@ def api_store_raw_post():
         if guard_err:
             return jsonify({"ok": False, "error": guard_err,
                             "note": "no write performed"}), 400
+        # (c2) raw-editors F5: a secret typed into a tunnel's config goes to
+        # secrets_store as a @cred ref, exactly like the VPN save path
+        # (app_vpn_api: vpn_config.store_secrets). A refusing store refuses
+        # the request; the secret never reaches tunnels.json.
+        try:
+            from bulk_downloader import vpn_config
+            for t in data.get("tunnels", []):
+                if "config" in t:
+                    t["config"] = vpn_config.store_secrets(t["tunnel_id"],
+                                                           t["config"])
+        except Exception as e:  # noqa: BLE001
+            return jsonify({"ok": False, "error": "secret store refused "
+                            f"({type(e).__name__}); a tunnel secret cannot "
+                            "be moved out of tunnels.json",
+                            "note": "no write performed"}), 503
     # (d) atomic write of the normalized JSON, then (e) cache-invalidate
     try:
         _atomic_write(_path_for(store), json.dumps(data, indent=2))

@@ -3,16 +3,24 @@
 F-APP04-01 -- the /api/dev/* surface is default-ON (is_dev_mode() opt-out) and
 was reachable UNAUTHENTICATED from the network on a box with no global auth
 token configured (_check_token returns early when no tokens are set). _dev_mode_
-guard now also requires an authorized request: loopback, a same-origin browser
-request (the SPA), a valid redeemed session, or the master bearer/X-BD-Token.
+guard now also requires an authorized request: loopback, an authenticated
+(logged-in) session, or the master bearer/X-BD-Token.
+
+raw-editors F1 (PM-B 0816Z, REFUSE): the guard used to admit Referer host ==
+Host as a "same-origin SPA" request, and test_dev_route_allows_same_origin_spa
+pinned that. Both headers are chosen by the caller (O1671 AUDIT-16 -- the same
+reason test_shell_refuses_referer_host_only below refuses it for the shell), so
+any non-browser network client could reach /api/dev/* by sending them. The test
+now asserts the refusal; a remote SPA on a token-less box has to log in or set a
+token.
 
 F-COCKPIT03-01 -- the arbitrary-command cockpit web-shell (/cockpit/api/shell/*)
 had no self-contained origin/bind guard. cockpit_console now refuses shell
 requests that are neither loopback nor same-origin.
 
-Trust model that keeps the SPA + local/standalone use working while blocking a
-remote unauthenticated cross-origin caller:
-  loopback (local / standalone / test-client) OR same-origin OR session OR token.
+Dev-route trust model (local/standalone use keeps working; a remote caller must
+prove who it is):
+  loopback (local / standalone / test-client) OR authenticated session OR token.
 """
 
 # H622 slice A. An ordinary module test: its subject is the module under
@@ -37,13 +45,15 @@ def test_dev_route_blocks_remote_unauthenticated():
     assert r.status_code == 403, f"remote unauth dev request must be 403, got {r.status_code}"
 
 
-def test_dev_route_allows_same_origin_spa():
+def test_dev_route_refuses_referer_host_only():
+    # raw-editors F1: Host and Referer are client-controlled (O1671 AUDIT-16);
+    # matching them is not a same-origin proof. This test used to assert the
+    # opposite (test_dev_route_allows_same_origin_spa).
     from bulk_downloader.app import app
     c = app.test_client()
-    # same-origin browser request: Referer host:port == Host
     r = c.get(_DEV_ROUTE, environ_base=_REMOTE,
               headers={"Host": "bd.local:5555", "Referer": "http://bd.local:5555/"})
-    assert r.status_code != 403, f"same-origin SPA dev request must NOT be 403, got {r.status_code}"
+    assert r.status_code == 403, f"Referer==Host-only dev request must be 403, got {r.status_code}"
 
 
 def test_dev_route_allows_loopback():
