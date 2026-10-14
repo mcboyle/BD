@@ -558,11 +558,14 @@ def zip_manifest_check(zip_path) -> dict:
 
 
 
+_SYSTEMD_UNIT_CANDIDATES = ("/etc/systemd/system/bulkdownloader.service",
+                            "/lib/systemd/system/bulkdownloader.service",
+                            "/usr/lib/systemd/system/bulkdownloader.service")
+
+
 def _find_systemd_unit():
     """Locate a bulkdownloader systemd unit if one is installed."""
-    for cand in ("/etc/systemd/system/bulkdownloader.service",
-                 "/lib/systemd/system/bulkdownloader.service",
-                 "/usr/lib/systemd/system/bulkdownloader.service"):
+    for cand in _SYSTEMD_UNIT_CANDIDATES:
         if _dl_os.path.exists(cand):
             return cand
     return None
@@ -586,6 +589,109 @@ def _parse_unit(text):
             out[section][k.strip()] = v.strip()
     return out
 
+
+
+# ── dev-path-inputs (O1789 F6/F7): caller-supplied dev-console paths ──
+# The /api/dev ?path= / ?tests_dir= / ?artifacts_dir= inputs used to be
+# opened as given: a FIFO hung the request thread, /dev/zero was read
+# until MemoryError, and any local file / dir / archive could be echoed
+# or listed (plus an exists-oracle). Every caller-supplied value now
+# resolves (realpath) under a root -- cwd, the repo, or the reveal-safe
+# roots (path_allowlist, or BD's default download roots when it is
+# empty) -- and must be a regular file (or a directory) under a size
+# cap. Outside-root, missing and wrong-type all return ONE message so
+# the refusal is not an oracle.
+DEV_INPUT_FILE_CAP = 8_000_000   # 8 MB — a unit file / test_results.json
+
+
+def _dev_input_roots():
+    roots = []
+    try:
+        roots.append(_dl_os.getcwd())
+    except OSError:
+        pass
+    roots.append(str(_repo_root()))
+    try:
+        from bulk_downloader import app as _app
+        roots.extend(str(r) for r in _app._reveal_safe_roots())
+    except Exception:
+        pass
+    out = []
+    for r in roots:
+        try:
+            out.append(_dl_os.path.realpath(r))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def confine_dev_input(raw, kind="file", cap=DEV_INPUT_FILE_CAP,
+                      label="path", extra=()):
+    """Gate a caller-supplied dev-console path. kind is "file" (regular
+    file, size <= cap unless cap is None) or "dir". extra = exact paths
+    also accepted (e.g. the installed systemd unit). Returns
+    (ok, realpath_or_error)."""
+    import stat as _stat
+    want = "regular file" if kind == "file" else "directory"
+    refused = f"{label} refused: not a {want} under an allowlisted root"
+    if not isinstance(raw, str) or not raw.strip() or "\x00" in raw:
+        return False, f"{label} required"
+    p = raw.strip()
+    if ".." in _dl_re.split(r"[\\/]+", p):
+        return False, refused
+    try:
+        real = _dl_os.path.realpath(p)
+    except (OSError, ValueError):
+        return False, refused
+    allowed = {_dl_os.path.realpath(e) for e in extra}
+    if real not in allowed:
+        inside = False
+        for root in _dev_input_roots():
+            try:
+                if _dl_os.path.commonpath([real, root]) == root:
+                    inside = True
+                    break
+            except ValueError:
+                continue
+        if not inside:
+            return False, refused
+    try:
+        st = _dl_os.stat(real)
+    except (OSError, ValueError):
+        return False, refused
+    if kind == "dir":
+        if not _stat.S_ISDIR(st.st_mode):
+            return False, refused
+    elif not _stat.S_ISREG(st.st_mode):
+        return False, refused
+    elif cap is not None and st.st_size > cap:
+        return False, f"{label} refused: exceeds {cap} bytes"
+    return True, real
+
+
+def read_dev_input_text(path, cap=DEV_INPUT_FILE_CAP):
+    """Read a regular file as UTF-8, at most cap bytes. Opens
+    non-blocking and re-checks the type on the open fd, so a FIFO or
+    device swapped in after confine_dev_input still cannot hang or
+    exhaust the reader. Raises OSError on refusal."""
+    import stat as _stat
+    fd = _dl_os.open(path, _dl_os.O_RDONLY | getattr(_dl_os, "O_NONBLOCK", 0))
+    try:
+        if not _stat.S_ISREG(_dl_os.fstat(fd).st_mode):
+            raise OSError(f"not a regular file: {path}")
+        chunks, left = [], cap + 1
+        while left > 0:
+            b = _dl_os.read(fd, min(left, 65536))
+            if not b:
+                break
+            chunks.append(b)
+            left -= len(b)
+    finally:
+        _dl_os.close(fd)
+    data = b"".join(chunks)
+    if len(data) > cap:
+        raise OSError(f"exceeds {cap} bytes: {path}")
+    return data.decode("utf-8")
 
 
 def systemd_unit_check(unit_path=None, unit_text=None):
@@ -613,8 +719,7 @@ def systemd_unit_check(unit_path=None, unit_text=None):
             return {"tool": "systemd_unit_check", "ok": False,
                     "error": f"unit file not found: {path}"}
         try:
-            with open(path, encoding="utf-8") as fh:
-                unit_text = fh.read()
+            unit_text = read_dev_input_text(path)
         except Exception as e:
             return {"tool": "systemd_unit_check", "ok": False,
                     "error": f"could not read unit: {e}"}

@@ -49,8 +49,14 @@ def api_dev_parametrize_fanout():
     if guard: return guard
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.parametrize_fanout(
-            request.args.get("tests_dir", "tests")))
+        from .dev_suite import release_lint as _rl
+        tests_dir = request.args.get("tests_dir")
+        if tests_dir:
+            ok, tests_dir = _rl.confine_dev_input(
+                tests_dir, kind="dir", label="tests_dir")
+            if not ok:
+                return jsonify({"ok": False, "error": tests_dir})
+        return jsonify(_ds.parametrize_fanout(tests_dir or "tests"))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -64,8 +70,15 @@ def api_dev_flaky_tests():
     if guard: return guard
     try:
         from . import dev_suite as _ds
+        from .dev_suite import release_lint as _rl
+        artifacts_dir = request.args.get("artifacts_dir")
+        if artifacts_dir:
+            ok, artifacts_dir = _rl.confine_dev_input(
+                artifacts_dir, kind="dir", label="artifacts_dir")
+            if not ok:
+                return jsonify({"ok": False, "error": artifacts_dir})
         return jsonify(_ds.flaky_test_detector(
-            request.args.get("artifacts_dir", "test_artifacts")))
+            artifacts_dir or "test_artifacts"))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -227,6 +240,11 @@ def api_dev_test_timing():
     try:
         from . import dev_suite as _ds
         path = request.args.get("path") or None
+        if path:
+            from .dev_suite import release_lint as _rl
+            ok, path = _rl.confine_dev_input(path)
+            if not ok:
+                return jsonify({"ok": False, "error": path})
         # Cap top to keep the response bounded.
         try:
             top = max(1, min(int(request.args.get("top", 30)), 200))
