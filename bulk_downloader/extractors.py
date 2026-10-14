@@ -419,8 +419,10 @@ def _phub_adapter(url: str, quality_preference: list[str],
                     "worst": "LOW", "low": "LOW", "min": "LOW"}
             qkey = qmap.get(pref, "BEST")
             qval = getattr(Quality, qkey, getattr(Quality, "BEST", None))
+            asked = pref if pref in qmap else "best"   # bughunt ah-fix F10
         else:
             qval = None
+            asked = quality_preference[0] if quality_preference else "best"
         # phub.Video has .get_direct_url(quality=Quality.BEST) OR .direct
         direct = None
         if hasattr(video, "get_direct_url"):
@@ -459,7 +461,7 @@ def _phub_adapter(url: str, quality_preference: list[str],
             ok=True, file_url=direct,
             is_hls=urlparse(direct).path.lower().endswith(".m3u8") or "/hls/" in direct,
             title=title, author=author, thumbnail_url=thumb,
-            duration_sec=duration, quality=quality_preference[0] if quality_preference else "best",
+            duration_sec=duration, quality=asked,
             extractor="phub",
         )
     except Exception as e:
@@ -501,6 +503,7 @@ def _generic_eaf_adapter(libname: str, url: str,
         # Quality enum
         Quality = getattr(lib, "Quality", None)
         qval = None
+        asked = "best"
         if Quality and quality_preference:
             pref = quality_preference[0].lower()
             qmap = {"best": "BEST", "highest": "BEST",
@@ -508,6 +511,10 @@ def _generic_eaf_adapter(libname: str, url: str,
                     "high": "HALF", "low": "WORST"}
             qkey = qmap.get(pref, "BEST")
             qval = getattr(Quality, qkey, getattr(Quality, "BEST", None))
+            # bughunt ah-fix F10: these libraries take BEST/HALF/WORST only. A
+            # height ("720", "480,best") is asked for as BEST, so say "best":
+            # the result used to carry the preference as if it had been met.
+            asked = pref if pref in qmap else "best"
         # Find the URL via one of the common methods.
         file_url = ""
         is_hls = False
@@ -557,7 +564,7 @@ def _generic_eaf_adapter(libname: str, url: str,
             ok=True, file_url=file_url, is_hls=is_hls,
             title=title, author=author, thumbnail_url=str(thumb) if thumb else "",
             duration_sec=duration,
-            quality=quality_preference[0] if quality_preference else "best",
+            quality=asked,
             extractor=libname,
         )
     except Exception as e:

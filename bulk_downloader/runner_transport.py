@@ -1856,6 +1856,12 @@ class TransportMixin:
                         f"  direct_http: incomplete response ({got}/{total} bytes)\n"
                     )
                     return False
+                if got == 0:
+                    # bughunt ah-fix F11: a 200 with no body is not a file; it
+                    # was promoted as a 0 B output and the job recorded done.
+                    # (False is enough: the staging wrapper discards the .part.)
+                    sys.stderr.write("  direct_http: empty response body (0 bytes)\n")
+                    return False
             # fx-txxx-premium-page-fallback E2: a 200 page body is not the media;
             # every extractor on this leg falls through instead of saving it done.
             return not self._direct_page_body_refused(page_url, file_url, output_path)

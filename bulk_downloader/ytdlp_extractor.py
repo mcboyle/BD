@@ -98,7 +98,16 @@ def _is_muxed(fmt: dict) -> bool:
     download, which the 691 direct-http path does not do -> skip it."""
     vcodec = fmt.get("vcodec")
     acodec = fmt.get("acodec")
-    return (vcodec not in (None, "", "none")) and (acodec not in (None, "", "none"))
+    # bughunt ah-fix F6: only the literal "none" says a stream is absent. A
+    # missing / null codec is yt-dlp's "unknown" (every generic direct file
+    # link), and treating it as absent made the shim return {} for all of them.
+    return vcodec != "none" and acodec != "none"
+
+
+def _text(value) -> str:
+    """bughunt ah-fix F14: an info field as stripped text; a non-string (a
+    numeric title, a list) is "" rather than an AttributeError out of the shim."""
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _rank_num(value, cast):
@@ -120,8 +129,8 @@ def info_to_extractor_result(info) -> dict:
     """
     if not isinstance(info, dict):
         return {}
-    title = (info.get("title") or "").strip()
-    top_ext = (info.get("ext") or "").strip()
+    title = _text(info.get("title"))
+    top_ext = _text(info.get("ext"))
 
     candidates = []          # (height, tbr, url, ext)
     hls_url = ""
@@ -130,8 +139,8 @@ def info_to_extractor_result(info) -> dict:
         for f in formats:
             if not isinstance(f, dict):
                 continue
-            u = (f.get("url") or "").strip()
-            proto = f.get("protocol") or ""
+            u = _text(f.get("url"))
+            proto = _text(f.get("protocol"))
             if _proto_is_hls_dash(proto):
                 if not hls_url and u:
                     hls_url = u
@@ -144,12 +153,12 @@ def info_to_extractor_result(info) -> dict:
                 _rank_num(f.get("height"), int),
                 _rank_num(f.get("tbr"), float),
                 u,
-                (f.get("ext") or "").strip(),
+                _text(f.get("ext")),
             ))
     else:
         # No formats list: fall back to the top-level url + protocol.
-        u = (info.get("url") or "").strip()
-        proto = info.get("protocol") or ""
+        u = _text(info.get("url"))
+        proto = _text(info.get("protocol"))
         if u and _proto_is_hls_dash(proto):
             hls_url = u
         elif u and _proto_is_http(proto):

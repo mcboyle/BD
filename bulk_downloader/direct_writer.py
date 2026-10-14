@@ -153,6 +153,10 @@ def write_direct(
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     size = src_path.stat().st_size
+    # bughunt ah-fix F14: source == output truncated the file to 0 bytes and
+    # still reported total_bytes=size.
+    if out_path.exists() and os.path.samefile(src_path, out_path):
+        raise ValueError(f"write_direct: source and output are the same file: {out_path}")
 
     o_direct_flag = _o_direct_flag()
     if o_direct_flag is None or size < min_direct_bytes:
