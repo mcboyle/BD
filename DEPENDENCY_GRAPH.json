@@ -2432,7 +2432,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1860,
+    "edge_count": 1861,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2541,6 +2541,7 @@
         "bulk_downloader/dev_suite/housekeeping.py",
         "bulk_downloader/dev_suite/integrations_diag.py",
         "bulk_downloader/dev_suite/jobs_runner.py",
+        "bulk_downloader/dev_suite/release_lint.py",
         "bulk_downloader/download_window.py",
         "bulk_downloader/runner_accounts.py",
         "bulk_downloader/runner_auth.py",
@@ -6600,7 +6601,8 @@
         "bulk_downloader/perf_lab.py"
       ],
       "bulk_downloader/dev_suite/release_lint.py": [
-        "bulk_downloader/_bat_lint.py"
+        "bulk_downloader/_bat_lint.py",
+        "bulk_downloader/app.py"
       ],
       "bulk_downloader/dev_suite/test_meta.py": [
         "bulk_downloader/dev_tools.py"

@@ -715,6 +715,15 @@ _DOWNLOAD_ERROR_VETO_RE = re.compile(
     r"\bstopped\b|\brate(?:[ _-]?limit\w*)?\b", re.I)
 
 
+def _download_error_vetoed(exc):
+    """Whether `exc` is a stop signal or a rate limit: never retried on the
+    same url and never walked to the next mirror. Whole words, with `_` and
+    camelCase split first so "download_stopped", "http_rate_limited" and
+    "DownloadStopped" still veto (dat-retry-class-caller, R165-D A2)."""
+    text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", str(exc))
+    return bool(_DOWNLOAD_ERROR_VETO_RE.search(text.replace("_", " ")))
+
+
 def _content_length(value):
     """Content-Length as an int (missing -> 0). bughunt ddt-fix F4: curl_cffi
     joins repeated header lines, so two identical Content-Length lines read
@@ -739,10 +748,9 @@ def _is_transient_download_error(exc):
     (httpx.ReadTimeout, ConnectionResetError, curl_cffi's own errors, ...)
     into one `_HTTPDownloadFailed(str(e))`, so the original type is gone by
     the time a caller sees it."""
-    text = str(exc).lower()
-    if _DOWNLOAD_ERROR_VETO_RE.search(text):
+    if _download_error_vetoed(exc):
         return False
-    return bool(_TRANSIENT_DOWNLOAD_ERROR_RE.search(text))
+    return bool(_TRANSIENT_DOWNLOAD_ERROR_RE.search(str(exc).lower()))
 
 
 _DAILY_ACCUMULATOR_REGISTRY_BOOTSTRAP_LOCK = threading.Lock()
@@ -4396,9 +4404,10 @@ class TransportMixin:
                         **({"resource_url": file_url} if attempt_url != file_url else {}))
                 except _HTTPDownloadFailed as e:
                     last_err = e
-                    # Don't retry on stop signal or rate-limit.
-                    s = str(e).lower()
-                    if "stopped" in s or "rate" in s:
+                    # Don't retry on stop signal or rate-limit. Whole words:
+                    # "separate-cdn" / "accelerate" / "/generated/" in a
+                    # message are not a rate limit (dat-retry-class-caller).
+                    if _download_error_vetoed(e):
                         raise
                     if retries_left > 0 and _is_transient_download_error(e):
                         retries_left -= 1

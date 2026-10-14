@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1854 - train281m: row
+
+T281m-B = train-5 (O3141/O3142 F3: on MAIN ba4827d9 = train-4 T281l-D landed; member list frozen at assembly 17:45Z; 9 members (F017 r2-restack ejected: gitleaks jwt fixture, EJECT-F017-r2-restack), pairwise path-disjoint, greedy by priority then BOARD age, <=15 per RULING-pm-B-ci-queue-1640Z). Product train; legs BOARD per O1672/BOARDED-for-integration.md; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge (F4). Waiting for train-6 (same-train overlaps / conflicts -> restack row ROW-integrator-train5-restacks): request-capture-redact r2, ext-route-anchor r2, dev-run-bounds r1, ext-csrf-token r1 (chain tail of rcr), plex-error-redact r1 (chain tail of pap r2), secrets-master-throttle-atomic r1b, fed-input-lows r1, pair-admission-proxy r2, dva-trusted-proxies r1.
+FIX: session-jar-integrity r2 -- HIGH; integration-bounce refile of session-jar r1 (R263-B, BOARDED 15:24Z).
+FIX: dev-path-inputs r1 -- MED (R254-B, BOARDED 15:24Z; after dev-exec-lows r2 landed in train-3).
+FIX: dom-recorder-bounds r1 -- LOW; guards.json pin merged by resolve script, 7 guard shas re-verified (R260-B, BOARDED 15:54Z).
+FIX: dl-multiconn -- refreshed carry on fd97d96d, BOARD stands (bd-cx-review-correctness152; O3143 B2).
+FIX: br-f6 -- refreshed carry on fd97d96d, BOARD stands (bd-cx-review-correctness150; O3143 B2).
+FIX: stream-token r1 -- re-BOARDED 2/2 (correctness + shape) 17:25Z; app_stream.py/stream_relay.py after sse-broker-lows + media-misc-lows landed in train-2.
+TEST: census-delta r1 -- O3142 F2 tooling: deterministic census/ratchet re-sum across a train's members (BOARDED 17:35Z).
+FIX: dat-retry-class-caller rebase -- AGY-07 rebase of the dat-retry caller cut on 44640c61 (BOARDED 16:34Z).
+FIX: ddr-fix f8-f11 r2 -- runner_queue.py F8 F10 F11 + R163-A F1, chain tail of ddr-fix r3 (landed train-3); folds the r1 owed test patch OWED-qti-meta-f14.diff (BOARDED 11:05Z).
+
+
 ## v3.66.1853 - train281l: row
 
 T281l-D (train-4, integrator D2-D) on main fe0ef7a9 (train-3 T281k merged) (6 members; product train; legs BOARD per O1672/BOARDED-for-integration.md). Members path-disjoint from each other (ORDER-pm-B-landing-5fix-1620Z F3); list frozen at assembly; intake T281i/t4/INTAKE-train4-1620Z.md.

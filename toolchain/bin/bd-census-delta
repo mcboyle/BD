@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""bd-census-delta -- re-sum a census pin across a train's members, NAMED.
+
+WHEN: a train carries two cuts that each add a census consumer. Each cut is green
+against its own base, the train is not: the pin says 39, the tree measures 41
+(T281i, both trains). The integrator then hand-edits the pin under a one-off script
+(extrafix-census-iC.sh). This tool is that script generalized: it measures, it
+never guesses, and it prints every pin it changes with the member that changed it.
+
+    bd-census-delta --census rowssrf-consumers --head <train-wt>
+                    [--base <base-wt>] [--member NAME=<cut-wt> ...] [--check]
+
+THE MEASURER IS THE PIN'S OWN TEST. The census function is loaded from each tree's
+copy of the pinned test file, by path, and called there -- never reimplemented here,
+so the tool and the test cannot disagree about what a consumer is.
+
+NEW PIN = measure(head), absolute. Re-running on a re-pinned head changes nothing
+(idempotent). Each member's delta is measure(member) - measure(base); it NAMES the
+change. A change no member explains is printed as `unattributed`, and a head that
+does not equal base + the sum of the members is printed as INTERACTION -- the head
+measurement still decides, the mismatch is reported, never hidden.
+
+REFUSES (rc 2, head file untouched): any measured tree reports a text-decision
+escape (re-pinning a count over a live escape would weaken a failure); the measurer
+raises (its own `UNKNOWN:` assertions mean the census could not look); a
+hand-maintained INPUT pin (`_NONCANONICAL_SAME_NAME_CALLS`, read by the measurer to
+classify calls) disagrees with measurement -- that one is re-audited by hand.
+
+EDIT RULES (by AST span, bottom-up; text outside the edited spans is preserved):
+  count changed, same symbols  -> the integer is replaced in place (comments kept);
+  symbol set changed           -> that path's inner dict is regenerated;
+  path new                     -> entry + one `# bd-census-delta:` comment naming
+                                  the members, inserted before the closing brace;
+  path gone (all counts zero)  -> the entry lines and the contiguous comment block
+                                  directly above them are removed.
+
+Exit: 0 pin already equals measurement | 1 pins changed (written; with --check, would
+change) | 2 could not look / refused / bad arguments.
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+from collections import Counter
+import importlib.util
+from pathlib import Path
+import sys
+
+CENSUSES = {
+    # name -> (pin file, rewritten pin, hand-maintained input pins, measurer)
+    "rowssrf-consumers": (
+        "tests/test_rowssrf_loopback_reason_is_structured.py",
+        "_EXPECTED_RUNTIME_CONSUMERS",
+        ("_NONCANONICAL_SAME_NAME_CALLS",),
+        "_consumer_census",
+    ),
+}
+
+
+class CouldNotLook(Exception):
+    pass
+
+
+def _measure(tree: Path, census: str, label: str):
+    pin_rel, _pin, _inputs, func = CENSUSES[census]
+    path = tree / pin_rel
+    if not path.is_file():
+        raise CouldNotLook(f"{label}: pin file absent: {path}")
+    mod_name = f"_bd_census_delta_{label}_{abs(hash(str(path)))}"
+    spec = importlib.util.spec_from_file_location(mod_name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = module
+    try:
+        spec.loader.exec_module(module)
+        measured, noncanonical, judged, escapes = getattr(module, func)()
+    except Exception as ex:  # the measurer's UNKNOWN asserts land here
+        raise CouldNotLook(f"{label}: measurer {func} could not look: "
+                           f"{type(ex).__name__}: {ex}") from ex
+    finally:
+        sys.modules.pop(mod_name, None)
+    if escapes:
+        raise CouldNotLook(f"{label}: census reports text-decision escapes, "
+                           f"refusing to re-pin: {list(escapes)}")
+    flat = Counter()
+    for rel, counts in measured.items():
+        for sym, n in counts.items():
+            if n:
+                flat[(rel, sym)] += n
+    return flat, {r: dict(c) for r, c in noncanonical.items() if c}, judged
+
+
+def _pin_nodes(source: str, name: str):
+    tree = ast.parse(source)
+    found = [n for n in tree.body if isinstance(n, ast.Assign)
+             and any(isinstance(t, ast.Name) and t.id == name for t in n.targets)]
+    if len(found) != 1 or not isinstance(found[0].value, ast.Dict):
+        raise CouldNotLook(f"pin {name}: expected one dict-literal assignment, "
+                           f"found {len(found)}")
+    return found[0].value
+
+
+def _flat_pin(node: ast.Dict) -> Counter:
+    flat = Counter()
+    for rel, counts in ast.literal_eval(node).items():
+        for sym, n in counts.items():
+            flat[(rel, sym)] += n
+    return flat
+
+
+def _offsets(raw: bytes):
+    starts = [0]
+    for i, b in enumerate(raw):
+        if b == 0x0A:
+            starts.append(i + 1)
+    return lambda line, col: starts[line - 1] + col, starts
+
+
+def _inner_text(counts: dict, indent: int) -> str:
+    items = sorted(counts.items())
+    if len(items) == 1:
+        sym, n = items[0]
+        return f'{{"{sym}": {n}}}'
+    pad = " " * (indent + 4)
+    body = "".join(f'{pad}"{sym}": {n},\n' for sym, n in items)
+    return "{\n" + body + " " * indent + "}"
+
+
+def _rewrite(source: str, name: str, new: Counter, notes: dict) -> str:
+    raw = source.encode("utf-8")
+    at, starts = _offsets(raw)
+    outer = _pin_nodes(source, name)
+    old_by_path: dict = {}
+    for key, value in zip(outer.keys, outer.values):
+        old_by_path[ast.literal_eval(key)] = (key, value)
+    new_by_path: dict = {}
+    for (rel, sym), n in new.items():
+        if n:
+            new_by_path.setdefault(rel, {})[sym] = n
+    if not outer.keys:
+        raise CouldNotLook(f"pin {name}: empty dict has no entry layout to follow")
+    indent = outer.keys[0].col_offset
+    edits = []  # (start, end, replacement bytes)
+
+    def line_of(off):
+        lo = max(i for i, s in enumerate(starts) if s <= off)
+        return lo, starts[lo], (starts[lo + 1] if lo + 1 < len(starts) else len(raw))
+
+    for rel, (knode, vnode) in old_by_path.items():
+        old_counts = ast.literal_eval(vnode)
+        want = new_by_path.get(rel)
+        if want == old_counts:
+            continue
+        if want is None:
+            k_off = at(knode.lineno, knode.col_offset)
+            v_end = at(vnode.end_lineno, vnode.end_col_offset)
+            li, l_start, _ = line_of(k_off)
+            _, _, end_line_end = line_of(v_end)
+            if raw[l_start:k_off].strip() or raw[v_end:end_line_end].strip() not in (b",", b""):
+                raise CouldNotLook(f"pin {name}[{rel}]: entry shares a line; edit by hand")
+            while li > 0:
+                prev = raw[starts[li - 1]:starts[li]].strip()
+                if not prev.startswith(b"#"):
+                    break
+                li -= 1
+            edits.append((starts[li], end_line_end, b""))
+        elif set(want) == set(old_counts) and isinstance(vnode, ast.Dict):
+            for sk, sv in zip(vnode.keys, vnode.values):
+                sym = ast.literal_eval(sk)
+                if want[sym] != old_counts[sym]:
+                    edits.append((at(sv.lineno, sv.col_offset),
+                                  at(sv.end_lineno, sv.end_col_offset),
+                                  str(want[sym]).encode()))
+        else:
+            edits.append((at(vnode.lineno, vnode.col_offset),
+                          at(vnode.end_lineno, vnode.end_col_offset),
+                          _inner_text(want, indent).encode()))
+    added = sorted(set(new_by_path) - set(old_by_path))
+    if added:
+        close = at(outer.end_lineno, outer.end_col_offset) - 1
+        _, l_start, _ = line_of(close)
+        if raw[l_start:close].strip():
+            raise CouldNotLook(f"pin {name}: closing brace shares a line; edit by hand")
+        pad = " " * indent
+        text = "".join(
+            f"{pad}# bd-census-delta: {notes.get(rel, 'unattributed')}\n"
+            f'{pad}"{rel}": {_inner_text(new_by_path[rel], indent)},\n'
+            for rel in added)
+        edits.append((l_start, l_start, text.encode("utf-8")))
+    for start, end, rep in sorted(edits, key=lambda e: (e[0], e[1]), reverse=True):
+        raw = raw[:start] + rep + raw[end:]
+    return raw.decode("utf-8")
+
+
+def _parse_member(text: str):
+    name, sep, path = text.partition("=")
+    if not sep or not name or not path:
+        raise argparse.ArgumentTypeError(f"--member wants NAME=<worktree>, got {text!r}")
+    return name, Path(path)
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="bd-census-delta", description=__doc__.splitlines()[0])
+    ap.add_argument("--census", required=True, choices=sorted(CENSUSES))
+    ap.add_argument("--head", required=True, type=Path,
+                    help="train worktree whose pin is re-derived (and rewritten)")
+    ap.add_argument("--base", type=Path, help="worktree at the train's base")
+    ap.add_argument("--member", action="append", default=[], type=_parse_member,
+                    help="NAME=<worktree> of one train member (repeatable)")
+    ap.add_argument("--check", action="store_true", help="report only, never write")
+    args = ap.parse_args(argv)
+    if args.member and args.base is None:
+        ap.error("--member needs --base (a member's delta is measured against it)")
+    names = [n for n, _ in args.member]
+    if len(set(names)) != len(names):
+        ap.error(f"duplicate member names: {names}")
+    pin_rel, pin, inputs, _func = CENSUSES[args.census]
+    head_file = args.head.resolve() / pin_rel
+    try:
+        head, head_nc, judged = _measure(args.head.resolve(), args.census, "head")
+        source = head_file.read_text(encoding="utf-8")
+        for input_name in inputs:
+            hand = {r: dict(c) for r, c in
+                    ast.literal_eval(_pin_nodes(source, input_name)).items() if c}
+            if hand != head_nc:
+                raise CouldNotLook(
+                    f"head: hand-maintained input pin {input_name} {hand} != measured "
+                    f"{head_nc}; re-audit it by hand, this tool never rewrites it")
+        old = _flat_pin(_pin_nodes(source, pin))
+        base = deltas = None
+        if args.base is not None:
+            base, _, _ = _measure(args.base.resolve(), args.census, "base")
+            deltas = []
+            for name, tree in args.member:
+                measured, _, _ = _measure(tree.resolve(), args.census, f"member-{name}")
+                d = Counter(measured)
+                d.subtract(base)
+                deltas.append((name, {k: v for k, v in d.items() if v}))
+    except CouldNotLook as ex:
+        print(f"COULD-NOT-LOOK {args.census}: {ex}")
+        return 2
+    keys = sorted(set(old) | set(head))
+    changed = [k for k in keys if old.get(k, 0) != head.get(k, 0)]
+    notes: dict = {}
+    print(f"CENSUS {args.census} head={args.head} measured_total={sum(head.values())} "
+          f"pinned_total={sum(old.values())} judged={judged}")
+    if base is not None:
+        member_sum = sum(sum(d.values()) for _, d in deltas)
+        for name, d in deltas:
+            print(f"MEMBER {name} delta={sum(d.values()):+d} "
+                  + (", ".join(f"{r}::{s} {v:+d}" for (r, s), v in sorted(d.items()))
+                     or "(no census change)"))
+        sums = sum(base.values()) + member_sum
+        tag = "" if sums == sum(head.values()) else " INTERACTION"
+        print(f"SUM base={sum(base.values())} members={member_sum:+d} -> {sums}; "
+              f"head measures {sum(head.values())}{tag}")
+    for rel, sym in changed:
+        o, n = old.get((rel, sym), 0), head.get((rel, sym), 0)
+        parts = [f"{name} {d[(rel, sym)]:+d}" for name, d in (deltas or [])
+                 if d.get((rel, sym))]
+        rest = (n - o) - sum(d.get((rel, sym), 0) for _, d in (deltas or []))
+        if rest:
+            parts.append(f"unattributed {rest:+d}")
+        note = "; ".join(parts)
+        notes[rel] = "; ".join(x for x in (notes.get(rel), f"{sym} {note}") if x)
+        print(f"PIN {pin_rel}::{pin}[{rel!r}][{sym!r}] {o} -> {n} ({note})")
+    if not changed:
+        print(f"IN-SYNC {pin_rel}::{pin} total={sum(head.values())}")
+        return 0
+    if args.check:
+        print(f"WOULD-CHANGE {len(changed)} pin(s) in {head_file} (--check, not written)")
+        return 1
+    try:
+        updated = _rewrite(source, pin, head, notes)
+        if _flat_pin(_pin_nodes(updated, pin)) != +head:
+            raise CouldNotLook("rewritten pin does not re-parse to the measurement")
+    except CouldNotLook as ex:
+        print(f"COULD-NOT-LOOK {args.census}: {ex}")
+        return 2
+    head_file.write_text(updated, encoding="utf-8")
+    print(f"WROTE {len(changed)} pin(s) in {head_file}")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

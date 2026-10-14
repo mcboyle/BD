@@ -276,8 +276,11 @@ def test_persist_cookies_writes_file():
         )
         try:
             keeper._last_navigate_at = 0
-            keeper._heartbeat()  # should write cookies/test_persist.json
-            cookie_path = Path("cookies") / "test_persist.json"
+            keeper._heartbeat()  # should write this account's jar
+            # session-jar-integrity F14: the jar is cookie_jar_path(sid, idx,
+            # config) (<BD_HOME>/cookies here), no longer cwd-relative
+            from bulk_downloader.cookies import cookie_jar_path
+            cookie_path = cookie_jar_path("test_persist", 0, keeper.config)
             assert cookie_path.exists(), "expected cookies file to be written"
             # File should contain a JSON list (Playwright cookie format)
             data = json.loads(cookie_path.read_text(encoding="utf-8"))

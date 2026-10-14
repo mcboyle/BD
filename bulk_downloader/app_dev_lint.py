@@ -67,8 +67,13 @@ def api_dev_zip_manifest():
     if guard: return guard
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.zip_manifest_check(
-            request.args.get("path", "")))
+        from .dev_suite import release_lint as _rl
+        ok, path = _rl.confine_dev_input(request.args.get("path", ""),
+                                         cap=None)
+        if not ok:
+            return jsonify({"ok": False, "error": path,
+                            "verdict": "path refused"})
+        return jsonify(_ds.zip_manifest_check(path))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -80,7 +85,12 @@ def api_dev_backup_check():
     if guard: return guard
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.backup_check(request.args.get("path", "")))
+        from .dev_suite import release_lint as _rl
+        ok, path = _rl.confine_dev_input(request.args.get("path", ""),
+                                         cap=None)
+        if not ok:
+            return jsonify({"ok": False, "error": path})
+        return jsonify(_ds.backup_check(path))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -134,8 +144,14 @@ def api_dev_guard_status():
     if guard: return guard
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.guard_test_status(
-            results_path=request.args.get("path")))
+        from .dev_suite import release_lint as _rl
+        path = request.args.get("path")
+        if path:
+            ok, path = _rl.confine_dev_input(path)
+            if not ok:
+                return jsonify({"tool": "guard_test_status", "ok": False,
+                                "error": path})
+        return jsonify(_ds.guard_test_status(results_path=path))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 

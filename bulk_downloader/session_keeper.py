@@ -1463,7 +1463,7 @@ class SessionKeeper:
         self._browser_started_at = 0
 
     def _load_cookies_as_playwright(self) -> list:
-        """Read cookies/{sid}.json and convert to Playwright's expected
+        """Read this account's jar (cookies.cookie_jar_path) and convert to Playwright's expected
         shape: list of {name, value, domain, path, expires?, httpOnly?,
         secure?, sameSite?}. The runner already writes cookies in this
         Playwright format on login, so usually we just pass through."""
@@ -1483,7 +1483,8 @@ class SessionKeeper:
             except Exception as e:
                 sys.stderr.write(f"  keepalive[{self.site_id}]: vault_sync load failed: {e}\n")
 
-            cookie_path = Path("cookies") / f"{self.site_id}.json"
+            from .cookies import cookie_jar_path
+            cookie_path = cookie_jar_path(self.site_id, self.account_idx, self.config)
             if not cookie_path.exists(): return []
             import json as _json
             data = _json.loads(cookie_path.read_text(encoding="utf-8"))
@@ -1537,10 +1538,14 @@ class SessionKeeper:
         try:
             if self._ctx is None: return
             cookies = self._ctx.cookies()
-            from .cookies import save_cookies_to_file, CookieRoundTripError
-            cookie_path = Path("cookies") / f"{self.site_id}.json"
+            from .cookies import (save_cookies_to_file, CookieRoundTripError,
+                                  cookie_jar_path)
+            # per-account jar: account 1's keeper overwrote account 0's
+            # one shared per-site jar (session-jar-integrity F2)
+            cookie_path = cookie_jar_path(self.site_id, self.account_idx, self.config)
             try:
-                save_cookies_to_file(cookie_path, cookies)
+                save_cookies_to_file(cookie_path, cookies,
+                                     account_idx=self.account_idx)
             except CookieRoundTripError as e:
                 # Round-trip failed — the .tmp+replace may have left a
                 # corrupted file at the destination. Log loudly so the
@@ -1732,7 +1737,8 @@ class SessionKeeper:
         host-only to the check host, the one place it was ever sent."""
         from .cookie_scope import scoped_jar
         try:
-            cookie_path = Path("cookies") / f"{self.site_id}.json"
+            from .cookies import cookie_jar_path
+            cookie_path = cookie_jar_path(self.site_id, self.account_idx, self.config)
             if not cookie_path.exists(): return {}
             import json
             data = json.loads(cookie_path.read_text(encoding="utf-8"))

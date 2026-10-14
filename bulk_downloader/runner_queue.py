@@ -8,6 +8,7 @@ from .runner.
 """
 import contextlib, queue, sqlite3, sys, threading, time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from .runner_util import _ts, _ts_iso, _utc_iso_to_local_iso
 from .db import (
@@ -60,6 +61,62 @@ def _restored_retries(value):
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _is_queueable_url(url):
+    """ddr-fix F8 (RULING adjB 0443Z): only http/https with a non-empty host
+    is queued -- the rule app_import.is_http_url already applies on import."""
+    try:
+        parts = urlsplit(url)
+        return parts.scheme.lower() in ("http", "https") and bool(parts.hostname)
+    except (TypeError, ValueError):
+        return False
+
+
+def _dedupe_key(url):
+    """ddr-fix F10 (RULING adjB 0443Z): the dedupe KEY is the RFC 3986
+    6.2.2/6.2.3 form -- scheme and host lowercased (userinfo kept as given),
+    default port dropped; path, trailing slash, query and fragment exactly as
+    given. Only the key: the job keeps the first-seen string. A URL the parser
+    rejects keys as itself. An empty query or fragment keeps its delimiter
+    (6.2.3: "/a?" is not "/a"); urlunsplit alone would drop it."""
+    try:
+        parts = urlsplit(url)
+        scheme = parts.scheme.lower()
+        host = parts.hostname
+        port = parts.port
+    except (TypeError, ValueError):
+        return url
+    if not host:
+        return url
+    if ":" in host:
+        host = f"[{host}]"
+    userinfo = parts.netloc.rpartition("@")[0] if "@" in parts.netloc else ""
+    netloc = (userinfo + "@" if userinfo else "") + host
+    if port is not None and _DEFAULT_PORTS.get(scheme) != port:
+        netloc += f":{port}"
+    key = urlunsplit((scheme, netloc, parts.path, "", ""))
+    if "?" in url.partition("#")[0]:
+        key += "?" + parts.query
+    if "#" in url:
+        key += "#" + parts.fragment
+    return key
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+class LoadResult(tuple):
+    """load_urls' (added, dupes, skipped) with the counts that are neither,
+    as attributes, so every caller that unpacks three values keeps working:
+    ``invalid`` (F8, not an http(s) URL with a host; never a dupe) and
+    ``header_conflicts`` (F11, a dupe of a live job carrying different
+    headers; the live job keeps its own)."""
+    def __new__(cls, added, dupes, skipped, invalid=0, header_conflicts=0):
+        self = super().__new__(cls, (added, dupes, skipped))
+        self.invalid = invalid
+        self.header_conflicts = header_conflicts
+        return self
 
 
 @contextlib.contextmanager
@@ -204,7 +261,9 @@ class QueueMixin:
                              "the queue holds one job per URL")
         restore_status = restore_status or {}
         restored_urls=set()
-        added=dupes=skipped_on_disk=refused=0
+        added=dupes=skipped_on_disk=refused=invalid=0
+        conflicts=[]  # F11: (url, stored url) dupes of a live job with other headers
+        rearm_headers={}  # F11: re-armed url -> its new queue.custom_headers text
         new_urls=[]
         new_headers={}  # url -> custom headers of a job created by this call
         created={}  # url -> the job dict this call created (F2 rollback)
@@ -217,8 +276,15 @@ class QueueMixin:
             listing_titles = {}
         # Phase 68: separate URL strings into (url, extra_headers) tuples
         parsed_urls = []
+        def _refuse_invalid(u):
+            # ddr-fix F8: refused visibly and counted; never queued, never a dupe.
+            nonlocal invalid
+            invalid += 1
+            self.log_event("invalid_url",
+                           f"Refused enqueue: not an http(s) URL with a host: {u[:200]!r}",
+                           url=u[:200])
         for raw in urls:
-            if not raw: continue
+            if not isinstance(raw, str): continue
             if '\t' in raw:
                 parts = raw.split('\t')
                 url_part = parts[0].strip()
@@ -230,6 +296,13 @@ class QueueMixin:
                 parsed_urls.append((url_part, hdrs))
             else:
                 parsed_urls.append((raw.strip(), {}))
+        # F8: gate before the webhook, archive and playlist stages see the URL;
+        # the prepare loop gates again for what those stages rewrite or add.
+        gated = []
+        for u, hdrs in parsed_urls:
+            if _is_queueable_url(u): gated.append((u, hdrs))
+            else: _refuse_invalid(u)
+        parsed_urls = gated
 
         # Phase 80 (v3.40.0): bidirectional pre_url_added webhook. Each URL
         # gets a chance to be skipped, rewritten, or repriortized by a
@@ -333,14 +406,30 @@ class QueueMixin:
                             existing_files.add(p.stem.lower())
                 except Exception as e:
                     self.log.error("folder scan failed: %s", e)
+        def _live_dupe(u, stored, hdrs):
+            # ddr-fix F11: the live job keeps its headers; a dupe carrying
+            # different ones is reported, never merged. Logged after the locks.
+            if hdrs and hdrs != (self.jobs[stored].get("custom_headers") or {}):
+                conflicts.append((u, stored))
+        def _report_conflicts(start):
+            for u, stored in conflicts[start:]:
+                self.log_event("header_conflict",
+                               "Duplicate of a queued job with different headers; "
+                               "the queued job keeps its own" + (
+                                   f" (queued as {stored[:200]!r})" if stored != u else ""),
+                               url=u[:200])
         prepared = []
         for u, hdrs in parsed_urls:
+            if not _is_queueable_url(u):  # a webhook rewrite or playlist child
+                _refuse_invalid(u)
+                continue
             # Count URLs dropped as already-present before potentially slow
             # policy/file work; the status-writer transaction repeats the
-            # duplicate check before publication.
+            # duplicate check (by dedupe key, F10) before publication.
             with self._lock:
                 if u in self.jobs and self.jobs[u].get("status") != "stopped":
                     dupes+=1
+                    _live_dupe(u, u, hdrs)
                     continue
             # v3.45.0 Phase 194: content-rights checks may touch persistence,
             # so they deliberately remain outside the lifecycle transaction.
@@ -393,6 +482,8 @@ class QueueMixin:
                 status, msg = restore_status[u]
                 restored_urls.add(u)
             prepared.append((u, hdrs, pre_done, status, msg))
+        _report_conflicts(0)
+        n_conflicts = len(conflicts)
 
         # Publish the prepared intake as one lifecycle/job transaction. Slow
         # policy and filesystem checks above never hold either lock.
@@ -402,24 +493,46 @@ class QueueMixin:
             # The lifecycle lock serializes the verdict: a retired identity
             # may never repopulate its in-memory or durable queue.
             if getattr(self, "_run_retired", False):
-                return 0, dupes, skipped_on_disk
+                return LoadResult(0, dupes+refused, skipped_on_disk,
+                                  invalid=invalid, header_conflicts=n_conflicts)
             ord_start=len(self.urls)
+            # ddr-fix F10: a job is found by its dedupe key and stays under
+            # the string first seen for it (the first key holder wins).
+            keymap = {}
+            for x in self.jobs:
+                keymap.setdefault(_dedupe_key(x), x)
             for u, hdrs, pre_done, status, msg in prepared:
-                if u in self.jobs:
+                key = _dedupe_key(u)
+                stored = keymap.get(key)
+                if stored is not None:
+                    job = self.jobs[stored]
                     # dl95-africancasting-1: a STOPPED job (site Stop, Cancel,
                     # Pause) never finished, so re-adding its URL re-arms it
                     # (bulk_resume's transition) instead of counting a dupe
                     # that nothing could ever retry. Other states stay dupes.
-                    if self.jobs[u].get("status") == "stopped" and not pre_done:
-                        self.jobs[u].update({"status": "pending", "message": "Re-added",
-                                             "ts": _ts(), "retries": 0, "retry_after": 0,
-                                             "_paused_by_user": False,
-                                             "last_progress_at": time.time()})
-                        if u not in self.urls: self.urls.append(u)
-                        rearmed.append(u); added+=1
+                    if job.get("status") == "stopped" and not pre_done:
+                        job.update({"status": "pending", "message": "Re-added",
+                                    "ts": _ts(), "retries": 0, "retry_after": 0,
+                                    "_paused_by_user": False,
+                                    "last_progress_at": time.time()})
+                        # F11 / row 722: a re-armed job is a fresh job and
+                        # takes this entry's headers, none when it has none.
+                        if hdrs:
+                            job["custom_headers"] = hdrs
+                            if queue_headers_encode(hdrs) is None:
+                                self.log.warning(
+                                    "custom headers for %s cannot be stored and "
+                                    "will not survive a restart", stored)
+                        else:
+                            job.pop("custom_headers", None)
+                        rearm_headers[stored] = queue_headers_encode(hdrs)
+                        if stored not in self.urls: self.urls.append(stored)
+                        rearmed.append(stored); added+=1
                     else:
                         dupes+=1
+                        _live_dupe(u, stored, hdrs)
                     continue
+                keymap[key] = u
                 self.jobs[u]={"status":status,"message":msg,"ts":_ts() if status!="pending" else "",
                               # CUT #41: a pre_done job is already "done"; without
                               # ts_iso no day-window consumer can ever count it.
@@ -447,10 +560,17 @@ class QueueMixin:
                 else: added+=1
             if new_urls or rearmed:
                 mark_status_changed()
+        _report_conflicts(n_conflicts)
         if rearmed:
+            # F11: one update per distinct header text (None -> NULL).
+            by_headers = {}
+            for u in rearmed:
+                by_headers.setdefault(rearm_headers.get(u), []).append(u)
             try:
-                queue_bulk_update(self.site_id, rearmed, status="pending",
-                                  message="Re-added", retries=0, retry_after=0)
+                for enc, r_urls in by_headers.items():
+                    queue_bulk_update(self.site_id, r_urls, status="pending",
+                                      message="Re-added", retries=0, retry_after=0,
+                                      custom_headers=enc)
             except sqlite3.Error as e:
                 self.log.warning("queue_bulk_update (re-added) failed: %s", e)
                 sys.stderr.write(f"  queue: {len(rearmed)} re-added job(s) are pending in "
@@ -514,9 +634,13 @@ class QueueMixin:
         try:
             self.log_event("import",
                 f"Imported {added} URL(s); {dupes} duplicate(s); {skipped_on_disk} skipped (already on disk)"
-                + (f"; {refused} refused (content rights)" if refused else ""),
+                + (f"; {refused} refused (content rights)" if refused else "")
+                + (f"; {invalid} invalid (not an http(s) URL with a host)" if invalid else "")
+                + (f"; {len(conflicts)} duplicate(s) with different headers (kept the queued job's)"
+                   if conflicts else ""),
                 extra={"added": added, "dupes": dupes, "skipped": skipped_on_disk,
-                       "refused": refused})
+                       "refused": refused, "invalid": invalid,
+                       "header_conflicts": len(conflicts)})
         except Exception as e:
             self.log.debug("import event log failed: %s", e)
         # E1 (v3.66.494): queue intake event through the isolated emit seam.
@@ -534,8 +658,11 @@ class QueueMixin:
         # F9 (S11): refusals are reported apart from duplicates in the import
         # event above; slot 1 of the return stays "not queued" (dupes +
         # refused) because callers unpack exactly three values and existing
-        # rights tests pin a refusal there.
-        return added,dupes+refused,skipped_on_disk
+        # rights tests pin a refusal there. F8/F11: invalid URLs and header
+        # conflicts ride as attributes (LoadResult); an invalid URL is not in
+        # slot 1, it is not a duplicate.
+        return LoadResult(added, dupes+refused, skipped_on_disk,
+                          invalid=invalid, header_conflicts=len(conflicts))
     def reorder_urls(self,ordered):
         with self._lock:
             ex=set(self.urls)
