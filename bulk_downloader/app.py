@@ -986,16 +986,25 @@ import secrets, threading as _t40_threading
 
 _sessions: dict = {}            # session_token → {"created", "last_used", "source"}
 _session_lock = _t40_threading.Lock()
+# raw-editors F4: an absolute lifetime on top of the sliding idle TTL. Every
+# authenticated request slides last_used (_session_touch), so without this a
+# stolen pair_redeem session lived as long as it kept being used.
+SESSION_ABSOLUTE_TTL = 24 * 3600
 
 
 
 def _session_valid(token: str) -> bool:
-    """True iff the session exists and hasn't expired (idle TTL)."""
+    """True iff the session exists and hasn't expired (idle TTL, and the
+    absolute SESSION_ABSOLUTE_TTL since it was created)."""
     if not token: return False
     with _session_lock:
         rec = _sessions.get(token)
         if not rec: return False
-        if time.time() - rec["last_used"] > SESSION_IDLE_TTL:
+        now = time.time()
+        created = rec.get("created")
+        if (now - rec["last_used"] > SESSION_IDLE_TTL
+                or not isinstance(created, (int, float))
+                or now - created > SESSION_ABSOLUTE_TTL):
             del _sessions[token]
             return False
         return True
@@ -3996,48 +4005,27 @@ def _chk(key, label, status, detail=""):
 # Every endpoint here returns 404 unless BD_DEV_MODE=1 is set. The dev
 # tools tab + test runner are intentionally invisible to production
 # users.
-def _request_is_same_origin() -> bool:
-    """True when the request's Referer host:port matches its Host -- i.e. it
-    originates from a page this server served (the SPA). Mirrors the robust
-    parse in _check_token (hostname+port compared, not a substring)."""
-    ref = request.headers.get("Referer", "")
-    host = request.headers.get("Host", "")
-    if not (ref and host):
-        return False
-    try:
-        from urllib.parse import urlparse
-        r = urlparse(ref)
-        ref_netloc = (r.hostname or "").lower()
-        if r.port:
-            ref_netloc = f"{ref_netloc}:{r.port}"
-        if r.scheme == "http" and r.port == 80:
-            ref_netloc = (r.hostname or "").lower()
-        elif r.scheme == "https" and r.port == 443:
-            ref_netloc = (r.hostname or "").lower()
-        return ref_netloc == host.lower()
-    except Exception:
-        return False
-
-
 def _dev_request_authorized() -> bool:
     """F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
     leak-scan / perf tooling). Even on a box with no global auth token
     configured (where _check_token allows all), it must not be reachable from
     an untrusted network by an unauthenticated caller. Authorized requests:
       * loopback -- a LOCAL request (test-client, on-box curl, standalone),
-        not the network;
-      * a same-origin browser request -- the SPA keeps working with no token;
-      * a valid redeemed session cookie;
+        judged by the peer address, not the network;
+      * an AUTHENTICATED session (_session_authenticated, as _check_token);
       * the master bearer / X-BD-Token.
-    A remote unauthenticated cross-origin request is refused (403). Scoped
-    bdapi_ tokens already cannot reach /api/dev/* (_API_TOKEN_ROUTE_POLICY)."""
+    Anything else is refused (403). Two admissions were removed
+    (raw-editors F1): Referer host == Host -- both headers are chosen by the
+    caller (O1671 AUDIT-16, the cockpit shell's precedent) -- and any live
+    session, which included the anonymous csrf_bootstrap one GET / hands out
+    (BD-SEC-6). A remote SPA on a token-less box now has to log in or set a
+    token. Scoped bdapi_ tokens already cannot reach /api/dev/*
+    (_API_TOKEN_ROUTE_POLICY)."""
     ra = (request.remote_addr or "")
     if ra in ("127.0.0.1", "::1", "localhost"):
         return True
     sess = request.cookies.get("bd_session", "")
-    if sess and _session_valid(sess):
-        return True
-    if _request_is_same_origin():
+    if sess and _session_authenticated(sess):
         return True
     _toks = _accepted_tokens()
     if _toks:
@@ -4059,9 +4047,9 @@ def _dev_mode_guard():
         return jsonify({"error": "dev mode disabled "
                                   "(set BD_DEV_MODE=1 to enable)"}), 404
     if not _dev_request_authorized():
-        return jsonify({"error": "dev endpoints require a same-origin session or a "
-                                  "valid token (not reachable unauthenticated from "
-                                  "the network)"}), 403
+        return jsonify({"error": "dev endpoints require a logged-in session or a "
+                                  "valid token: log in or set a token (not "
+                                  "reachable unauthenticated from the network)"}), 403
     return None
 
 # api_dev_enabled -> app_dev.py (Phase 4 multi-block extraction)
