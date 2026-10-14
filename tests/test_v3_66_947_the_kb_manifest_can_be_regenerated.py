@@ -537,6 +537,10 @@ def test_the_manifest_step_is_last():
         f"the manifest step must run LAST; chain ends with {labels[-1]!r}")
 
 
+# Each regen ran 105-276 s in a loaded -n 12 battery on a 64-core host (load 28-36),
+# ~110 s idle; its own 900 s bound is over 2x that and stays. The item bound sits above
+# both, plus a minute for the copy, so a hung regen is named by its TimeoutExpired.
+@pytest.mark.timeout(2 * 900 + 60)
 def test_the_real_regen_chain_is_idempotent():
     """The end-to-end property CI depends on, framed correctly.
 

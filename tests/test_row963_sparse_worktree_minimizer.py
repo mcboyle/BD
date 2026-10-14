@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -237,7 +238,12 @@ def test_row963_latency_is_reported_not_enforced_by_default(tmp_path, monkeypatc
         calls["n"] += 1
         return real() + (10.0 if calls["n"] % 2 == 0 else 0.0)
 
-    monkeypatch.setattr(lw.time, "perf_counter", slow_clock)
+    # Only the tool's own clock: patching time.perf_counter itself lets any other
+    # thread's call shift the parity (stale gate RED, latency_ms went negative).
+    clock = types.ModuleType("time")
+    clock.__dict__.update(vars(lw.time))
+    clock.perf_counter = slow_clock
+    monkeypatch.setattr(lw, "time", clock)
     unbounded = lw.create_sparse_lens_worktree(
         repo_path=REPO_ROOT, worktree_path=tmp_path / "slow_default", commit=_head(),
         scope_dirs=["toolchain"])

@@ -674,6 +674,12 @@ def pytest_configure(config):
         "markers",
         "capture_parallel: run this reviewed-safe file in capture.sh's xdist lane.",
     )
+    # row875-latency-isolation: bd-band-remote.sh runs these after its -n 12 pass, alone at -n 0
+    # (the band's -m "not band_isolated" / -m band_isolated passes). For tests that time themselves.
+    config.addinivalue_line(
+        "markers",
+        "band_isolated: the remote band runs this test serially after its xdist pass.",
+    )
     # `slow` was applied in tests/test_desandbox_tool_verifiers.py without ever
     # being registered, so pytest emitted PytestUnknownMarkWarning and the mark
     # selected nothing. A marker that reads as a control and controls nothing is

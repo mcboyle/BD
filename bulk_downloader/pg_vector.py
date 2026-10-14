@@ -210,6 +210,8 @@ class BenchResult:
     mean_latency_ms: float
     p99_latency_ms: float
     recall_at_k: float
+    # The typical query: a mean over 20 queries also carries any host stall.
+    median_latency_ms: float = 0.0
 
 
 def benchmark(
@@ -285,6 +287,7 @@ def benchmark(
     n = len(latencies_ms)
     mean_ms = sum(latencies_ms) / n if n else 0.0
     p99_ms = latencies_ms[min(n - 1, int(n * 0.99))] if n else 0.0
+    median_ms = (latencies_ms[(n - 1) // 2] + latencies_ms[n // 2]) / 2.0 if n else 0.0
     mean_recall = sum(recalls) / len(recalls) if recalls else 0.0
 
     return BenchResult(
@@ -293,4 +296,5 @@ def benchmark(
         mean_latency_ms=mean_ms,
         p99_latency_ms=p99_ms,
         recall_at_k=mean_recall,
+        median_latency_ms=median_ms,
     )

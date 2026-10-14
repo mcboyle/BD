@@ -308,6 +308,11 @@ def test_complete_release_trio_keeps_its_fixed_content_digest(tmp_path, monkeypa
     }
 
 
+# evidence_at_commit runs the tool's own import-graph check, with no bound of its own,
+# twice: ~68 s each idle, 69-255 s each and 158-344 s for the item in a loaded -n 12
+# battery on a 64-core host (load 28-36). The item bound is 2x the loaded worst (344 s),
+# rounded up to a minute.
+@pytest.mark.timeout(720)
 def test_real_git_rebase_keeps_one_content_digest_when_all_dispositions_hold(tmp_path):
     tool = _load_tool()
     repo = tmp_path / "repo"

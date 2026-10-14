@@ -13,7 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SUBJECT = ROOT / "tests/test_v3_66_726_body_contract.py"
 
 
-@pytest.mark.timeout(180)
+# Each leg runs the 12 subject cases in a fresh interpreter: 40-48 s idle; in a loaded
+# -n 12 battery on a 64-core host (load 28-36) the pytest leg took 64-159 s and the
+# runner leg 43-88 s, against 75 s each. Each leg gets 2x its loaded worst, rounded up
+# to a minute; the item bound sits above both, so a hung leg is named by its own
+# TimeoutExpired.
+_LEG_TIMEOUT_S = {"pytest": 360, "runner": 180}
+
+
+@pytest.mark.timeout(sum(_LEG_TIMEOUT_S.values()) + 60)
 def test_the_twelve_body_contract_cases_agree_under_both_runtimes(tmp_path):
     environment = dict(os.environ)
     for key in ("PYTEST_CURRENT_TEST", "BD_INSTALL_DIR", "BD_HOME"):
@@ -33,7 +41,8 @@ def test_the_twelve_body_contract_cases_agree_under_both_runtimes(tmp_path):
         scratch.mkdir()
         result = subprocess.run(command, cwd=scratch,
                                 env={**environment, "BD_HOME": str(scratch)},
-                                text=True, capture_output=True, timeout=75)
+                                text=True, capture_output=True,
+                                timeout=_LEG_TIMEOUT_S[name])
         outcomes[name] = {"rc": result.returncode, "stdout": result.stdout,
                           "stderr": result.stderr}
     assert junit.is_file() and runner_json.is_file(), outcomes
