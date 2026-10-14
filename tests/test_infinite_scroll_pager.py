@@ -304,6 +304,72 @@ def test_real_chromium_extracts_every_item_of_each_measured_catalog_shape():
         pw.stop()
 
 
+# A frame that arrives %(late)d ms late, as page script sees it: everything a frame
+# drives -- the scroll listeners, then the animation-frame callbacks -- runs that much
+# later, in that order. (Blocking the main thread does not model this: Chromium runs
+# the pending frame before the next evaluate. Measured: 120 of 120 on base.)
+_LATE_FRAME = """<script>
+const LATE = %(late)d, listen = EventTarget.prototype.addEventListener, frame = window.requestAnimationFrame.bind(window);
+EventTarget.prototype.addEventListener = function (type, fn, opts) {
+  return listen.call(this, type, type === 'scroll' ? (e) => setTimeout(() => fn(e), LATE) : fn, opts);
+};
+window.requestAnimationFrame = (cb) => frame((t) => setTimeout(() => cb(t), LATE));
+</script>"""
+
+
+def test_real_chromium_reads_a_band_only_after_the_page_rendered_it():
+    """A scroll listener runs with the frame AFTER the scroll. When that frame comes later than the settle (cold
+    renderer, loaded host: 85 of 120 measured on a band host), the snapshot must not read the old rows at the new
+    offset. Here every frame is 400 ms late against a 250 ms settle."""
+    from playwright.sync_api import sync_playwright
+    virtualized = _VIRTUALIZED_FIXTURE % {"total": 4800, "n": 120, "h": 40, "debounce": 0}
+    assert virtualized.count("<script>") == 1
+    late = virtualized.replace("<script>", _LATE_FRAME % {"late": 400} + "<script>")
+    pw = sync_playwright().start()
+    try:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            context = browser.new_context(viewport={"width": 1280, "height": 720})
+            mounted, urls, elapsed = _collect(context, late)
+            assert 0 < mounted < 120, mounted
+            got = _ids(urls)
+            assert len(urls) == len(set(urls)) and got == list(range(120)), (
+                f"ISC-STALE-BAND-READ: {len(got)} of 120, first missing {sorted(set(range(120)) - set(got))[:5]}")
+            assert elapsed < 30, elapsed
+            # The same late frames when the catalog scrolls inside its own container.
+            inner = _INNER_CONTAINER_FIXTURE % {"total": 4800, "n": 120, "h": 40}
+            assert inner.count("<script>") == 1
+            mounted, urls, elapsed = _collect(
+                context, inner.replace("<script>", _LATE_FRAME % {"late": 400} + "<script>"), end_settle_ms=200)
+            got = _ids(urls)
+            assert 0 < mounted < 120 and got == list(range(120)), (
+                f"ISC-STALE-BAND-READ-INNER: {len(got)} of 120, first missing {sorted(set(range(120)) - set(got))[:5]}")
+            # Control: the same page with its frames on time.
+            mounted, urls, elapsed = _collect(context, virtualized)
+            assert _ids(urls) == list(range(120))
+            # A page that never gets a frame is released by the script's own bound,
+            # not hung: the step still returns and the traversal still ends.
+            page = context.new_page()
+            try:
+                page.set_content(virtualized)
+                page.evaluate("() => { window.requestAnimationFrame = () => 0; }")
+                started = time.monotonic()
+                ended = page.evaluate(
+                    "(arg) => Promise.race([Promise.resolve((%s)(arg)).then(() => 'returned'),"
+                    " new Promise((r) => setTimeout(() => r('still waiting'), 9000))])"
+                    % runner_browser._VIRTUAL_SCROLL_BY_JS, [".item", 540])
+                waited = time.monotonic() - started
+                assert ended == "returned", f"ISC-NO-FRAME-BOUND: a frameless page: step {ended} after {waited:.1f}s"
+                assert page.evaluate("() => window.scrollY") == 540
+            finally:
+                page.close()
+            context.close()
+        finally:
+            browser.close()
+    finally:
+        pw.stop()
+
+
 def test_playlist_expansion_enqueues_virtualized_media(monkeypatch):
     page = object()
 
