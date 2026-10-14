@@ -68,7 +68,9 @@ def _canon(x):
 
 def _default_gold(cand):
     host = cand.get("host") or cand.get("hostname") or cand.get("site")
-    if not host:
+    # the host names a file in templates/reviewed/: a plain name only, never a path
+    if (not host or not isinstance(host, str) or host in (".", "..") or os.path.basename(host) != host
+            or "\\" in host or "\0" in host):
         return None
     bak = f"templates/reviewed/{host}.template.json.bak"
     live = f"templates/reviewed/{host}.template.json"

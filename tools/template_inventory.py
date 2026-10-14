@@ -157,6 +157,10 @@ def scan(root="."):
                 except (OSError, ValueError) as e:
                     out["sanity"].append(f"{name}/{fn}: unreadable ({e})")
                     continue
+                if not isinstance(tpl, dict):
+                    out["sanity"].append(
+                        f"{name}/{fn}: unreadable (root is {type(tpl).__name__}, not an object)")
+                    continue
                 a = assess(tpl, source=f"{name}/{fn}")
                 items.append(a)
                 st = a["status"]
