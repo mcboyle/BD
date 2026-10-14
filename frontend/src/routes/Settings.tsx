@@ -375,7 +375,14 @@ export function Settings() {
   const setField = <K extends keyof GlobalConfigSubset>(
     k: K,
     v: GlobalConfigSubset[K],
-  ) => setDraft((prev) => ({ ...prev, [k]: v }));
+  ) =>
+    // A stored secret arrives as the "<configured>" marker. Typing into its field and
+    // then emptying it again is not an edit: put the marker back, so the field still
+    // reads "set", no change is counted and no blank is posted for it.
+    setDraft((prev) => ({
+      ...prev,
+      [k]: (v as unknown) === "" && data?.[k] === "<configured>" ? data[k] : v,
+    }));
 
   // ── Supervisor rate limits (T19a) ────────────────────────────────────
   // POST /api/supervisor/configure hot-reloads the supervisor's byte-rate
