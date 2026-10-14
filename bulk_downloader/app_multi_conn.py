@@ -69,20 +69,34 @@ def api_multi_conn_probe():
     _check_csrf()
     if not (_MULTI_CONN_AVAILABLE and _multi_conn is not None):
         return jsonify({"ok": False, "error": "multi_conn module unavailable"})
-    body = request.get_json(silent=True) or {}
-    url = (body.get("url") or "").strip()
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    elif not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    raw_url = body.get("url")
+    url = raw_url.strip() if isinstance(raw_url, str) else ""
     if not url:
         return jsonify({"ok": False, "error": "missing 'url'"})
+    raw_min_mb = body.get("min_size_mb", 100)
+    if raw_min_mb is None or raw_min_mb == "":
+        min_mb = 100
+    elif isinstance(raw_min_mb, bool):
+        return jsonify({"ok": False, "error": "invalid 'min_size_mb'"}), 400
+    else:
+        try:
+            min_mb = int(raw_min_mb)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "invalid 'min_size_mb'"}), 400
     headers = {}
-    if body.get("user_agent"):
+    if isinstance(body.get("user_agent"), str) and body["user_agent"]:
         headers["User-Agent"] = body["user_agent"]
-    if body.get("referer"):
+    if isinstance(body.get("referer"), str) and body["referer"]:
         headers["Referer"] = body["referer"]
     try:
         pr = _multi_conn.probe(url, headers=headers, timeout_s=10.0)
     except Exception as e:
         return jsonify({"ok": False, "error": f"probe raised: {e}"})
-    min_mb = int(body.get("min_size_mb", 100) or 100)
     viable = _multi_conn.should_use_multi_conn(
         pr.content_length, pr.accept_ranges,
         min_size_bytes=min_mb * 1024 * 1024,
