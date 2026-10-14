@@ -624,36 +624,95 @@ def test_wal_removed_by_the_last_close_is_not_a_torn_write(tmp_path: Path):
     assert inspect_wal(wal).is_healthy is False
 
 
+_READS_PER_HOLD = 5  # the held WAL does not change: more reads of the same bytes prove nothing more
+
+
 def test_doctor_never_reports_a_frame_in_flight_as_torn(monkeypatch, tmp_path: Path):
-    """Bounce 2 E1(b), live: 60 doctor reads under a writer thread committing 3 KiB rows: 0 false warns.
-    Positive control: a corrupted COMMITTED frame is still reported."""
+    """Bounce 2 E1(b), live: doctor reads while a writer thread is stopped mid-frame: 0 false warns.
+    Positive control: a corrupted COMMITTED frame is still reported.
+
+    stale-gate B r2 (R137-D F1; PM A-pm-B-high-refutes-0803Z item 2): no assert counts scheduler overlap.
+    Each round the writer commits rows, opens a transaction whose rows spill uncommitted frames into the
+    WAL (cache_size=1), writes a strict prefix of one more frame -- what a writer stopped mid-frame leaves
+    -- and holds on an Event. From the bytes alone (_shm_header) the test proves the WAL holds frames past
+    the committed mxFrame and ends inside a frame, runs the doctor's read, then releases the writer, whose
+    commit overwrites the prefix. Prefixes: 10 bytes (truncated frame header), the 24-byte header, half a
+    page, one byte short of a frame. r1's writer is gone: free-running, each read scanned a longer WAL than
+    the last (57.7 s idle, >240 s under the gate's load at 2b7ca835); budgeted, the overlap it needed
+    depended on load (harness-work/O1789/main-red/stale-gate-dbb2a1a/fix-r1/B/.review, B-r2/evidence)."""
     import threading
+    from bulk_downloader.wal_inspector import inspect_wal
     cx, db = _wal_db(tmp_path, "live2.db")
-    stop = threading.Event()
-    commits = []
+    cx.execute("PRAGMA cache_size=1")                  # an open transaction's rows spill to the WAL uncommitted
+    page = cx.execute("PRAGMA page_size").fetchone()[0]
+    fs = 24 + page
+    cuts = (10, 24, 24 + page // 2, fs - 1)
+    wal = Path(str(db) + "-wal")
+    held, release, stop = threading.Event(), threading.Event(), threading.Event()
+    errors, committed = [], []
 
     def writer():
-        while not stop.is_set():
-            cx.execute("INSERT INTO t(v) VALUES (?)", ("w" * 3072,))
-            cx.commit()
-            commits.append(1)
+        try:
+            for cut in cuts:
+                for _ in range(3):
+                    cx.execute("INSERT INTO t(v) VALUES (?)", ("c" * 3072,))
+                    cx.commit()
+                    committed.append(1)
+                for _ in range(20):                    # uncommitted: spilled frames past mxFrame
+                    cx.execute("INSERT INTO t(v) VALUES (?)", ("w" * 3072,))
+                if stop.is_set():
+                    return
+                raw = wal.read_bytes()
+                with open(wal, "r+b") as f:            # SQLite writes its next frame at this offset
+                    f.seek(len(raw))
+                    f.write(raw[len(raw) - fs:][:cut])  # the last spilled frame's bytes: this log's salts
+                held.set()
+                release.wait(60)
+                release.clear()
+                if stop.is_set():
+                    return
+                cx.commit()
+                committed.extend([1] * 20)
+        except Exception as e:  # noqa: BLE001 -- reported by the main thread
+            errors.append(repr(e))
+            held.set()
 
     from bulk_downloader import db as _db
     from bulk_downloader import doctor
     monkeypatch.setattr(_db, "DB_PATH", str(db))
     th = threading.Thread(target=writer)
     th.start()
+    results, holds = [], []
     try:
-        # the doctor's own WAL check (run_diagnostics is pinned to include it above)
-        results = [doctor.wal_checks()[0] for _ in range(60)]
+        for cut in cuts:
+            assert held.wait(60) and not errors, f"row1000: the writer never stopped mid-frame (cut {cut}): {errors}"
+            held.clear()
+            mx, _salts = _shm_header(db)
+            size = wal.stat().st_size
+            holds.append((cut, mx, size, size - 32 - mx * fs))
+            # the premise, from the bytes alone: frames past the committed one, and the log ends inside a frame
+            assert size > 32 + mx * fs and (size - 32) % fs != 0, (
+                f"row1000: no frame in flight at cut {cut}: mxFrame {mx}, WAL {size} bytes, frame {fs} bytes")
+            # the doctor's own WAL check (run_diagnostics is pinned to include it above)
+            results += [doctor.wal_checks()[0] for _ in range(_READS_PER_HOLD)]
+            release.set()
+        th.join(60)
     finally:
         stop.set()
+        release.set()
         th.join(10)
+    print(f"row1000 holds (cut, mxFrame, WAL bytes, bytes past the committed frames): {holds}")
     try:
-        assert not th.is_alive() and len(commits) > 0 and len(results) == 60   # the writer ran, then stopped
+        assert not th.is_alive() and not errors, f"row1000: the writer did not finish: {errors}"
         warns = [r["message"] for r in results if r["status"] != "ok"]
-        assert warns == [], f"row1000: {len(warns)}/60 live reads reported a torn write: {warns[:3]}"
-        wal = Path(str(db) + "-wal")
+        assert warns == [], (
+            f"row1000: {len(warns)}/{len(results)} reads with a frame in flight reported a torn write: {warns[:3]}")
+        # the writer's last commit overwrote its prefix: an aligned, healthy log and an intact database
+        size = wal.stat().st_size
+        assert (size - 32) % fs == 0 and inspect_wal(wal.read_bytes()).is_healthy, (
+            f"row1000: the WAL after the last commit is {size} bytes, not whole healthy frames")
+        assert cx.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert cx.execute("SELECT count(*) FROM t").fetchone()[0] == len(committed)
         raw = bytearray(wal.read_bytes())
         raw[32 + 24 + 100] ^= 0xFF                      # frame 1 is committed
         wal.write_bytes(bytes(raw))
@@ -1017,3 +1076,59 @@ def test_an_empty_or_unreadable_shm_is_no_index_and_windows_reads_and_closes(mon
     assert _descriptors_on(shm) == (0, 0)
     shm.unlink()
     assert health("handle") == judged
+
+
+# ---------------------------------------------------------------- stale-gate fix-r1/B (bd-worker-S64-D)
+
+def _reference_checksum(data: bytes, s0: int, s1: int, big_endian: bool) -> tuple[int, int]:
+    """SQLite's walChecksumBytes, pair by pair -- independent of the code under test."""
+    fmt = ">2I" if big_endian else "<2I"
+    for i in range(len(data) // 8):
+        x0, x1 = struct.unpack_from(fmt, data, i * 8)
+        s0 = (s0 + x0 + s1) & 0xFFFFFFFF
+        s1 = (s1 + x1 + s0) & 0xFFFFFFFF
+    return s0, s1
+
+
+def test_the_vectorized_checksum_equals_the_pair_loop():
+    """test_doctor_never_reports_a_frame_in_flight_as_torn timed out (>240 s under the gate's -n 12 load): each
+    live read re-checksums the whole growing WAL at 0.25 ms per 4 KiB page in the pair loop, while the writer
+    keeps appending ~250 frames/s, so read time grows ~6% per read (0.17 s -> 3.4 s over the 60 reads).
+    checksum_step now folds a page as one dot product mod 2**32; it must equal the loop bit for bit."""
+    import random
+    from bulk_downloader import wal_inspector as wi
+
+    rng = random.Random(1000)
+    lengths = [0, 7, 8, 24, 40, 127, 128, 129, 512, 4096, 4100, 8192, 65536]
+    for n in lengths:
+        for big_endian in (False, True):
+            data = rng.randbytes(n)
+            s0, s1 = rng.getrandbits(32), rng.getrandbits(32)
+            want = _reference_checksum(data, s0, s1, big_endian)
+            assert wi.WalTornWriteDetector.checksum_step(data, s0, s1, big_endian) == want, (n, big_endian)
+            pairs = n // 8
+            assert wi._checksum_loop(data, s0, s1, big_endian, pairs) == want, (n, big_endian)
+            if pairs:
+                assert wi._checksum_dot(data, s0, s1, big_endian, pairs) == want, (n, big_endian)
+    # chained across frames the way _scan folds them (header 8 bytes, then the page), worst-case words
+    s, page = (0xFFFFFFFF, 0xFFFFFFFF), b"\xff" * 4096
+    ref = s
+    for _ in range(3):
+        s = wi.WalTornWriteDetector.checksum_step(page, *wi.WalTornWriteDetector.checksum_step(page[:8], *s, False), False)
+        ref = _reference_checksum(page, *_reference_checksum(page[:8], *ref, False), False)
+    assert s == ref
+
+
+def test_a_page_checksum_does_not_run_the_pair_loop(monkeypatch):
+    """The cost fix itself: a 4 KiB page must not reach the per-pair Python loop (numpy is a hard dependency)."""
+    from bulk_downloader import wal_inspector as wi
+
+    assert wi._numpy() is not None, "numpy missing: the WAL checksum falls back to the 0.25 ms/page loop"
+    calls = []
+    real = wi._checksum_loop
+    monkeypatch.setattr(wi, "_checksum_loop", lambda *a: calls.append(a[-1]) or real(*a))
+    page = bytes(range(256)) * 16
+    assert wi.WalTornWriteDetector.checksum_step(page, 1, 2, False) == _reference_checksum(page, 1, 2, False)
+    assert calls == [], f"a {len(page)}-byte page ran the pair loop ({calls} pairs)"
+    wi.WalTornWriteDetector.checksum_step(page[:8], 1, 2, False)
+    assert calls == [1], "a frame header (one pair) should stay on the loop"

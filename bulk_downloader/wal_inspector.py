@@ -10,6 +10,7 @@ write. It reads the -shm without releasing this process's own SQLite locks on it
 from __future__ import annotations
 
 import enum
+import functools
 import logging
 import os
 import stat
@@ -100,19 +101,68 @@ class WalInspectionReport:
     recoverable_boundary_offset: int = 0
 
 
+_DOT_MIN_PAIRS = 16  # below this the pair loop is faster than the numpy call overhead
+
+
+def _checksum_loop(data: bytes, s0: int, s1: int, big_endian: bool, num_pairs: int) -> tuple[int, int]:
+    fmt = ">2I" if big_endian else "<2I"
+    for i in range(num_pairs):
+        x0, x1 = struct.unpack_from(fmt, data, i * 8)
+        s0 = (s0 + x0 + s1) & 0xFFFFFFFF
+        s1 = (s1 + x1 + s0) & 0xFFFFFFFF
+    return s0, s1
+
+
+@functools.lru_cache(maxsize=1)
+def _numpy():
+    try:
+        import numpy
+    except Exception:  # noqa: BLE001 -- a broken numpy must not turn the WAL check into a WARN; the loop is exact
+        return None
+    return numpy
+
+
+@functools.lru_cache(maxsize=8)
+def _dot_coefficients(num_pairs: int):
+    """The checksum step is linear mod 2**32: s0' = s0 + s1 + x0, s1' = s0 + 2*s1 + x0 + x1.
+    After n pairs each output word is a fixed combination of (s0, s1) and every input word:
+    (c0, c1) weigh the words in order, m is M**n for the incoming state."""
+    np = _numpy()
+    c0, c1 = [0] * (2 * num_pairs), [0] * (2 * num_pairs)
+    p, q, u, v = 1, 1, 0, 1        # M**j applied to the x0 input (1, 1) and the x1 input (0, 1)
+    m00, m01, m10, m11 = 1, 0, 0, 1
+    for j in range(num_pairs):     # pair num_pairs-1-j is followed by j more steps
+        k = 2 * (num_pairs - 1 - j)
+        c0[k], c1[k], c0[k + 1], c1[k + 1] = p, q, u, v
+        p, q = (p + q) & 0xFFFFFFFF, (p + 2 * q) & 0xFFFFFFFF
+        u, v = (u + v) & 0xFFFFFFFF, (u + 2 * v) & 0xFFFFFFFF
+        m00, m01, m10, m11 = ((m00 + m10) & 0xFFFFFFFF, (m01 + m11) & 0xFFFFFFFF,
+                              (m00 + 2 * m10) & 0xFFFFFFFF, (m01 + 2 * m11) & 0xFFFFFFFF)
+    return np.array(c0, dtype=np.uint64), np.array(c1, dtype=np.uint64), (m00, m01, m10, m11)
+
+
+def _checksum_dot(data: bytes, s0: int, s1: int, big_endian: bool, num_pairs: int) -> tuple[int, int]:
+    # uint64 products and sums wrap mod 2**64, which keeps them exact mod 2**32
+    np = _numpy()
+    words = np.frombuffer(data, dtype=">u4" if big_endian else "<u4", count=2 * num_pairs).astype(np.uint64)
+    c0, c1, (m00, m01, m10, m11) = _dot_coefficients(num_pairs)
+    return ((m00 * s0 + m01 * s1 + int(c0 @ words)) & 0xFFFFFFFF,
+            (m10 * s0 + m11 * s1 + int(c1 @ words)) & 0xFFFFFFFF)
+
+
 class WalTornWriteDetector:
     """Detects torn writes, checksum failures, and corruption in SQLite WAL files."""
 
     @staticmethod
     def checksum_step(data: bytes, s0: int, s1: int, big_endian: bool) -> tuple[int, int]:
-        """Compute one step of SQLite's 64-bit WAL checksum algorithm."""
-        fmt = ">2I" if big_endian else "<2I"
+        """Compute one step of SQLite's 64-bit WAL checksum algorithm.
+
+        Row 1000 timeout (stale-gate fix-r1/B): the pair loop cost 0.25 ms per 4 KiB page, so one
+        live read of a 14k-frame WAL took 3.4 s. A page goes through _checksum_dot (~8 us)."""
         num_pairs = len(data) // 8
-        for i in range(num_pairs):
-            x0, x1 = struct.unpack_from(fmt, data, i * 8)
-            s0 = (s0 + x0 + s1) & 0xFFFFFFFF
-            s1 = (s1 + x1 + s0) & 0xFFFFFFFF
-        return s0, s1
+        if num_pairs >= _DOT_MIN_PAIRS and _numpy() is not None:
+            return _checksum_dot(data, s0, s1, big_endian, num_pairs)
+        return _checksum_loop(data, s0, s1, big_endian, num_pairs)
 
     def inspect_bytes(self, data: bytes, committed_frames: int | None = None) -> WalInspectionReport:
         """Inspect in-memory raw WAL byte stream.
