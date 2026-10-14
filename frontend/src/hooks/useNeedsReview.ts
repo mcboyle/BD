@@ -25,6 +25,7 @@
 // drops out of the needs_review list.
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { apiPost } from "@/lib/api-client";
 import type { OkResult } from "@/lib/api-types";
@@ -45,7 +46,17 @@ export function useNeedsReview() {
   const approve = useMutation<OkResult, Error, TriageTarget>({
     mutationFn: ({ sid, url }) =>
       apiPost<OkResult>(`/api/sites/${sid}/bulk_approve`, { urls: [url] }),
-    onSuccess: invalidate,
+    onSuccess: (res) => {
+      invalidate();
+      // dsq-spa-errors F2c: the server answers 200 {ok:true, approved:0} when
+      // the runner does not hold this URL -- nothing happened, so say so.
+      const approved = (res as { approved?: unknown } | undefined)?.approved;
+      if (approved === 0) {
+        toast.warning(
+          "Nothing was approved: the site's runner does not hold this item. Try Retry instead.",
+        );
+      }
+    },
   });
 
   const retry = useMutation<OkResult, Error, TriageTarget>({

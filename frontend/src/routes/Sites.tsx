@@ -317,7 +317,8 @@ export function Sites() {
             <Skeleton className="h-16 w-full" />
           </>
         )}
-        {!isLoading && filtered.length === 0 &&
+        {/* dsq-spa-errors F7: a failed read is not "No sites yet". */}
+        {!isLoading && !isError && filtered.length === 0 &&
           (allSites.length === 0 ? (
             <EmptyState
               title="No sites yet"

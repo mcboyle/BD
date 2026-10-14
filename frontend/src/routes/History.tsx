@@ -186,7 +186,7 @@ function HistorySearchTab() {
                       : r.filename || ""}
                   </td>
                   <td className={`pr-3 whitespace-nowrap tabular-nums ${cellPad}`}>
-                    {r.file_size ? formatBytes(r.file_size) : ""}
+                    {r.file_size != null ? formatBytes(r.file_size) : ""}
                   </td>
                   <td className={`max-w-[360px] truncate text-xs text-ink-3 ${cellPad}`}>
                     {searching
@@ -203,6 +203,15 @@ function HistorySearchTab() {
   );
 }
 
+// dsq-spa-errors F7: a failed read is not "nothing yet".
+function LoadError({ what }: { what: string }) {
+  return (
+    <p role="alert" className="py-6 text-center text-sm text-red">
+      Couldn't load {what}.
+    </p>
+  );
+}
+
 function EventsTab() {
   const events = useEventsAll(200);
   const sessions = useSessionHistory(100);
@@ -212,6 +221,8 @@ function EventsTab() {
         <h3 className="section-head">Cross-site events</h3>
         {events.isLoading ? (
           <Skeleton className="h-32 w-full" />
+        ) : events.isError && !events.data ? (
+          <LoadError what="events" />
         ) : (events.data?.events?.length ?? 0) === 0 ? (
           <p className="py-6 text-center text-sm text-ink-3">No events yet.</p>
         ) : (
@@ -233,6 +244,8 @@ function EventsTab() {
         <h3 className="section-head">Session keeper events</h3>
         {sessions.isLoading ? (
           <Skeleton className="h-32 w-full" />
+        ) : sessions.isError && !sessions.data ? (
+          <LoadError what="session events" />
         ) : (sessions.data?.events?.length ?? 0) === 0 ? (
           <p className="py-6 text-center text-sm text-ink-3">No session events yet.</p>
         ) : (
@@ -301,6 +314,8 @@ function LogsTab({ arm, busy }: { arm: (p: Pending) => void; busy: boolean }) {
       </div>
       {tail.isLoading ? (
         <Skeleton className="h-64 w-full" />
+      ) : tail.isError && !tail.data ? (
+        <LoadError what="the log" />
       ) : (
         <pre className="max-h-[480px] overflow-auto rounded-md border bg-surface-2 p-3 text-[11px] leading-4">
           {(tail.data?.lines ?? []).join("\n") ||
@@ -370,6 +385,8 @@ function SavedSearchesTab({
         </h3>
         {list.isLoading ? (
           <Skeleton className="h-24 w-full" />
+        ) : list.isError && !list.data ? (
+          <LoadError what="saved searches" />
         ) : (list.data?.searches?.length ?? 0) === 0 ? (
           <p className="text-sm text-muted-foreground">No saved searches.</p>
         ) : (
