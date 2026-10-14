@@ -50,7 +50,12 @@ def import_error() -> Optional[str]:
 
 def _connect(cfg: dict):
     """Build a PlexServer from BD's site config. Returns the server
-    or raises an Exception with a user-readable message."""
+    or raises an Exception with a user-readable message.
+
+    Connects through plex_deep_plexapi.connect_or_refusal, the one guarded path:
+    a private/loopback plex_url is refused unless the site sets
+    plex_allow_private_host, and the session never carries the token
+    across a cross-origin redirect (row 713)."""
     PlexServer, err = _try_plexapi()
     if PlexServer is None:
         raise RuntimeError(
@@ -61,8 +66,14 @@ def _connect(cfg: dict):
     if not base_url or not token:
         raise RuntimeError(
             "site config missing plex_url and/or plex_token")
-    # plexapi handles trailing slashes + auth headers
-    return PlexServer(base_url, token, timeout=10)
+    from . import plex_deep_plexapi as _pdp
+    # The refusal comes back with this call, never from the module's shared
+    # last-refusal state, which another site's concurrent call can overwrite.
+    srv, refusal = _pdp.connect_or_refusal(cfg, timeout=10)
+    if srv is None:
+        raise RuntimeError(refusal
+                           or "could not connect to Plex (details in the server log)")
+    return srv
 
 
 def _fail_open(extra=None) -> dict:
