@@ -29,6 +29,7 @@ Public surface mirrors plex_deep.py:
 
   • is_available()                     → bool: plexapi importable
   • connect(cfg)                        → server obj or None
+  • connect_or_refusal(cfg)             → (server obj or None, refusal text or None)
   • path_scoped_refresh(server, ...)   → bool
   • find_unmatched(server, ...)        → list[dict]
   • restamp_added_at(server, ...)      → bool
@@ -93,6 +94,23 @@ def connect(cfg: dict, *, timeout: float = 10.0, allow_private_hosts: bool = Fal
     """Return a connected PlexServer instance, or None on failure.
     Caller is responsible for caching — connect() is moderately
     expensive (handshake + capabilities probe)."""
+    return _connect_reporting(cfg, timeout, allow_private_hosts, [])
+
+
+def connect_or_refusal(cfg: dict, *, timeout: float = 10.0):
+    """connect(), plus THIS call's refusal text (None when not refused).
+
+    The text is per call. _last_refusal is shared by every thread, so a
+    caller that read it back after connect() could report another site's
+    refusal as its own under the threaded server (plex-advanced-guard r2)."""
+    refusals: list = []
+    server = _connect_reporting(cfg, timeout, False, refusals)
+    return server, (refusals[0] if refusals else None)
+
+
+def _connect_reporting(cfg, timeout, allow_private_hosts, refusals):
+    """The one guarded connect. A refusal is appended to ``refusals``
+    (the caller's own list) and recorded for status_dict()."""
     PlexServer = _try_import()
     if PlexServer is None:
         return None
@@ -123,7 +141,9 @@ def connect(cfg: dict, *, timeout: float = 10.0, allow_private_hosts: bool = Fal
         _last_refusal = None
         return server
     except SSRFBlocked as e:
-        _last_refusal = str(e)
+        refusal = str(e)
+        _last_refusal = refusal
+        refusals.append(refusal)
         return None
     except Exception as e:
         sys.stderr.write(f"[plex_deep_plexapi] connect failed: {e}\n")

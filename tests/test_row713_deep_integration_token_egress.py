@@ -423,6 +423,111 @@ def test_row713_plexapi_refusal_does_not_outlive_a_later_success(
     assert backend.status_dict()["refusal"] is None
 
 
+# ── plex_advanced: the fifth path, connected through plex_deep_plexapi ─
+# The REAL plexapi PlexServer and requests stack talk to the loopback
+# recorders; plex_advanced must reach them only through connect() above.
+
+
+@pytest.fixture
+def plex_advanced(monkeypatch):
+    from bulk_downloader import plex_advanced as adv
+    from bulk_downloader import plex_deep_plexapi as backend
+    if not adv.is_available():
+        pytest.fail("plexapi is a requirement (requirements.txt); not importable here")
+    monkeypatch.setattr(backend, "_last_refusal", None)
+    return adv
+
+
+def test_row713_plex_advanced_cross_host_redirect_never_carries_the_token(
+        servers, plex_advanced):
+    first = servers("127.0.0.1")
+    second = servers("127.0.0.2")
+    first.redirect_to = f"{second.origin}/"
+    out = plex_advanced.server_info({"plex_url": first.origin, "plex_token": TOKEN,
+                                     "plex_allow_private_host": True})
+    assert second.token_hits() == [], ("PLEX-ADVANCED-REDIRECT-EGRESS", second.token_hits())
+    assert second.requests == []
+    assert len(first.requests) == 1                    # it did reach the first origin
+    assert out.get("error") and TOKEN not in json.dumps(out)
+
+
+def test_row713_plex_advanced_refuses_a_loopback_url_without_the_opt_in(
+        servers, plex_advanced):
+    recorder = servers()
+    out = plex_advanced.server_info({"plex_url": recorder.origin, "plex_token": TOKEN})
+    assert recorder.requests == [], ("PLEX-ADVANCED-UNGUARDED-CONNECT", len(recorder.requests))
+    assert "plex_allow_private_host" in out.get("error", ""), out
+    assert TOKEN not in json.dumps(out)
+    for call in (plex_advanced.library_stats,
+                 lambda cfg: plex_advanced.recently_added(cfg, count=1),
+                 lambda cfg: plex_advanced.search(cfg, "x", count=1)):
+        assert "plex_allow_private_host" in call(
+            {"plex_url": recorder.origin, "plex_token": TOKEN}).get("error", "")
+    assert recorder.requests == []
+
+
+def test_row713_plex_advanced_connects_with_the_opt_in(servers, plex_advanced):
+    recorder = servers()
+    out = plex_advanced.server_info({"plex_url": recorder.origin, "plex_token": TOKEN,
+                                     "plex_allow_private_host": True})
+    assert "error" not in out, out
+    assert out["version"] == "1"
+    assert recorder.token_hits()                       # the token went to the operator's host
+
+
+def test_row713_plex_advanced_refusal_text_is_not_stale(servers, plex_advanced):
+    """A refusal from one call must not be reported for a later, different failure."""
+    recorder = servers()
+    recorder.status = 401
+    plex_advanced.server_info({"plex_url": recorder.origin, "plex_token": TOKEN})
+    out = plex_advanced.server_info({"plex_url": recorder.origin, "plex_token": TOKEN,
+                                     "plex_allow_private_host": True})
+    assert out.get("error") and "plex_allow_private_host" not in out["error"], out
+    assert TOKEN not in json.dumps(out)
+
+
+def test_row713_plex_advanced_refusal_is_per_call_under_interleave(
+        servers, plex_advanced, monkeypatch):
+    """Site A is refused while site B's connect is in flight (the threaded
+    server's interleave, made deterministic): B reports its own failure."""
+    from bulk_downloader import deep_http
+    site_a = servers()
+    site_b = servers()
+    site_b.status = 401
+    real_session = deep_http.guarded_session
+    seen = {}
+
+    def a_lands_mid_flight(**kw):
+        if "A" not in seen:
+            seen["A"] = plex_advanced.server_info(
+                {"plex_url": site_a.origin, "plex_token": TOKEN})
+        return real_session(**kw)
+
+    monkeypatch.setattr(deep_http, "guarded_session", a_lands_mid_flight)
+    out_b = plex_advanced.server_info({"plex_url": site_b.origin, "plex_token": TOKEN,
+                                       "plex_allow_private_host": True})
+    assert "plex_allow_private_host" in seen["A"].get("error", ""), seen   # A was refused
+    assert site_a.requests == []
+    assert site_b.requests                                 # B really failed at its own host
+    assert out_b.get("error") and "plex_allow_private_host" not in out_b["error"], (
+        "PLEX-ADVANCED-SHARED-REFUSAL", out_b["error"])
+    assert TOKEN not in json.dumps(out_b)
+
+
+def test_row713_connect_or_refusal_returns_this_calls_refusal(servers, fake_plexapi):
+    backend, seen = fake_plexapi
+    recorder = servers()
+    server, refusal = backend.connect_or_refusal({"plex_url": recorder.origin,
+                                                  "plex_token": TOKEN})
+    assert server is None and "plex_allow_private_host" in refusal
+    assert backend.status_dict()["refusal"] == refusal     # the status endpoint still sees it
+    backend._last_refusal = "another site's refusal"
+    server, refusal = backend.connect_or_refusal(
+        {"plex_url": recorder.origin, "plex_token": TOKEN, "plex_allow_private_host": True})
+    assert server is not None and refusal is None, refusal
+    assert seen and recorder.requests == []                # fake constructor, no network
+
+
 # ── transform-control band: imports the subject, drives nothing ───────
 
 
