@@ -101,12 +101,22 @@ if IS_WINDOWS:
 # ─── Tunables ───────────────────────────────────────────────────────
 
 CONF_DIR = Path(tempfile.gettempdir()) / "bd_vpn_wg"
-CONF_DIR.mkdir(mode=0o700, exist_ok=True)
-if not IS_WINDOWS:
+
+
+def _ensure_conf_dir() -> Path:
+    """Create/return CONF_DIR as an owner-only (0700) directory, called
+    again before every conf write: anything that ages out the system
+    temp dir can remove it after import (vpn_openvpn does the same)."""
     try:
-        os.chmod(CONF_DIR, 0o700)
+        CONF_DIR.mkdir(mode=0o700, exist_ok=True)
+        if not IS_WINDOWS:
+            os.chmod(CONF_DIR, 0o700)
     except OSError:
         pass
+    return CONF_DIR
+
+
+_ensure_conf_dir()
 
 WG_UP_TIMEOUT_S = 30
 WG_DOWN_TIMEOUT_S = 15
@@ -188,7 +198,7 @@ def start(tunnel: Tunnel) -> bool:
         tunnel.last_error = f"invalid wg config: {e}"
         return False
 
-    conf_path = CONF_DIR / f"{iface}.conf"
+    conf_path = _ensure_conf_dir() / f"{iface}.conf"
     try:
         fd = os.open(str(conf_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
