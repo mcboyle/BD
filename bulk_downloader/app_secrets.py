@@ -14,6 +14,12 @@ from flask import Blueprint, jsonify, request
 
 secrets_bp = Blueprint("secrets", __name__)
 
+
+def _wrong_type(field, kind="a string"):
+    """dss-type-500s F6/F7: a wrong-typed field is refused by NAME before it reaches
+    the backend, instead of a 500 or the AttributeError handler's body-shape 400."""
+    return jsonify({"ok": False, "error": f"{field} must be {kind}"}), 400
+
 def _reject_if_vault_token(*_a, **_k):
     """Delegate to app._reject_if_vault_token at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -334,6 +340,8 @@ def api_secrets_unlock():
     if not hasattr(backend, "unlock"):
         return jsonify({"ok": True, "note": "backend doesn't require unlocking"})
     password = (request.json or {}).get("password", "")
+    if not isinstance(password, str):
+        return _wrong_type("password")
     if not password:
         return jsonify({"ok": False, "error": "password required"}), 400
     # NEW-9: shared escalating back-off with change_password (same secret).
@@ -531,6 +539,9 @@ def api_secrets_change_password():
     data = request.json or {}
     old = data.get("old_password", "")
     new = data.get("new_password", "")
+    for _field, _val in (("old_password", old), ("new_password", new)):
+        if not isinstance(_val, str):
+            return _wrong_type(_field)
     if not new or len(new) < 8:
         return jsonify({"ok": False,
                         "error": "new password must be at least 8 characters"}), 400
@@ -719,8 +730,16 @@ def api_secrets_import_apply():
         return jsonify({"ok": False, "error": "backend is locked"}), 401
 
     data = request.json or {}
-    records = data.get("records") or []
-    site_ids = data.get("site_ids") or []
+    # dss-type-500s r2: only an absent/null field defaults to []; "or []" turned
+    # {} / false / 0 / "" into an empty list and answered 200 saved:0.
+    records = data.get("records")
+    records = [] if records is None else records
+    site_ids = data.get("site_ids")
+    site_ids = [] if site_ids is None else site_ids
+    if not isinstance(records, list):
+        return _wrong_type("records", "a list")
+    if not isinstance(site_ids, list):
+        return _wrong_type("site_ids", "a list")
     if len(site_ids) < len(records):
         site_ids = site_ids + [""] * (len(records) - len(site_ids))
 
@@ -777,6 +796,8 @@ def api_secrets_delete():
     from . import secrets_store as ss
     data = request.json or {}
     if data.get("site_id"):
+        if not isinstance(data["site_id"], str):
+            return _wrong_type("site_id", "a non-empty string")
         key = ss.site_password_key(data["site_id"])
     else:
         key = data.get("key", "")
@@ -947,6 +968,8 @@ def api_secrets_extension_pair():
     data = request.json or {}
     pairing = data.get("pairing_token", "")
     label = data.get("label", "extension")
+    if not isinstance(pairing, str):
+        return _wrong_type("pairing_token")
     if not pairing:
         return jsonify({"ok": False, "error": "pairing_token required"}), 400
     try:
@@ -959,7 +982,9 @@ def api_secrets_extension_pair():
     if not vault_token:
         return jsonify({"ok": False,
             "error": "pairing token unknown or expired"}), 401
-    return jsonify({"ok": True, "vault_token": vault_token, "label": label})
+    # F6: echo the label as stored (sanitized, capped), not the raw request value.
+    return jsonify({"ok": True, "vault_token": vault_token,
+                    "label": _ev._sanitize_label(label)})
 @secrets_bp.route("/api/secrets/extension/list_paired", methods=["GET"])
 def api_secrets_extension_list_paired():
     """Vault settings UI: list paired extensions with metadata.
@@ -986,6 +1011,8 @@ def api_secrets_extension_revoke():
     from . import extension_vault as _ev
     data = request.json or {}
     prefix = data.get("id", "")
+    if not isinstance(prefix, str):
+        return _wrong_type("id")
     if not prefix:
         return jsonify({"ok": False, "error": "id required"}), 400
     try:
@@ -1076,6 +1103,8 @@ def api_secrets_extension_fetch_one():
     data = request.json or {}
     entry_id = data.get("id", "")
     origin = data.get("origin", "")  # for audit log only
+    if not isinstance(entry_id, str):
+        return _wrong_type("id")
     if not entry_id:
         return jsonify({"ok": False, "error": "id required"}), 400
 
