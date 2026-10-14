@@ -647,55 +647,55 @@ Schema version: 2
 - L0015 `_dest_in_dir` `[private]` — v3.66.840: collision-safe ABSOLUTE destination for a rendered name.
 - L0037 `_contained_name` `[private]` — bughunt ah-fix F1/F3: a rendered name that leaves the download dir
 - L0052 `_config_min_res` `[private]` — bughunt ah-fix F12: ``min_resolution`` as an int height. "720p" and other
-- L0135 `_socks_remote_dns` `[private]` — Track-K (A1): rewrite a bare ``socks5://`` proxy to ``socks5h://`` so a
-- L0146 `_ssrf_guarded_http_get` `[private]` — v3.66.765 (SSRF-REM, defense-in-depth): wrap an INJECTED http_get with the
-- L0176 `_permitted_plugin_dirs` `[private]` — INTEROP-GH-1 (v3.66.655): resolve the external plugin dirs for ``kind``
-- L0212 `_build_ytdlp_cmd` `[private]` — Pure builder for the yt-dlp fallback CLI (unit-testable, no side effects).
-- L0280 `_build_gallerydl_cmd` `[private]` — Pure builder for the gallery-dl fallback CLI (unit-testable, no side
-- L0321 `_gallerydl_written_paths` `[private]` — The files a gallery-dl run reports on stdout, as real paths. One path per
-- L0338 `_landed_video_seconds` `[private]` — The landed file's duration in seconds via the pinned ffprobe, or 0.0.
-- L0347 `_spa_job_is_the_file` `[private]` — True when the queued URL is itself the media file (scheme/host/path equal,
-- L0358 `_spa_logged_out_view` `[private]` — dl95-pegasproductions-2b: the logged-out view that decides public-tier
-- L0373 `_landed_video_height` `[private]` — The landed file's first video stream height via the pinned ffprobe, or 0.
-- L0382 `_landed_body_kind` `[private]` — dl95-ok-3: what a page-media direct transfer actually saved.
-- L0406 `site_untaught` — dl95-dailymotion-1: True iff the site has no applied template and no learned
-- L0420 `_dd_probe_cookie_jar` `[private]` — Playwright context cookies as a CookieJar that scopes each cookie like the
-- L0428 `_dd_cross_site_referer` `[private]` — strict-origin-when-cross-origin: the page ORIGIN only (no path, no query);
-- L0443 `_DDProbeHttp` `[private]` — The http object handed to deep_detect_live. Requests to the page's own
-  - L0449 `_DDProbeHttp.__init__` `[dunder]`
-  - L0470 `_DDProbeHttp.cookies`
-  - L0473 `_DDProbeHttp._for` `[private]`
-  - L0476 `_DDProbeHttp.head`
-  - L0479 `_DDProbeHttp.get`
-  - L0482 `_DDProbeHttp.post`
-  - L0485 `_DDProbeHttp.stream`
-  - L0488 `_DDProbeHttp.close`
-  - L0495 `_DDProbeHttp.__enter__` `[dunder]`
-  - L0498 `_DDProbeHttp.__exit__` `[dunder]`
-- L0503 `ExtractorsMixin` `[class]`
-  - L0504 `ExtractorsMixin._try_ytdlp_fallback` `[private]` — Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
-  - L0638 `ExtractorsMixin._try_ytdlp_untaught` `[private]` — dl95-dailymotion-1: the last resort before "No download button found" on an
-  - L0657 `ExtractorsMixin._try_gallerydl_fallback` `[private]` — C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback
-  - L0766 `ExtractorsMixin._try_deep_detect_fallback` `[private]` — v3.66.6 — Backlog #7 wiring. When the primary scrape path
-  - L1127 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
-  - L1163 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
-  - L1432 `ExtractorsMixin._spa_player_heights` `[private]` — dl95-txxx-5: a candidate of unknown height that the page's own
-  - L1454 `ExtractorsMixin._try_player_media_extractor` `[private]` — dl95-porndoe-1: start the page's player and take its FEATURE media.
-  - L1477 `ExtractorsMixin._try_spa_api_media_extractor` `[private]` — Row 722 (G5): API/media extraction fallback for SPA scene pages.
-  - L2054 `ExtractorsMixin._direct_media_url_handled` `[private]` — dl95-file-examples-1: a job URL that is itself a direct media href
-  - L2095 `ExtractorsMixin._spa_trailer_only` `[private]` — dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
-  - L2130 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
-  - L2395 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
-  - L2621 `ExtractorsMixin._spa_hls_ranked_variant` `[private]` — dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
-  - L2643 `ExtractorsMixin._spa_option_summary` `[private]`
-  - L2648 `ExtractorsMixin._hold_below_minimum` `[private]` — The page-media arms' min_resolution hold, worded as the button path's.
-  - L2659 `ExtractorsMixin._kvs_flashvars_media` `[private]` — dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
-  - L2684 `ExtractorsMixin._spa_measure_hls_masters` `[private]` — tpl95-xnxx-1: an HLS master of unknown height is labelled by its
-  - L2702 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
-  - L2995 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
-  - L3096 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
-  - L3162 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
-  - L3297 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
+- L0150 `_socks_remote_dns` `[private]` — Track-K (A1): rewrite a bare ``socks5://`` proxy to ``socks5h://`` so a
+- L0161 `_ssrf_guarded_http_get` `[private]` — v3.66.765 (SSRF-REM, defense-in-depth): wrap an INJECTED http_get with the
+- L0191 `_permitted_plugin_dirs` `[private]` — INTEROP-GH-1 (v3.66.655): resolve the external plugin dirs for ``kind``
+- L0227 `_build_ytdlp_cmd` `[private]` — Pure builder for the yt-dlp fallback CLI (unit-testable, no side effects).
+- L0295 `_build_gallerydl_cmd` `[private]` — Pure builder for the gallery-dl fallback CLI (unit-testable, no side
+- L0336 `_gallerydl_written_paths` `[private]` — The files a gallery-dl run reports on stdout, as real paths. One path per
+- L0353 `_landed_video_seconds` `[private]` — The landed file's duration in seconds via the pinned ffprobe, or 0.0.
+- L0362 `_spa_job_is_the_file` `[private]` — True when the queued URL is itself the media file (scheme/host/path equal,
+- L0373 `_spa_logged_out_view` `[private]` — dl95-pegasproductions-2b: the logged-out view that decides public-tier
+- L0388 `_landed_video_height` `[private]` — The landed file's first video stream height via the pinned ffprobe, or 0.
+- L0397 `_landed_body_kind` `[private]` — dl95-ok-3: what a page-media direct transfer actually saved.
+- L0421 `site_untaught` — dl95-dailymotion-1: True iff the site has no applied template and no learned
+- L0435 `_dd_probe_cookie_jar` `[private]` — Playwright context cookies as a CookieJar that scopes each cookie like the
+- L0443 `_dd_cross_site_referer` `[private]` — strict-origin-when-cross-origin: the page ORIGIN only (no path, no query);
+- L0458 `_DDProbeHttp` `[private]` — The http object handed to deep_detect_live. Requests to the page's own
+  - L0464 `_DDProbeHttp.__init__` `[dunder]`
+  - L0485 `_DDProbeHttp.cookies`
+  - L0488 `_DDProbeHttp._for` `[private]`
+  - L0491 `_DDProbeHttp.head`
+  - L0494 `_DDProbeHttp.get`
+  - L0497 `_DDProbeHttp.post`
+  - L0500 `_DDProbeHttp.stream`
+  - L0503 `_DDProbeHttp.close`
+  - L0510 `_DDProbeHttp.__enter__` `[dunder]`
+  - L0513 `_DDProbeHttp.__exit__` `[dunder]`
+- L0518 `ExtractorsMixin` `[class]`
+  - L0519 `ExtractorsMixin._try_ytdlp_fallback` `[private]` — Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
+  - L0653 `ExtractorsMixin._try_ytdlp_untaught` `[private]` — dl95-dailymotion-1: the last resort before "No download button found" on an
+  - L0672 `ExtractorsMixin._try_gallerydl_fallback` `[private]` — C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback
+  - L0781 `ExtractorsMixin._try_deep_detect_fallback` `[private]` — v3.66.6 — Backlog #7 wiring. When the primary scrape path
+  - L1142 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
+  - L1178 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
+  - L1447 `ExtractorsMixin._spa_player_heights` `[private]` — dl95-txxx-5: a candidate of unknown height that the page's own
+  - L1469 `ExtractorsMixin._try_player_media_extractor` `[private]` — dl95-porndoe-1: start the page's player and take its FEATURE media.
+  - L1492 `ExtractorsMixin._try_spa_api_media_extractor` `[private]` — Row 722 (G5): API/media extraction fallback for SPA scene pages.
+  - L2069 `ExtractorsMixin._direct_media_url_handled` `[private]` — dl95-file-examples-1: a job URL that is itself a direct media href
+  - L2110 `ExtractorsMixin._spa_trailer_only` `[private]` — dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
+  - L2144 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
+  - L2409 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
+  - L2635 `ExtractorsMixin._spa_hls_ranked_variant` `[private]` — dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
+  - L2657 `ExtractorsMixin._spa_option_summary` `[private]`
+  - L2662 `ExtractorsMixin._hold_below_minimum` `[private]` — The page-media arms' min_resolution hold, worded as the button path's.
+  - L2673 `ExtractorsMixin._kvs_flashvars_media` `[private]` — dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
+  - L2698 `ExtractorsMixin._spa_measure_hls_masters` `[private]` — tpl95-xnxx-1: an HLS master of unknown height is labelled by its
+  - L2716 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
+  - L3009 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
+  - L3110 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
+  - L3176 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
+  - L3311 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
 ```
 
 
@@ -1041,30 +1041,30 @@ Schema version: 2
 - L0007 `log_url` — A URL as it may appear in a diagnostic: scheme/host/path kept, EVERY
 - L0025 `_selector_text` `[private]` — Return the CSS selector carried by a plain or structured chain step.
 - L0034 `_first_positive_size_match` `[private]` — Return the first visible, positive-size match for ``selector``.
-- L0093 `_visible_login_field` `[private]` — True when a selector has a visible, positive-size match that is not
-- L0113 `_fire_auto_login_trigger` `[private]` — Open an SPA login modal that is not mounted until clicked.
-- L0159 `resolve_login_trigger` — dl95-eporner-4-live-1: resolve login_trigger, gap-filling from template defaults
-- L0192 `_fire_login_trigger_if_needed` `[private]` — Reveal a configured modal login form when no username field is usable.
-- L0228 `_all_visible` `[private]` — Return the first visible match from the candidate list. Tries each
-- L0247 `_wait_attached` `[private]` — Wait for ATTACHMENT. The only thing attached may be the decoy, and
-- L0253 `_wait_visible` `[private]` — Wait for VISIBILITY, which is what a field must be before we fill
-- L0259 `_signal_tabindex` `[private]` — For a form input ``tabindex="-1"`` is a STANDALONE trap signal.
-- L0266 `_signal_aria_hidden` `[private]` — A field announced as hidden to assistive tech is not for a human.
-- L0273 `_signal_css_hidden` `[private]` — The SHIPPED style vocabulary, consulted rather than restated.
-- L0285 `_signal_hidden_attr` `[private]` — The ``hidden`` attribute: no shipped equivalent, browser-only fact.
-- L0292 `_signal_type_hidden` `[private]` — ``type=hidden``: likewise browser-only.
-- L0299 `_signal_offscreen_box` `[private]` — A negative bounding box -- the ``left:-9999px`` decoy whose inline
-- L0324 `_is_honeypot_field` `[private]` — Return ``(is_decoy, reason)`` for a Playwright input locator.
-- L0420 `_is_search_field` `[private]` — Return ``(is_search, reason)`` for a Playwright input locator.
-- L0438 `_search_field_reason` `[private]` — dl95-eporner-4 (main's name): why ``loc`` is a site SEARCH input, or
-- L0446 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
-- L0537 `get_input_scheduler` — Access the synthetic user input scheduler.
-- L0543 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
-- L0566 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
-- L0577 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
-- L0633 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
-- L0700 `_css_escape_for_id` `[private]`
-- L0709 `_ms_since` `[private]`
+- L0099 `_visible_login_field` `[private]` — True when a selector has a visible, positive-size match that is not
+- L0119 `_fire_auto_login_trigger` `[private]` — Open an SPA login modal that is not mounted until clicked.
+- L0176 `resolve_login_trigger` — dl95-eporner-4-live-1: resolve login_trigger, gap-filling from template defaults
+- L0209 `_fire_login_trigger_if_needed` `[private]` — Reveal a configured modal login form when no username field is usable.
+- L0245 `_all_visible` `[private]` — Return the first visible match from the candidate list. Tries each
+- L0264 `_wait_attached` `[private]` — Wait for ATTACHMENT. The only thing attached may be the decoy, and
+- L0270 `_wait_visible` `[private]` — Wait for VISIBILITY, which is what a field must be before we fill
+- L0276 `_signal_tabindex` `[private]` — For a form input ``tabindex="-1"`` is a STANDALONE trap signal.
+- L0283 `_signal_aria_hidden` `[private]` — A field announced as hidden to assistive tech is not for a human.
+- L0290 `_signal_css_hidden` `[private]` — The SHIPPED style vocabulary, consulted rather than restated.
+- L0302 `_signal_hidden_attr` `[private]` — The ``hidden`` attribute: no shipped equivalent, browser-only fact.
+- L0309 `_signal_type_hidden` `[private]` — ``type=hidden``: likewise browser-only.
+- L0316 `_signal_offscreen_box` `[private]` — A negative bounding box -- the ``left:-9999px`` decoy whose inline
+- L0341 `_is_honeypot_field` `[private]` — Return ``(is_decoy, reason)`` for a Playwright input locator.
+- L0437 `_is_search_field` `[private]` — Return ``(is_search, reason)`` for a Playwright input locator.
+- L0455 `_search_field_reason` `[private]` — dl95-eporner-4 (main's name): why ``loc`` is a site SEARCH input, or
+- L0463 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
+- L0554 `get_input_scheduler` — Access the synthetic user input scheduler.
+- L0560 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
+- L0583 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
+- L0594 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
+- L0650 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
+- L0717 `_css_escape_for_id` `[private]`
+- L0726 `_ms_since` `[private]`
 ```
 
 

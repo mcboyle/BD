@@ -35,7 +35,7 @@ Graph version: 1
 - `bulk_downloader/capture_redact.py`: 16
 - `bulk_downloader/ffmpeg_bin.py`: 15
 - `bulk_downloader/log.py`: 14
-- `bulk_downloader/session_keeper.py`: 14
+- `bulk_downloader/session_keeper.py`: 13
 
 ## Blueprints → providers
 

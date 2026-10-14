@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1869 - train282c: row
+
+T282c-B = train-17 (re-kit on MAIN 10936265 = train-16 merge, rule a; T282c-A d25bb79d was the staged kit; member list frozen at assembly; disjoint from D2-D train-16 (12 paths, no overlap)). Product train; BOARD per O1672; PR opens only after train-16's merge is on main (GO-pm-A4-A-harness-batch2-2229Z rule a), release re-kitted then; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub.
+FIX: BD-SEC-3 r2 refresh-00a0ad31 -- MED SEC row713 residual: deep_http D2 link-local/IMDS opt-in + F1 unresolvable (S144-A rebuild wt; BOARDED 2/2 22:20Z R312-B + AGY cohortA).
+FIX: t154-coupling-residual r1 -- PRODUCT refactor, no behaviour change: 2 named T154 edges gone (S145-A restack; BOARDED 22:24Z R331-A).
+FIX: tpl95-whoreshub-1 r2 -- dl95 login flow (S144-A; BOARDED 22:35Z R330-A; RED 1F / GREEN 191P over 13 login-trigger files).
+
+
 ## v3.66.1867 - train282b: row
 
 T282b-E (train-16, integrator D2-D) on main 2a8d9073 (train-15 merged; re-kit of T282b-D per GO-pm-A4-A-harness-batch2-2229Z (a)). 4 members, each latest verdict BOARD on its TREE; PATCH-SHA256 pins verified (T282b/verify-1.log). Path-disjoint from train-15 #1250. Sweep: T282b/sweep.out (40 BACKLOG rows on c80a6883: 7 clean, 18 conflict, 11 not BD repo, 4 base not on main). request-capture-redact r2 = NOOP (content already on main via dev-console-lows r1-restack).

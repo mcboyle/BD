@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6449,
+  "edge_count": 6452,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1173,6 +1173,7 @@
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/deep_http.py": [
+      "bulk_downloader/hooks.py",
       "bulk_downloader/http_client.py"
     ],
     "bulk_downloader/deployment_timeline.py": [
@@ -2038,7 +2039,6 @@
     ],
     "bulk_downloader/runner_extractors.py": [
       "bulk_downloader/candidate_filter.py",
-      "bulk_downloader/constants.py",
       "bulk_downloader/cookie_scope.py",
       "bulk_downloader/db.py",
       "bulk_downloader/detect.py",
@@ -2175,7 +2175,6 @@
       "bulk_downloader/rate_limit.py",
       "bulk_downloader/resume.py",
       "bulk_downloader/runner_util.py",
-      "bulk_downloader/session_keeper.py",
       "bulk_downloader/spa_media_extract.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/ssrf_transport.py",
@@ -2265,6 +2264,7 @@
     ],
     "bulk_downloader/session_keeper.py": [
       "bulk_downloader/cloak.py",
+      "bulk_downloader/constants.py",
       "bulk_downloader/cookie_scope.py",
       "bulk_downloader/cookies.py",
       "bulk_downloader/db.py",
@@ -2771,6 +2771,11 @@
       "bulk_downloader/egress_withhold.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/webhooks.py"
+    ],
+    "tests/test_bd_sec_3_row713_residual.py": [
+      "bulk_downloader/deep_http.py",
+      "bulk_downloader/plex_advanced.py",
+      "bulk_downloader/plex_deep.py"
     ],
     "tests/test_bd_sec_4_restore_allowlist.py": [
       "bulk_downloader/backup.py",
