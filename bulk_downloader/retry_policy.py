@@ -60,6 +60,7 @@ from `retry_after` which already exists, and `attempt` is just
 from __future__ import annotations
 
 import random
+import re
 from typing import Optional
 
 
@@ -126,8 +127,9 @@ _PERMANENT_PATTERNS = [
     "unsupported url",
 ]
 
-# Auth: needs relogin, not just waiting
-_AUTH_STATUS = {401, 403}
+# Auth: needs relogin, not just waiting. dat-retry-class F13: 407 (proxy auth)
+# is auth like its text form "407 Proxy Authentication Required", not permanent.
+_AUTH_STATUS = {401, 403, 407}
 _AUTH_PATTERNS = [
     "401 unauthorized",
     "403 forbidden",
@@ -142,8 +144,13 @@ _AUTH_PATTERNS = [
 
 # Rate-limited: server explicitly throttling us
 _RATE_STATUS = {429}
+# dat-retry-class F7: "429" only as a whole number -- not inside "1429 bytes",
+# "/v/4291/", ":4290" or "14297 of 99999" (those are transient).
+_RATE_429_RE = re.compile(r"(?<![\d.:/])429(?!\d|\.\d)")
+# URLs are cut out before the rate patterns run, so a host such as
+# rate-limit-test.example cannot make a failure rate_limited.
+_URL_RE = re.compile(r"[a-z][a-z0-9+.-]*://\S+")
 _RATE_PATTERNS = [
-    "429",
     "too many requests",
     "rate limit",
     "rate-limit",
@@ -206,7 +213,7 @@ def classify_failure(message: str = "",
     if sc is not None and not isinstance(sc, int):
         try:
             sc = int(sc)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             sc = None
 
     try:
@@ -242,8 +249,11 @@ def classify_failure(message: str = "",
     for p in _AUTH_PATTERNS:
         if p in msg:
             return "auth"
+    rate_msg = _URL_RE.sub(" ", msg)
+    if _RATE_429_RE.search(rate_msg):
+        return "rate_limited"
     for p in _RATE_PATTERNS:
-        if p in msg:
+        if p in rate_msg:
             return "rate_limited"
     for p in _TRANSIENT_PATTERNS:
         if p in msg:
@@ -284,6 +294,9 @@ def compute_next_delay(failure_class: str,
         attempt = max(0, int(attempt))
     except (TypeError, ValueError):
         attempt = 0
+    except OverflowError:
+        # dat-retry-class F13: an infinite attempt is past any cap.
+        attempt = 0 if attempt < 0 else cfg["max_attempts"]
 
     # Permanent never retries
     if cfg["max_attempts"] == 0:
@@ -329,12 +342,17 @@ def compute_next_delay(failure_class: str,
                 )
             delay = int(round(compute_backoff(attempt, prof)))
             delay = max(1, delay)
+            # dat-retry-class F13: a throttled server is never retried sooner
+            # than the class base (an unknown/small profile gave 1 s for 300).
+            if failure_class == "rate_limited":
+                delay = max(delay, cfg["base_delay_s"])
             if retry_after_floor > 0:
                 delay = max(delay, retry_after_floor)
         elif cfg["jitter_pct"] > 0:
             jit = delay * cfg["jitter_pct"]
             delay = int(delay + random.uniform(-jit, jit))
-            delay = max(1, delay)
+            # dat-retry-class F13: jitter never pushes past the class maximum.
+            delay = max(1, min(delay, cfg["max_delay_s"]))
 
     return delay
 
@@ -347,6 +365,14 @@ def should_retry(failure_class: str, attempt: int) -> bool:
     Lets the runner skip the next_delay computation entirely when
     we know the answer is "give up"."""
     cfg = CLASSES.get(failure_class) or CLASSES["transient"]
+    # dat-retry-class F13: same attempt coercion as compute_next_delay
+    # (None / "2" raised TypeError here).
+    try:
+        attempt = max(0, int(attempt))
+    except (TypeError, ValueError):
+        attempt = 0
+    except OverflowError:
+        attempt = 0 if attempt < 0 else cfg["max_attempts"]
     return attempt < cfg["max_attempts"]
 
 

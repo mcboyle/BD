@@ -45,6 +45,9 @@ def api_retry_policy_classify():
     status. Body: {message, status_code}. Returns the predicted
     class. Useful for debugging 'why was my URL marked permanent'."""
     data = request.get_json(silent=True) or {}
+    # dat-retry-class F13: a JSON list or string body is the caller's error.
+    if not isinstance(data, dict):
+        return jsonify({"error": "body must be a JSON object"}), 400
     try:
         from bulk_downloader import retry_policy as _rp
         cls = _rp.classify_failure(

@@ -701,8 +701,18 @@ _TRANSIENT_DOWNLOAD_ERROR_RE = re.compile(
     # bughunt ddt-fix F2: curl_cffi (the default client) words the same
     # mid-body disconnect as curl (18) and a stall as curl (28).
     r"bytes missing|transfer closed with outstanding read data|"
-    r"operation too slow",
+    r"operation too slow|"
+    # dat-retry-class F14: proxy / tunnel-side hiccups (curl 7, 56 CONNECT 5xx,
+    # 97 SOCKS, 52, 92; httpx) are network faults too.
+    r"couldn't connect to server|connect tunnel failed, response 5\d\d|"
+    r"connection to proxy closed|can't complete socks\d? connection|"
+    r"empty reply from server|http/2 stream \d+ was not closed cleanly|"
+    r"server disconnected",
     re.I)
+# The stop / rate-limit veto as whole words: "separate-cdn", "accelerate" and
+# "/generated/" are not a rate limit (F14).
+_DOWNLOAD_ERROR_VETO_RE = re.compile(
+    r"\bstopped\b|\brate(?:[ _-]?limit\w*)?\b", re.I)
 
 
 def _content_length(value):
@@ -730,7 +740,7 @@ def _is_transient_download_error(exc):
     into one `_HTTPDownloadFailed(str(e))`, so the original type is gone by
     the time a caller sees it."""
     text = str(exc).lower()
-    if "stopped" in text or "rate" in text:
+    if _DOWNLOAD_ERROR_VETO_RE.search(text):
         return False
     return bool(_TRANSIENT_DOWNLOAD_ERROR_RE.search(text))
 
