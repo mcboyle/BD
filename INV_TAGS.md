@@ -7,8 +7,8 @@ authoritative; this file is only a deterministic locality view.
 ## INV-001 — live source tags
 
 - `bulk_downloader/dev_suite/introspection.py:231` — `try:                                            # INV-001`
-- `bulk_downloader/runner.py:4316` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner.py:4382` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner.py:4378` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner.py:4444` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:423` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:745` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:856` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
@@ -19,7 +19,7 @@ authoritative; this file is only a deterministic locality view.
 ## INV-002 — live source tags
 
 - `bulk_downloader/dev_suite/audit_security.py:146` — `_DISPATCH_CHAIN = [  # INV-002`
-- `bulk_downloader/runner.py:5476` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
+- `bulk_downloader/runner.py:5550` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
 
 ## INV-003 — live source tags
 
@@ -44,7 +44,7 @@ authoritative; this file is only a deterministic locality view.
 
 - `bulk_downloader/dev_suite/introspection.py:252` — `try:                                            # INV-006`
 - `bulk_downloader/secrets_store.py:2445` — `def resolve_password(value: str | None) -> str | None:  # INV-006`
-- `bulk_downloader/vpn_config.py:498` — `def resolve_secrets(config: dict) -> dict:  # INV-006`
+- `bulk_downloader/vpn_config.py:504` — `def resolve_secrets(config: dict) -> dict:  # INV-006`
 
 ## Inventory summary
 

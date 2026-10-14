@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5989,
+  "edge_count": 6095,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -673,6 +673,7 @@
       "bulk_downloader/app_sites.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/exports.py",
       "bulk_downloader/jd_bridge.py",
       "bulk_downloader/qb_bridge.py",
       "bulk_downloader/queue_templates.py",
@@ -1190,6 +1191,7 @@
     ],
     "bulk_downloader/dev_suite/config_tools.py": [
       "bulk_downloader/app.py",
+      "bulk_downloader/global_config.py",
       "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/dev_suite/db_tools.py": [
@@ -1376,6 +1378,7 @@
       "bulk_downloader/bitrot.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/exports.py",
       "bulk_downloader/marketplace.py",
       "bulk_downloader/provenance.py"
     ],
@@ -2149,6 +2152,7 @@
       "bulk_downloader/db.py",
       "bulk_downloader/eol_export.py",
       "bulk_downloader/exports.py",
+      "bulk_downloader/global_config.py",
       "bulk_downloader/saved_searches.py"
     ],
     "bulk_downloader/scheduling.py": [
@@ -2170,7 +2174,8 @@
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/selector_playground.py": [
-      "bulk_downloader/cloak.py"
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/selector_check.py"
     ],
     "bulk_downloader/selftest.py": [
       "bulk_downloader/dom_analyzer.py",
@@ -2510,6 +2515,17 @@
       "bulk_downloader/cookie_clipboard.py",
       "bulk_downloader/cookies.py"
     ],
+    "tests/test_ab_fix_adapters_browser.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_teach.py",
+      "bulk_downloader/browser_pool.py",
+      "bulk_downloader/browser_sentinel.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/run_history.py",
+      "bulk_downloader/runner.py",
+      "tools/onboard_site_template.py"
+    ],
     "tests/test_adaptive_chunk_sizing.py": [
       "bulk_downloader/buffer_ring_pool.py",
       "bulk_downloader/chunked_transfer.py",
@@ -2761,9 +2777,28 @@
       "tools/capture_diagnostics.py",
       "tools/replay_validator.py"
     ],
+    "tests/test_bughunt_ah_fix.py": [
+      "bulk_downloader/direct_writer.py",
+      "bulk_downloader/extractors.py",
+      "bulk_downloader/extractors_jsonapi.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/yt_dlp_archive.py",
+      "bulk_downloader/ytdlp_extractor.py",
+      "bulk_downloader/ytdlp_updater.py"
+    ],
     "tests/test_bughunt_ct_fix.py": [
       "bulk_downloader/capacity.py",
       "bulk_downloader/cli_dashboard.py"
+    ],
+    "tests/test_bughunt_das_high.py": [
+      "bulk_downloader/app_auth.py",
+      "bulk_downloader/app_shares.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/shares.py",
+      "bulk_downloader/user_accounts.py"
     ],
     "tests/test_bughunt_ddr_fix.py": [
       "bulk_downloader/app_discovery.py",
@@ -2771,6 +2806,22 @@
     ],
     "tests/test_bughunt_dva_accounts.py": [
       "bulk_downloader/user_accounts.py"
+    ],
+    "tests/test_bughunt_qti_csv_export.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_queue.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/eol_export.py",
+      "bulk_downloader/exports.py",
+      "bulk_downloader/provenance.py"
+    ],
+    "tests/test_bughunt_qti_queue_meta.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_queue_templates.py",
+      "bulk_downloader/app_sites_queue.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/queue_templates.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_build_identity_is_current.py": [
       "bulk_downloader/app_health.py"
@@ -3213,8 +3264,22 @@
     "tests/test_d3_u6_activity.py": [
       "bulk_downloader/app.py"
     ],
+    "tests/test_dah_hls_runtime_nonpositive.py": [
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/hls_downloader.py"
+    ],
     "tests/test_daily_digest.py": [
       "bulk_downloader/daily_digest.py"
+    ],
+    "tests/test_dat_breaker_transport.py": [
+      "bulk_downloader/app_circuit.py",
+      "bulk_downloader/circuit_breaker.py",
+      "bulk_downloader/download_egress.py",
+      "bulk_downloader/egress_identity.py",
+      "bulk_downloader/http_client.py"
+    ],
+    "tests/test_dat_bridge_socks_tunnel.py": [
+      "bulk_downloader/download_egress.py"
     ],
     "tests/test_data_layer_status.py": [
       "bulk_downloader/app_data_layer.py"
@@ -3229,6 +3294,13 @@
     ],
     "tests/test_db_replication.py": [
       "bulk_downloader/db_replication.py"
+    ],
+    "tests/test_dbt_fix_selector_tooling.py": [
+      "bulk_downloader/selector_chains.py",
+      "bulk_downloader/selector_check.py",
+      "bulk_downloader/selector_playground.py",
+      "bulk_downloader/selector_versions.py",
+      "bulk_downloader/template_selector_verifier.py"
     ],
     "tests/test_decomp_deletions.py": [
       "tools/decomp_deletions.py"
@@ -3822,6 +3894,19 @@
       "bulk_downloader/db.py",
       "bulk_downloader/run_history.py"
     ],
+    "tests/test_dl_runner_bughunt_fixes.py": [
+      "bulk_downloader/app_runners.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/download_hold.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/task_drain_engine.py"
+    ],
+    "tests/test_dn_fix_webhook_delivery.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/webhooks.py"
+    ],
     "tests/test_dom_analyzer.py": [
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/dom_analyzer.py",
@@ -3883,6 +3968,17 @@
       "bulk_downloader/drift_repair.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/selector_drift.py"
+    ],
+    "tests/test_dss_fix_settings_save.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_dss_site_secrets_put_reports_vault_failure.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_dsw_fix_tags_stream.py": [
       "bulk_downloader/app_stream.py",
@@ -4938,6 +5034,14 @@
       "bulk_downloader/viewport_clipping_filter.py",
       "tools/multi_site_benchmark.py"
     ],
+    "tests/test_o1789_dah_api_input.py": [
+      "bulk_downloader/app_gallerydl_update.py",
+      "bulk_downloader/app_multi_conn.py",
+      "bulk_downloader/app_ytdlp_archive.py",
+      "bulk_downloader/app_ytdlp_update.py",
+      "bulk_downloader/multi_conn.py",
+      "bulk_downloader/yt_dlp_archive.py"
+    ],
     "tests/test_o1789_dax_cdn_extractors.py": [
       "bulk_downloader/extractors_aylo.py",
       "bulk_downloader/extractors_dl8.py",
@@ -4948,6 +5052,15 @@
       "bulk_downloader/hydration_extractor.py",
       "bulk_downloader/playlist_extractor.py",
       "bulk_downloader/search_extractor.py"
+    ],
+    "tests/test_o1789_hl_history_search.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_o1789_hl_library_delete_and_input.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/library.py"
     ],
     "tests/test_o1807_r1_template_promote_failclosed.py": [
       "bulk_downloader/app_template_manager.py",
@@ -5474,6 +5587,23 @@
       "bulk_downloader/library.py",
       "bulk_downloader/migrations.py",
       "bulk_downloader/runner_integrations.py"
+    ],
+    "tests/test_qt_validate_fixes.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_queue_templates.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/queue_templates.py"
+    ],
+    "tests/test_qti_sites_csv.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/csv_bulk.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_qti_user_tpl_store.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/user_templates.py"
     ],
     "tests/test_queue_load_missing_table.py": [
       "bulk_downloader/db.py"
@@ -7000,6 +7130,24 @@
       "bulk_downloader/integrity.py",
       "bulk_downloader/satellite_video.py",
       "tools/fixture_site.py"
+    ],
+    "tests/test_sc_f9_export_destination.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/scheduled_exports.py"
+    ],
+    "tests/test_sc_fix_scheduler_cron.py": [
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_bg.py",
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/capture_schedules.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/saved_searches.py",
+      "bulk_downloader/scheduled_exports.py"
     ],
     "tests/test_scs_fix_alerts_tg.py": [
       "bulk_downloader/alerts_engine.py",
