@@ -345,14 +345,42 @@ def api_secrets_unlock():
     if not password:
         return jsonify({"ok": False, "error": "password required"}), 400
     # NEW-9: shared escalating back-off with change_password (same secret).
-    from . import auth_throttle as _at
-    allowed, retry = _at.check(_at.LABEL_MASTER_PASSWORD)
-    if not allowed:
-        resp = jsonify({"ok": False,
-                        "error": f"too many attempts; try again in {retry:.0f}s"})
-        resp.headers["Retry-After"] = str(int(retry) + 1)
-        return resp, 429
+    return _master_password_attempt(_unlock_reserved, ss, backend, password)
 
+
+def _master_password_attempt(attempt, ss, backend, *args):
+    """Run one master-password verify under the shared throttle (NEW-9).
+
+    The attempt is checked AND counted in one lock hold (``reserve``), before
+    the verify, and only one may be in flight: a concurrent burst gets 429
+    instead of every request passing one stale ``check``. ``attempt`` appends
+    "success" or "failure" to its verdict list when it reached a password
+    verdict; with neither (a storage or status refusal) the attempt is given
+    back. An exception leaves it counted: fail closed."""
+    from . import auth_throttle as _at
+    labels = (_at.LABEL_MASTER_PASSWORD,)
+    me = object()  # this request's attempt: release frees only its own mark
+    verdict, settle = [], "counted"
+    try:
+        allowed, retry = _at.reserve(labels, owner=me)
+        if not allowed:
+            resp = jsonify({"ok": False,
+                            "error": f"too many attempts; try again in {retry:.0f}s"})
+            resp.headers["Retry-After"] = str(int(retry) + 1)
+            return resp, 429
+        resp = attempt(ss, backend, *args, verdict)
+        settle = {("success",): "success", ("failure",): "counted"}.get(
+            tuple(verdict), "refund")
+    finally:
+        if settle == "refund":
+            _at.release(labels, refund=True, owner=me)
+        else:
+            _at.release(labels, success=settle == "success", owner=me)
+    return resp
+
+
+def _unlock_reserved(ss, backend, password, verdict):
+    """The unlock verify, run by :func:`_master_password_attempt`."""
     def reject_incoherent_unlock_status():
         lock = getattr(backend, "lock", None)
         if callable(lock):
@@ -494,7 +522,7 @@ def api_secrets_unlock():
         # snapshot when the backend did not provide one.
         return reject_incoherent_unlock_status()
     if unlocked:
-        _at.record_success(_at.LABEL_MASTER_PASSWORD)
+        verdict.append("success")
         return jsonify({
             "ok": True,
             "state": "initialized" if initialized_now else "unlocked",
@@ -516,7 +544,7 @@ def api_secrets_unlock():
                 "committed"
             ),
         }), 500
-    _at.record_failure(_at.LABEL_MASTER_PASSWORD)
+    verdict.append("failure")
     return jsonify({"ok": False, "state": "locked",
                     "error": "incorrect password"}), 401
 @secrets_bp.route("/api/secrets/lock", methods=["POST"])
@@ -558,13 +586,11 @@ def api_secrets_change_password():
             ),
         }), 409
     # NEW-9: shared escalating back-off with the unlock route (same secret).
-    from . import auth_throttle as _at
-    allowed, retry = _at.check(_at.LABEL_MASTER_PASSWORD)
-    if not allowed:
-        resp = jsonify({"ok": False,
-                        "error": f"too many attempts; try again in {retry:.0f}s"})
-        resp.headers["Retry-After"] = str(int(retry) + 1)
-        return resp, 429
+    return _master_password_attempt(_change_password_reserved, ss, backend, old, new)
+
+
+def _change_password_reserved(ss, backend, old, new, verdict):
+    """The rotation verify, run by :func:`_master_password_attempt`."""
     try:
         change_with_status = getattr(
             backend, "change_password_with_status", None
@@ -605,10 +631,10 @@ def api_secrets_change_password():
                 "error": "backend returned an incoherent rotation status",
             }), 500
         if reason == "incorrect_password":
-            _at.record_failure(_at.LABEL_MASTER_PASSWORD)
+            verdict.append("failure")
             return jsonify({"ok": False,
                             "error": "current password is incorrect"}), 401
-        _at.record_success(_at.LABEL_MASTER_PASSWORD)
+        verdict.append("success")
         if changed and reason == "changed":
             return jsonify({"ok": True})
         if reason != "corrupt":

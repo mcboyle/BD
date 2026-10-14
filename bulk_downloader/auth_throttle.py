@@ -75,6 +75,7 @@ _lock = register_monitored_lock("auth_throttle._lock", threading.Lock())
 _state: dict = {}  # label -> {"fails": int, "until": float, "last": float} (monotonic)
 #                    + "times": the counted failure stamps of a soft label (window)
 #                    + "held": the owner of the attempt in flight, while one is
+#                    + "prior": that label as it was before the attempt (refund)
 # Per-client labels are tuples (app_auth login keys: one per username/address), so
 # a caller can mint them at will. Past this many, the tuple label with the fewest
 # failures (then the least recent) is dropped: a flood of fresh one-failure labels
@@ -154,21 +155,26 @@ def _count(label, free, base, mx, now, window=None) -> dict:
 
     With ``window`` (soft labels), only the failures of the last ``window``
     seconds count; at most ``free + 1`` stamps are kept, as more than that
-    cannot change a cooldown already capped at ``mx`` <= ``base``."""
+    cannot change a cooldown already capped at ``mx`` <= ``base``.
+    The new count and cooldown are computed first, then stored together."""
     if label not in _state and isinstance(label, tuple):
         _evict_client_label()
-    st = _state.setdefault(label, {"fails": 0, "until": 0.0})
+    prior = _state.get(label, {"fails": 0, "until": 0.0})
+    new = {}
     if window is None:
-        st["fails"] += 1
+        fails = prior["fails"] + 1
     else:
-        times = [t for t in st.get("times", ()) if now - t < window] + [now]
-        st["times"] = tuple(times[-(free + 1):])
-        st["fails"] = len(st["times"])
-    st["last"] = now
-    over = st["fails"] - free
+        times = [t for t in prior.get("times", ()) if now - t < window] + [now]
+        new["times"] = tuple(times[-(free + 1):])
+        fails = len(new["times"])
+    until = prior["until"]
+    over = fails - free
     if over > 0:
         exp = min(over - 1, _MAX_EXPONENT)
-        st["until"] = now + min(base * (_MULTIPLIER ** exp), mx)
+        until = now + min(base * (_MULTIPLIER ** exp), mx)
+    new.update(fails=fails, until=until, last=now)
+    st = _state.setdefault(label, {})
+    st.update(new)
     return st
 
 
@@ -212,20 +218,22 @@ def reserve(labels, soft=(), owner=True) -> tuple[bool, float]:
             if remaining > 0 or "held" in st:
                 return False, round(max(remaining, 1.0), 2)
         for label in labels:
+            prior = dict(_state[label]) if label in _state else None
             if label in soft:
                 st = _count(label, free, base, min(mx, base), now, window=mx)
             else:
                 st = _count(label, free, base, mx, now)
-            st["held"] = owner
+            st["held"], st["prior"] = owner, prior
     return True, 0.0
 
 
-def release(labels, success: bool = False, owner=True) -> None:
+def release(labels, success: bool = False, owner=True, refund: bool = False) -> None:
     """End the attempts :func:`reserve` started for ``owner``; another owner's
     attempt stays in flight. A failure (or an exception in the verify) leaves
     each attempt counted. On ``success`` every label not in flight for another
-    owner is dropped (as :func:`record_success`), not refunded. Always runs,
-    even when disabled."""
+    owner is dropped (as :func:`record_success`), not refunded. With ``refund``
+    (the verify never reached a verdict) each label ``owner`` holds is put back
+    as it was before :func:`reserve`. Always runs, even when disabled."""
     with _lock:
         for label in labels:
             st = _state.get(label)
@@ -237,7 +245,13 @@ def release(labels, success: bool = False, owner=True) -> None:
             if success:
                 _state.pop(label)
             elif held is not None:
+                prior = st.pop("prior", None)
                 del st["held"]
+                if refund:
+                    if prior is None:
+                        _state.pop(label)
+                    else:
+                        _state[label] = prior
 
 
 def record_success(label) -> None:
