@@ -463,12 +463,14 @@ def download(
     except Exception as e:
         return DownloadResult(ok=False, error="output_dir_failed",
                               error_detail=f"could not mkdir parent: {e}")
-    # Remove partial file from a previous run.
-    try:
-        if os.path.exists(output_path):
-            os.remove(output_path)
-    except Exception:
-        pass
+    # STAGING-TOCTOU-F1: never remove a file already at output_path. It may be
+    # another job's finished download (the caller's name reservation is not
+    # atomic with this call), so refuse instead of deleting it. ffmpeg's own
+    # partial output from THIS call is still overwritten (-y) and cleaned by
+    # the caller's failure branch.
+    if os.path.lexists(output_path):
+        return DownloadResult(ok=False, error="output_exists",
+                              error_detail=f"refusing to overwrite existing file: {output_path}")
 
     cmd = _build_ffmpeg_cmd(
         ff, manifest_url, output_path,

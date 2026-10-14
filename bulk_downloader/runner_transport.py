@@ -1373,6 +1373,26 @@ def _pick_download_option(options, toggle_label, best, quality_preference,
             "reason": ""}
 
 
+# staging-toctou-f1. ``_promote_or_abort`` never overwrites a finished file:
+# when the reserved name is taken at promote time the bytes land on the next
+# free name instead. The transfer chain returns only sizes, so the promoted
+# path travels back to ``_do_download``'s history row through this map, keyed
+# by job identity (one live transfer per identity, by the staging claim).
+_DIVERTED_PROMOTES = {}
+_DIVERTED_PROMOTES_LOCK = threading.Lock()
+
+
+def _note_diverted_promote(identity, promoted):
+    with _DIVERTED_PROMOTES_LOCK:
+        _DIVERTED_PROMOTES[identity] = Path(promoted)
+
+
+def _take_diverted_promote(identity, final_path):
+    """The path this job's bytes were actually promoted to; ``final_path`` if not diverted."""
+    with _DIVERTED_PROMOTES_LOCK:
+        return _DIVERTED_PROMOTES.pop(identity, final_path)
+
+
 def _staged_direct_download(transfer):
     """dl95-cumlouder-1: stage a direct download under a claimed ``.part``.
 
@@ -2490,7 +2510,13 @@ class TransportMixin:
             raise _DownloadTruncated(
                 f"truncated: received {downloaded} of {total} bytes "
                 f"(Content-Length); not promoting to final")
-        os.replace(str(tmp_path), str(final_path))
+        # staging-toctou-f1: never os.replace over a file already at the
+        # final name -- that is another job's finished download. The bytes go
+        # to the next free name instead, and that name is what is returned.
+        promoted = staging_claim.promote(tmp_path, final_path, identity)
+        if promoted != final_path:
+            _note_diverted_promote(identity, promoted)
+        final_path = promoted
         if meta_path:
             try: Path(meta_path).unlink(missing_ok=True)
             except Exception: pass
@@ -3719,6 +3745,10 @@ class TransportMixin:
                     staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
                     return
                 _ua_kw = {"user_agent": stream_user_agent} if stream_user_agent else {}
+                # staging-toctou-f1: what may be deleted on failure is decided
+                # BEFORE the transfer -- only a name that was free when this job
+                # started writing it, under a claim this job still holds.
+                _final_was_free = not os.path.lexists(final_path)
                 res = self._hls_download_guarded(
                     _hls, direct_url, str(final_path), referer=page_url,
                     cancel_check=lambda: transfer_cancelled(self, page_url), **_ua_kw)
@@ -3736,7 +3766,8 @@ class TransportMixin:
                         note = (f"segmented download failed: {res.error} — "
                                 f"{str(res.error_detail)[:160]}")
                     try:
-                        if final_path.exists():
+                        if (_final_was_free and final_path.exists()
+                                and staging_claim.holds(_staging_path, _staging_identity)):
                             final_path.unlink()
                     except Exception:
                         pass
@@ -3784,8 +3815,12 @@ class TransportMixin:
                     # alternates synthesized by swapping subdomains. We cap the
                     # attempts so a misconfigured list can't loop forever.
                     attempt_urls = [file_url] + self._build_mirror_urls(file_url)
+                    _take_diverted_promote(_staging_identity, None)
                     downloaded_size, bytes_fetched = self._run_http_attempts_with_resume(
                         page_url, page, ctx, file_url, attempt_urls, final_path)
+                    # staging-toctou-f1: history names where the bytes ARE.
+                    final_path = _take_diverted_promote(_staging_identity, final_path)
+                    filename = final_path.name
                 except _StagingUnavailable as e:
                     # part-staging-collision: another live download owns the .part
                     # this transfer would have staged into, or ownership could not
@@ -4994,12 +5029,16 @@ class TransportMixin:
                         f"rename failed: {e}; {e2}")
         else:
             try:
-                TransportMixin._promote_or_abort(tmp_path, final_path,
+                promoted = TransportMixin._promote_or_abort(tmp_path, final_path,
                                              downloaded, total,
                                              meta_path=meta_path,
                                                  identity=identity)
+                final_path = promoted
             except _DownloadTruncated:
                 raise
+            except staging_claim.StagingUnavailable as e:
+                # Not the browser fallback: it would save_as onto the occupied name.
+                raise _StagingUnavailable(str(e))
             except Exception as e:
                 raise _HTTPDownloadFailed(f"rename failed: {e}")
         # Phase 62: cleanup the resume-meta sidecar now that the download
