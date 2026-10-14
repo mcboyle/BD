@@ -91,8 +91,10 @@ def create_token(*, scopes: list, label: str = "",
     """Mint a new share token. Returns
     {token, token_id, scopes, expires_at}."""
     _ensure_tables()
-    if not scopes:
-        return {"ok": False, "error": "scopes required"}
+    err = scope_error(scopes)
+    if err:
+        return {"ok": False, "error": err}
+    scopes = list(scopes)
     token_id = secrets.token_urlsafe(8)  # short stable ID
     nonce = secrets.token_urlsafe(16)
     expires_at = (time.time() + ttl_hours * 3600) if ttl_hours else None
@@ -121,6 +123,35 @@ def create_token(*, scopes: list, label: str = "",
         "scopes": scopes,
         "expires_at": expires_at,
     }
+
+
+_INVALID_SCOPES = "invalid stored scopes"
+
+
+def scope_error(scopes) -> str:
+    """Why ``scopes`` cannot be granted, or "" when it is a non-empty list of
+    KNOWN_SCOPES names."""
+    if not scopes:
+        return "scopes required"
+    if not isinstance(scopes, list):
+        return "scopes must be a list of scope names"
+    bad = [s for s in scopes if not isinstance(s, str) or s not in KNOWN_SCOPES]
+    if bad:
+        return f"unknown scope(s): {bad!r}"[:200]
+    return ""
+
+
+def _stored_scopes(raw) -> Optional[list]:
+    """The scope list stored on a token row, or None when the stored value is
+    not a JSON list of strings (such a token grants nothing)."""
+    import json
+    try:
+        val = json.loads(raw or "[]")
+    except Exception:
+        return None
+    if not isinstance(val, list) or not all(isinstance(s, str) for s in val):
+        return None
+    return val
 
 
 def revoke_token(token_id: str) -> bool:
@@ -160,7 +191,6 @@ def verify_token(token: str, *, required_scope: str,
     # DB lookup
     try:
         from . import db as _db
-        import json
         with _db.db_conn() as cx:
             row = cx.execute("""SELECT * FROM share_tokens
                                  WHERE token_id = ?""",
@@ -187,11 +217,13 @@ def verify_token(token: str, *, required_scope: str,
                 _log_access(token_id, request_path, required_scope, False,
                            client_ip, "ip not allowed")
                 return {"ok": False, "reason": "ip not allowed"}
-        # Scope check
-        try:
-            scopes = json.loads(d.get("scopes") or "[]")
-        except Exception:
-            scopes = []
+        # Scope check: exact membership in a stored LIST of strings. A stored
+        # string or object is never searched ("all" in "all_stats" is True).
+        scopes = _stored_scopes(d.get("scopes"))
+        if scopes is None:
+            _log_access(token_id, request_path, required_scope, False,
+                       client_ip, _INVALID_SCOPES)
+            return {"ok": False, "reason": _INVALID_SCOPES}
         if required_scope not in scopes:
             # Also allow scope: 'all' as super-scope
             if "all" not in scopes:
@@ -230,17 +262,16 @@ def list_tokens() -> list:
     _ensure_tables()
     try:
         from . import db as _db
-        import json
         with _db.db_conn() as cx:
             rows = cx.execute("""SELECT * FROM share_tokens
                                   ORDER BY created_at DESC""").fetchall()
         out = []
         for r in rows:
             d = dict(r)
-            try:
-                d["scopes"] = json.loads(d.get("scopes") or "[]")
-            except Exception:
-                d["scopes"] = []
+            stored = _stored_scopes(d.get("scopes"))
+            # a row verify_token denies for its scopes is listed as such
+            d["scopes_invalid"] = stored is None
+            d["scopes"] = stored or []
             d["status"] = ("revoked" if d.get("revoked_at")
                            else ("expired"
                                  if d.get("expires_at") and

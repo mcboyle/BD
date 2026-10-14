@@ -35,8 +35,11 @@ def api_shares_create():
             return jsonify({"ok": False, "error": "ttl_hours must be positive"}), 400
     try:
         from . import shares as _sh
+        scope_err = _sh.scope_error(body.get("scopes"))
+        if scope_err:
+            return jsonify({"ok": False, "error": scope_err}), 400
         return jsonify(_sh.create_token(
-            scopes=body.get("scopes", []) or [],
+            scopes=body.get("scopes"),
             label=body.get("label", ""),
             ttl_hours=ttl_hours,
             ip_whitelist=body.get("ip_whitelist", ""),
