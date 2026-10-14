@@ -6,7 +6,7 @@ routing surface is byte-identical (test_route_map_invariant diffs empty).
 """
 from __future__ import annotations
 
-from flask import Blueprint, Response, jsonify, request, stream_with_context
+from flask import Blueprint, Response, g, jsonify, request, stream_with_context
 
 stream_bp = Blueprint("stream", __name__)
 
@@ -24,6 +24,41 @@ def _status_snapshot(*_a, **_k):
     """Delegate to app._status_snapshot at call time (lazy; avoids an import cycle)."""
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_status_snapshot")(*_a, **_k)
+
+# Per-client cap on /api/stream: each SSE connection holds one WSGI worker
+# for its whole life, so over the cap answer 429 rather than hold another.
+# Hooks, not code in api_stream: the slot is taken before the Response exists
+# and released when the server closes it (call_on_close), even if the
+# generator never ran.
+@stream_bp.before_request
+def _stream_slot_acquire():
+    if request.endpoint != "stream.api_stream":
+        return None
+    from . import sse_broker as _sse
+    slot = _sse.get_broker().acquire_stream(request.remote_addr or "")
+    if slot is None:
+        resp = jsonify({"ok": False,
+                        "error": "too many open streams from this client",
+                        "limit": _sse.STREAMS_PER_CLIENT_MAX})
+        resp.status_code = 429
+        resp.headers["Retry-After"] = "30"
+        return resp
+    g._stream_slot = slot
+    return None
+
+@stream_bp.after_request
+def _stream_slot_bind(resp):
+    slot = g.pop("_stream_slot", None)
+    if slot is not None:
+        resp.call_on_close(slot.release)
+    return resp
+
+@stream_bp.teardown_request
+def _stream_slot_teardown(_exc):
+    # Only reached with a slot when after_request did not run.
+    slot = g.pop("_stream_slot", None)
+    if slot is not None:
+        slot.release()
 
 
 @stream_bp.route("/api/stream/token/<int:hid>", methods=["POST"])

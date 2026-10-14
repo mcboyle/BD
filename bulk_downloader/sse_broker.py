@@ -36,6 +36,18 @@ broker:
 Some publishers fire VERY rapidly (download progress fires per
 chunk written — could be 100/sec on a fast file). The broker
 throttles per-(event_type, key) at 1/sec to keep the wire light.
+A publish inside the window is not lost: the newest one is held and
+sent when the window closes (trailing flush), so "97% then 100%" ends
+on 100%. The flush is driven by subscribers' pull() calls, so with no
+SSE client connected nothing is sent (there is nobody to send it to).
+The per-key table is bounded (THROTTLE_KEYS_MAX, least recently sent
+evicted first; an evicted key's held event is sent at eviction).
+
+## Per-client stream cap
+
+Each /api/stream connection holds one WSGI worker thread for its whole
+life. acquire_stream() caps open streams per client address
+(STREAMS_PER_CLIENT_MAX) so one client cannot starve the pool.
 
 ## Backpressure
 
@@ -52,10 +64,12 @@ SSE events just means slightly stale state until next poll.
 """
 from __future__ import annotations
 
+import heapq
 import json
 import queue
 import threading
 import time
+from collections import OrderedDict
 from typing import Any
 
 from . import dev_events as _dev_events  # import-clean ring-buffer tap
@@ -71,6 +85,15 @@ SUBSCRIBER_QUEUE_MAX = 200
 # saturating the wire when N=4 chunks at 100ms each = 40 events/sec.
 THROTTLE_S = 1.0
 
+# Max (event_type, key) entries kept for throttling. Keys are per URL
+# (and per URL+status), so a long run would otherwise grow the table
+# for the life of the process.
+THROTTLE_KEYS_MAX = 1024
+
+# Max concurrent /api/stream connections per client address. A browser
+# needs one per open tab; the waitress pool is 30 threads by default.
+STREAMS_PER_CLIENT_MAX = 4
+
 
 class _Subscriber:
     """One active SSE client connection. Owns a bounded queue
@@ -84,6 +107,21 @@ class _Subscriber:
         self.id = sub_id
 
 
+class _StreamSlot:
+    """One admitted /api/stream connection. release() is idempotent so
+    every exit path (generator finally, response close, teardown) can
+    call it."""
+    __slots__ = ("_broker", "client", "_released")
+
+    def __init__(self, broker, client: str):
+        self._broker = broker
+        self.client = client
+        self._released = False
+
+    def release(self):
+        self._broker._release_stream(self)
+
+
 class _Broker:
     """Process-wide pub/sub broker. Singleton — access via
     get_broker()."""
@@ -92,8 +130,14 @@ class _Broker:
         self._subscribers: dict[int, _Subscriber] = {}
         self._lock = threading.Lock()
         self._next_id = 0
-        # Per-(event_type, key) last-publish timestamps for throttling
-        self._last_publish: dict[tuple, float] = {}
+        # Per-(event_type, key) throttle state, least recently sent
+        # first: key -> [last_sent, throttle_s, held_msg or None].
+        self._last_publish: OrderedDict = OrderedDict()
+        self._throttle_lock = threading.Lock()
+        # (due, key) for held events; stale items are skipped on pop.
+        self._due: list = []
+        # client address -> open /api/stream connections
+        self._streams: dict[str, int] = {}
 
     # ── Subscribe / unsubscribe ────────────────────────────────────
 
@@ -128,15 +172,35 @@ class _Broker:
             this to avoid spam
           throttle_s: time window for throttling (default 1.0s)
         """
-        # Throttle check first — cheap, no need to even serialize
-        # if we're going to drop the publish
         if throttle_key:
             key = (event_type, throttle_key)
             now = time.time()
-            last = self._last_publish.get(key, 0.0)
-            if now - last < throttle_s:
-                return
-            self._last_publish[key] = now
+            with self._throttle_lock:
+                self._sweep_throttle(now)
+                ent = self._last_publish.get(key)
+                if ent is not None and now - ent[0] < throttle_s:
+                    # Inside the window: hold the newest (serialized now,
+                    # so a later mutation of `data` can't change it) and
+                    # send it when the window closes.
+                    msg = self._format(event_type, data)
+                    if msg is None:
+                        return
+                    if ent[2] is None:
+                        heapq.heappush(self._due, (ent[0] + ent[1], key))
+                    ent[2] = msg
+                    return
+                self._last_publish[key] = [now, throttle_s, None]
+                self._last_publish.move_to_end(key)
+                evicted = self._evict_throttle()
+            for msg in evicted:
+                self._deliver(msg)
+        msg = self._format(event_type, data)
+        if msg is not None:
+            self._deliver(msg)
+
+    def _format(self, event_type, data):
+        """Build the SSE message. Returns (safe_event_type, payload, msg),
+        or None for an unusable event type or non-serializable data."""
         # Defense in depth: sanitize event_type so a newline in the
         # value can't inject a fake event into the SSE stream. SSE is
         # line-delimited — a payload containing `\nevent: status\n`
@@ -144,7 +208,7 @@ class _Broker:
         # Currently no callsite passes user-controlled event types,
         # but we want this to remain safe if that ever changes.
         if not isinstance(event_type, str) or not event_type:
-            return  # silently drop garbage event types
+            return None  # silently drop garbage event types
         # Strip newlines, carriage returns, and colons (which are also
         # significant in SSE field syntax)
         safe_event_type = (event_type.replace("\n", " ")
@@ -159,8 +223,13 @@ class _Broker:
         except Exception:
             # Non-serializable data — drop silently. Better than
             # crashing the publisher.
-            return
-        msg = f"event: {safe_event_type}\ndata: {payload}\n\n"
+            return None
+        return (safe_event_type, payload,
+                f"event: {safe_event_type}\ndata: {payload}\n\n")
+
+    def _deliver(self, formatted):
+        """Fan a formatted message out to every subscriber."""
+        safe_event_type, payload, msg = formatted
         # Fan out. Hold the lock only long enough to snapshot the
         # subscriber list; queue operations are independent.
         with self._lock:
@@ -188,17 +257,105 @@ class _Broker:
                 except (queue.Empty, queue.Full):
                     pass
 
+    # ── Throttle table upkeep (caller holds _throttle_lock) ────────
+
+    def _sweep_throttle(self, now: float):
+        """Drop expired entries from the least-recently-sent end. An
+        expired entry throttles nothing, so dropping it changes no
+        behaviour; stop at the first live or held entry."""
+        table = self._last_publish
+        while table:
+            ent = next(iter(table.values()))
+            if ent[2] is not None or now - ent[0] < ent[1]:
+                break
+            table.popitem(last=False)
+
+    def _evict_throttle(self) -> list:
+        """Enforce THROTTLE_KEYS_MAX. Returns the held events of evicted
+        keys; the caller sends them after releasing the lock."""
+        out = []
+        table = self._last_publish
+        while len(table) > THROTTLE_KEYS_MAX:
+            _key, ent = table.popitem(last=False)
+            if ent[2] is not None:
+                out.append(ent[2])
+        if len(self._due) > 2 * THROTTLE_KEYS_MAX:
+            # Items for evicted keys are dead; rebuild from live holds.
+            self._due = [(e[0] + e[1], k) for k, e in table.items()
+                         if e[2] is not None]
+            heapq.heapify(self._due)
+        return out
+
+    def _flush_due(self, now: float):
+        """Send every held event whose throttle window has closed."""
+        out = []
+        with self._throttle_lock:
+            while self._due and self._due[0][0] <= now:
+                _due, key = heapq.heappop(self._due)
+                ent = self._last_publish.get(key)
+                # Skip stale items: key evicted, nothing held, or sent
+                # again since (a newer item covers the new window).
+                if ent is None or ent[2] is None or now - ent[0] < ent[1]:
+                    continue
+                out.append(ent[2])
+                ent[0], ent[2] = now, None
+                self._last_publish.move_to_end(key)
+        for msg in out:
+            self._deliver(msg)
+
+    def _next_due(self):
+        with self._throttle_lock:
+            return self._due[0][0] if self._due else None
+
     # ── Subscriber-side pull ───────────────────────────────────────
 
     def pull(self, sub: _Subscriber, timeout: float = 15.0) -> str | None:
         """Block until an event is available or timeout elapses.
         Returns the pre-formatted SSE message string, or None on
         timeout (in which case the SSE generator should send a
-        heartbeat comment to keep the connection alive)."""
-        try:
-            return sub.q.get(timeout=timeout)
-        except queue.Empty:
-            return None
+        heartbeat comment to keep the connection alive).
+
+        Also sends held (throttled) events whose window has closed,
+        waking early for the next one that is due."""
+        deadline = time.time() + timeout
+        while True:
+            now = time.time()
+            self._flush_due(now)
+            wait = deadline - now
+            due = self._next_due()
+            if due is not None:
+                wait = min(wait, max(due - now, 0.005))
+            try:
+                if wait <= 0:
+                    return sub.q.get_nowait()
+                return sub.q.get(timeout=wait)
+            except queue.Empty:
+                if time.time() >= deadline:
+                    return None
+
+    # ── Per-client stream cap ──────────────────────────────────────
+
+    def acquire_stream(self, client: str) -> _StreamSlot | None:
+        """Admit one /api/stream connection for `client`, or return
+        None when it already holds STREAMS_PER_CLIENT_MAX."""
+        client = client or "unknown"
+        with self._lock:
+            n = self._streams.get(client, 0)
+            if n >= STREAMS_PER_CLIENT_MAX:
+                return None
+            self._streams[client] = n + 1
+        return _StreamSlot(self, client)
+
+    def _release_stream(self, slot: _StreamSlot):
+        with self._lock:
+            if slot._released:
+                return
+            slot._released = True
+            n = self._streams.get(slot.client, 0) - 1
+            if n > 0:
+                self._streams[slot.client] = n
+            else:
+                self._streams.pop(slot.client, None)
 
     # ── Diagnostics ────────────────────────────────────────────────
 
@@ -207,6 +364,7 @@ class _Broker:
         debugging 'why isn't my UI updating' issues."""
         with self._lock:
             subs = list(self._subscribers.values())
+            open_streams = sum(self._streams.values())
         now = time.time()
         return {
             "subscriber_count": len(subs),
@@ -220,6 +378,7 @@ class _Broker:
                 for s in subs
             ],
             "throttle_keys_tracked": len(self._last_publish),
+            "open_streams": open_streams,
         }
 
 
