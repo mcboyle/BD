@@ -86,8 +86,11 @@ def api_extension_lookup_url():
                 "SELECT COUNT(*) as c FROM history WHERE url = ?",
                 (url,)).fetchone()
             info["history_count"] = count_row["c"] if count_row else 0
-    except Exception:
-        pass
+    except Exception as e:
+        # ext-routing r1 (F8): an unreadable history is not "never downloaded".
+        info["known"] = None
+        info["history_status"] = "unknown"
+        info["history_error"] = f"history unavailable: {e}"[:200]
     try:
         for sid, runner in _runners_generation(runners):
             jobs = getattr(runner, "jobs", {}) or {}
@@ -100,27 +103,21 @@ def api_extension_lookup_url():
     except Exception:
         pass
     try:
-        import re as _re
-        # v3.46.4 F9: bound URL + pattern length for regex eval
-        url_match = url[:4096]
-        for sid, cfg in (s_cfg or {}).items():
-            patterns = cfg.get("url_patterns") or []
-            for p in patterns:
-                if not p:
-                    continue
-                if len(p) > 512:
-                    continue
-                try:
-                    if _re.search(p, url_match):
-                        info["would_route_to"] = {
-                            "site_id": sid,
-                            "site_name": cfg.get("name", sid),
-                        }
-                        break
-                except _re.error:
-                    continue
-            if "would_route_to" in info:
-                break
+        # ext-routing r1 (F2/F3): rank sites with the shared scorer, as
+        # route_preview does -- url_patterns is a newline/comma string, and
+        # login/success hostnames route too.  A queue-size tie-break alone
+        # (score < 1) is not a match.  Lazy: no new static import edge.
+        import importlib
+        score = getattr(importlib.import_module("bulk_downloader.app"),
+                        "_score_url_against_sites")
+        cfg_snapshot = list((s_cfg or {}).items())
+        best_sid, best_score, _reason = score(url, cfg_snapshot)
+        if best_sid and best_score >= 1:
+            cfg = dict(cfg_snapshot)[best_sid]
+            info["would_route_to"] = {
+                "site_id": best_sid,
+                "site_name": cfg.get("name", best_sid),
+            }
     except Exception:
         pass
     return jsonify(info)
