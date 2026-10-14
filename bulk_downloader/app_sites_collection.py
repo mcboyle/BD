@@ -36,7 +36,9 @@ from .app_sites import (
     _create_site,
     _sanitize_display_name,
     _save_sites_config,
+    _store_site_password_in_vault,
     _validate_config_paths,
+    _vault_guard_for_password,
     sites_bp,
 )
 
@@ -79,6 +81,7 @@ def api_sites_bulk_csv():
     result so the UI can show which rows were created and which
     failed."""
     s_cfg = _app_s_cfg()
+    s_meta = _app_s_meta()
     from . import csv_bulk, templates as _tpls
     from . import login_templates_data as _ltpls
     up = request.files.get("file")
@@ -119,11 +122,14 @@ def api_sites_bulk_csv():
                             "error": login_err.replace("template",
                                                        "login template")})
             continue
+        # The password column never reaches _create_site: like POST /api/sites
+        # (api_add), the site is created without it and the credential goes to
+        # the secrets vault as a @cred: reference, or is not stored at all.
+        password = row.get("password", "") or ""
         sid, err = _create_site({
             "name": name,
             "login_url": row.get("login_url", ""),
             "username": row.get("username", ""),
-            "password": row.get("password", ""),
         }, actor="csv-import")
         if err:
             results.append({"line": line, "name": name,
@@ -131,6 +137,23 @@ def api_sites_bulk_csv():
             continue
         created += 1
         entry = {"line": line, "name": name, "id": sid, "status": "created"}
+        if password:
+            allowed, _status, errbody = _vault_guard_for_password()
+            if allowed:
+                ok, cred_err = _store_site_password_in_vault(sid, password)
+                if ok:
+                    _save_sites_config()
+                    s_meta[sid] = _build_meta(s_cfg[sid])
+                    entry["cred_stored"] = True
+                else:
+                    entry["cred_stored"] = False
+                    entry["cred_error"] = cred_err
+            else:
+                entry["cred_stored"] = False
+                if errbody.get("secrets_locked"):
+                    entry["secrets_locked"] = True
+                if errbody.get("secrets_plaintext"):
+                    entry["secrets_plaintext"] = True
         # v3.65.2: surface auto-picked templates so the CSV import
         # response shows what was matched from the URL. _autopick
         # lives as a transient field on the cfg until next save.
