@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1864 - train281z: row
+
+T281z-B (train-14, integrator D2-D) on main 78a18bfa (trains 11+13 merged) (15 members from BACKLOG BOARD-NOT-LANDED, ORDER via STALL-pm-A4-A-2115Z; product train; each latest verdict BOARD on its TREE; PATCH-SHA256 pins verified). Path-disjoint from each other and from trains 11 and 13 (landed before this re-kit). Sweep: T281z/sweep.out (73 rows: 28 clean, 13 conflict, 5 landed-by-blob, 20 not BD repo, 7 base not on main).
+FIX: O1789/unpark/o1698-worker-done-fullindex (BOARD per .review/VERDICT-*)
+FIX: O1789/unpark/o1671-a28-30-test-subprocess-timeouts (BOARD per .review/VERDICT-*)
+FIX: BURN/cuts/APPFEAT-fix/F003-r2 (BOARD per .review/VERDICT-*)
+FIX: O1789/unpark/token-opt-0005-r4 (BOARD per .review/VERDICT-*)
+FIX: O1789/unpark/w3-bh1-26-followup (BOARD per .review/VERDICT-*)
+FIX: O1789/unpark/o1671-r8b-f019-library-preview (BOARD per .review/VERDICT-*)
+FIX: BURN/cuts/APPFEAT-fix/F009 (BOARD per .review/VERDICT-*)
+FIX: O1789/unpark/f035-ai-teach-ui (BOARD per .review/VERDICT-*)
+FIX: O1789/bughunt/site-templates-editor/ste-fix (BOARD per .review/VERDICT-*)
+FIX: BURN/cuts/APPFEAT-fix/F041 (BOARD per .review/VERDICT-*)
+FIX: BURN/cuts/APPFEAT-fix/F010 (BOARD per .review/VERDICT-*)
+FIX: BURN/cuts/APPFEAT-fix/F044 (BOARD per .review/VERDICT-*)
+FIX: BURN/cuts/APPFEAT-fix/F055 (BOARD per .review/VERDICT-*)
+FIX: O1789/unpark/o1698-sampler-control-48cpu (BOARD per .review/VERDICT-*)
+FIX: O1789/unpark/o1675-stale-gate-could-not-look (BOARD per .review/VERDICT-*)
+
+
 ## v3.66.1863 - train281y: row
 
 T281y-C = train-13 (O3141/O3142 F3: on MAIN 133387b4 (train-11 landed; T281y-B superseded, PR #1245 closed).
