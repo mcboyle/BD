@@ -634,6 +634,23 @@ def _scene_patterns(site_config: dict[str, Any]) -> list[re.Pattern[str]]:
     return patterns
 
 
+# dl95-reddit-1 r2: a reddit post card links its permalink with no image inside
+# the link, while the community link beside it wraps the community icon, so
+# the thumbnail cohort queued /r/<sub>/ communities (0 bytes, needs_review).
+# On a reddit host with no declared rule, the post permalink is the scene;
+# comment permalinks (one segment deeper) are not.
+_REDDIT_HOST = re.compile(r"(?:^|\.)reddit\.com$", re.IGNORECASE)
+_REDDIT_POST = re.compile(
+    r"^https?://[^/?#]+/r/[^/?#]+/comments/[a-z0-9]+/(?:[^/?#]+/?)?(?:[?#]|$)",
+    re.IGNORECASE,
+)
+
+
+def _builtin_scene_patterns(listing_url: str) -> list[re.Pattern[str]]:
+    host = urlsplit(listing_url).hostname or ""
+    return [_REDDIT_POST] if _REDDIT_HOST.search(host) else []
+
+
 def _pattern_canonical_url(url: str, pattern: re.Pattern[str]) -> str:
     """The declared shape is the scene's identity: when its match ends at a
     query-parameter boundary, later parameters (newsensations' ``&catid=5``
@@ -1469,7 +1486,7 @@ def crawl_with_page(
     max_pages = max(1, min(int(max_pages), 500))
     max_scrolls = max(0, min(int(max_scrolls), 50))
     title_fetch_limit = max(0, min(int(title_fetch_limit), 1000))
-    scene_patterns = _scene_patterns(site_config)
+    scene_patterns = _scene_patterns(site_config) or _builtin_scene_patterns(listing_url)
     control = getattr(_BOUND, "control", None)
     pacer = _Pacer(delay_s, control)
 
