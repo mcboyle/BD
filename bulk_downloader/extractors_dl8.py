@@ -662,6 +662,7 @@ def probe_badoink_candidates(
     cookies: Optional[dict] = None,
     timeout_s: float = 6.0,
     max_attempts: int = 10,
+    proxy_url: Optional[str] = None,
 ) -> Optional[BadoinkCandidate]:
     """HEAD-probe each candidate in descending tier order; return the
     first one that 200s (or 206 via Range GET if HEAD is 405).
@@ -699,7 +700,7 @@ def probe_badoink_candidates(
                 jar.set(str(name), str(value), domain=site)
         with httpx.Client(timeout=timeout_s, follow_redirects=True,
                           cookies=jar,
-                          transport=guarded_transport(PINNED)) as client:
+                          transport=guarded_transport(PINNED, proxy=proxy_url)) as client:
             for i, cand in enumerate(candidates):
                 if i >= max_attempts:
                     break

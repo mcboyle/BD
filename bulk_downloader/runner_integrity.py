@@ -536,12 +536,16 @@ class IntegrityMixin:
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/120.0.0.0 Safari/537.36"
                 )
+                # Cover art comes from the site: over its egress, or the
+                # file is tagged without a cover.
+                egress_ok, proxy_url = self._site_client_egress("metadata")
                 cover_bytes = _mp4_metadata.fetch_cover(
                     thumbnail_url,
                     timeout=float(self.config.get("metadata_cover_timeout_s", 10.0) or 10.0),
                     referer=source_url,
                     user_agent=ua,
-                )
+                    proxy_url=proxy_url,
+                ) if egress_ok else None
             except Exception as e:
                 # fetch_cover already returns None on failure, but a
                 # surprise (e.g. bad URL parse) shouldn't fail the tag.

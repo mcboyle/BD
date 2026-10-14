@@ -1386,6 +1386,57 @@ def _progress_rate(bytes_now, bytes_prev, now, last_tick, started):
     return (bytes_now - bytes_prev) / max(0.001, now - (last_tick or started))
 
 
+# ── One fail-closed egress decision (dah-vpn) ───────────────────────────────
+# Module-level on purpose: ``_download_proxy_url`` is borrowed unbound by other
+# mixins' callers and by test doubles, so what it needs travels with the module
+# rather than with the class.
+
+def _egress_refusal(self, why: str, code: str = "egress_refused"):
+    """The exception that refuses an egress for this site. Every caller of
+    ``_download_proxy_url`` already fails closed on ``VPNRequiredError``;
+    ``EgressRefusedError`` is one, so a refusal reaches the job through
+    the path each caller has, with ``why`` as its text."""
+    msg = f"egress refused for {self.site_id!r}: {why}"
+    if _VPN_RUNTIME_AVAILABLE:
+        return vpn_runtime.EgressRefusedError(msg, code=code)
+    return RuntimeError(msg)
+
+def _proxy_pool_pick(self):
+    """A member of the site's ``proxy_pool``, or None when no pool is set.
+
+    Raises the refusal for a pool that cannot be read (not a list, or an
+    entry that is not a non-blank string): such an entry used to be handed
+    to the client as the proxy, or raise out of here, or switch the pool
+    off without a word. When every member is cooling down the one due
+    back first is used -- a configured pool never means "go direct".
+    """
+    pool = self.config.get("proxy_pool")
+    if pool is None or pool == [] or pool == "":
+        return None
+    if not isinstance(pool, list) or not all(
+            isinstance(u, str) and u.strip() for u in pool):
+        raise _egress_refusal(self,
+            "`proxy_pool` must be a list of proxy URL strings")
+    st = getattr(self, "_proxy_pool_state", None)
+    if not isinstance(st, dict):
+        st = {}
+        self._proxy_pool_state = st
+    picked = proxy_pool.select_proxy(pool, st) or proxy_pool.soonest_back(pool, st)
+    return (picked or "").strip() or None
+
+def _note_proxy_pool_result(self, proxy_url, ok: bool) -> None:
+    """Feed one outcome of a pool member to the pool's health record.
+    A no-op for any proxy that is not a member of this site's pool."""
+    try:
+        pool = self.config.get("proxy_pool")
+        st = getattr(self, "_proxy_pool_state", None)
+        if (isinstance(pool, list) and isinstance(st, dict)
+                and isinstance(proxy_url, str) and proxy_url in pool):
+            proxy_pool.record_result(st, proxy_url, bool(ok))
+    except Exception as e:      # health is advisory; never fail a transfer on it
+        sys.stderr.write(f"  proxy_pool: health not recorded: {e}\n")
+
+
 class TransportMixin:
     def _regional_gateway_router(self):
         """Return this runner's regional policy router, if configured.
@@ -1533,47 +1584,108 @@ class TransportMixin:
         return not stopped
 
     def _download_proxy_url(self):
-        """Effective proxy URL for this site's in-process payload downloads.
+        """Effective proxy URL for this site's in-process clients -- the one
+        fail-closed egress decision (payload downloads call it directly, the
+        small site clients go through ``_site_client_egress``).
 
         v3.66.390 (Track-K): mirrors the browser's VPN-aware proxy selection
         (see the launch path's ``playwright_proxy_for_site`` use) for the
         curl_cffi/httpx/multi_conn download clients. An explicit per-site
-        ``proxy`` wins; otherwise the site's VPN tunnel SOCKS url is used.
+        ``proxy`` wins; then a ``proxy_pool`` member (v3.66.685); otherwise the
+        site's VPN tunnel SOCKS url.
 
-        Raises ``vpn_runtime.VPNRequiredError`` when the site is ``vpn_required``
-        and its tunnel is down/killed -- callers must let it propagate (fail
-        closed) and never build an unproxied client. Returns ``None`` when no
-        tunnel is configured / the site is not required (degrade open), or when
-        the VPN runtime is unavailable.
+        Returns the proxy URL, or ``None`` only for a site that is NOT
+        ``vpn_required`` and has no proxy, pool or tunnel (degrade open, the
+        operator's posture). Raises ``vpn_runtime.VPNRequiredError`` -- callers
+        let it reach the job and never build an unproxied client -- when:
+
+          * the site is ``vpn_required`` and its tunnel is down or killed, even
+            if a ``proxy_pool`` is configured (a pool member does not outrank
+            a tripped kill switch; an explicit ``proxy`` still does, by design);
+          * the site is ``vpn_required`` and resolution fails for ANY reason
+            (this method used to log "continuing unproxied" and return None);
+          * the site is ``vpn_required`` and resolution yields no proxy at all
+            (no tunnel mapped to it);
+          * whether the site is ``vpn_required`` cannot be read;
+          * ``proxy`` or ``proxy_pool`` is set to something that is not a
+            proxy URL / a list of them (required or not: the operator asked
+            for an egress this method cannot honour).
         """
+        required = False
+        if _VPN_RUNTIME_AVAILABLE:
+            try:
+                required = bool(vpn_runtime.is_vpn_required_for_site(self.site_id))
+            except Exception as e:
+                raise _egress_refusal(self,
+                    f"could not determine whether the site requires a VPN: "
+                    f"{type(e).__name__}: {e}", "vpn_state_unknown") from e
         resolver = (vpn_runtime.get_socks_url_for_site
                     if _VPN_RUNTIME_AVAILABLE else None)
-        # v3.66.685 (F4): an explicit per-site ``proxy`` still wins. When none
-        # is set and a rotating ``proxy_pool`` is configured, pick a currently
-        # healthy member and let it act as the explicit proxy (so it wins over
-        # the tunnel exactly as a static proxy does). The VPN fail-closed
-        # posture below is untouched. Egress-resilience only -- opt-in; with no
-        # pool configured the behavior is byte-identical to before.
-        explicit = (self.config.get("proxy") or "").strip()
+        raw = self.config.get("proxy")
+        if raw is not None and not isinstance(raw, str):
+            raise _egress_refusal(self,
+                f"`proxy` must be a proxy URL string, not {type(raw).__name__}")
+        explicit = (raw or "").strip()
         if not explicit:
-            pool = self.config.get("proxy_pool")
-            if isinstance(pool, list) and pool:
-                st = getattr(self, "_proxy_pool_state", None)
-                if not isinstance(st, dict):
-                    st = {}
-                    self._proxy_pool_state = st
-                picked = proxy_pool.select_proxy(pool, st)
-                if picked:
-                    explicit = picked
+            # v3.66.685 (F4): no static proxy -- a healthy ``proxy_pool``
+            # member acts as the explicit proxy. Opt-in; no pool, no change.
+            picked = _proxy_pool_pick(self)
+            if picked and required and resolver is not None:
+                # The pool is an egress-resilience aid, not a way round the
+                # tunnel's kill switch: ask the tunnel first and let its
+                # refusal stand.
+                try:
+                    resolver(self.site_id)
+                except vpn_runtime.VPNRequiredError:
+                    raise
+                except Exception as e:
+                    raise _egress_refusal(self,
+                        f"the required tunnel's state could not be read: "
+                        f"{type(e).__name__}: {e}", "vpn_proxy_unresolved") from e
+            explicit = picked or ""
         try:
-            return effective_download_proxy(
+            proxy_url = effective_download_proxy(
                 explicit or None, self.site_id, resolver)
         except Exception as e:
             if _VPN_RUNTIME_AVAILABLE and isinstance(e, vpn_runtime.VPNRequiredError):
                 raise  # fail closed -- never fall back to clear-net egress
+            if required:
+                raise _egress_refusal(self,
+                    f"the site is vpn_required and its egress could not be "
+                    f"resolved: {type(e).__name__}: {e}", "vpn_proxy_unresolved") from e
             sys.stderr.write(
-                f"  vpn download-proxy resolution raised (continuing unproxied): {e}\n")
+                f"  vpn download-proxy resolution raised (site is not "
+                f"vpn_required; continuing on its configured egress): {e}\n")
             return explicit or None
+        if required and not (proxy_url or "").strip():
+            raise _egress_refusal(self,
+                "the site is vpn_required but no tunnel is mapped to it and "
+                "no proxy is configured", "vpn_proxy_missing")
+        return proxy_url
+
+    def _site_client_egress(self, what: str):
+        """Egress for a small in-process HTTP client built on this site's behalf.
+
+        The payload clients call ``_download_proxy_url()`` and handle its
+        refusal themselves. The small clients beside them (JSON-API lookup,
+        tier / candidate HEAD probes, cover art) carried the site's cookies
+        and built an unproxied transport, so a proxied or ``vpn_required``
+        site spoke to its origin from the host's own address. They ask here.
+
+        Returns ``(True, proxy_url_or_None)`` -- build the client with exactly
+        that proxy -- or ``(False, None)``: REFUSED, build no client. Never
+        raises: whatever ``_download_proxy_url`` refuses (and anything else
+        that goes wrong asking it) is a refusal.
+        """
+        try:
+            proxy_url = self._download_proxy_url()
+        except Exception as e:
+            sys.stderr.write(
+                f"  {what}: egress for {self.site_id!r} could not be resolved "
+                f"-- refused, no client built: {type(e).__name__}: {e}\n")
+            return False, None
+        return True, (proxy_url or "").strip() or None
+
     # ── Row 439: the one gated seam for every segmented transfer ────────
     #
     # Six arms in this codebase move payload bytes with ffmpeg over an HLS/DASH
@@ -1631,7 +1743,9 @@ class TransportMixin:
         except Exception as e:
             if _VPN_RUNTIME_AVAILABLE and isinstance(e, vpn_runtime.VPNRequiredError):
                 return _hls.DownloadResult(
-                    ok=False, error="vpn_required",
+                    # the resolver now refuses what this gate re-checked below;
+                    # its reason code keeps the gate's own error names
+                    ok=False, error=getattr(e, "code", "") or "vpn_required",
                     error_detail=(
                         f"VPN required for {self.site_id}, tunnel unavailable "
                         f"-- failing closed, no ffmpeg spawned: {e}"))
@@ -1798,12 +1912,23 @@ class TransportMixin:
                         follow_redirects=True,
                     ))
 
+                def _open_feeding_pool(selected_proxy):
+                    try:
+                        opened = _open_stream(selected_proxy)
+                    except (httpx.ProxyError, httpx.ConnectError, httpx.ConnectTimeout):
+                        # could not get through (or to) the proxy: the only
+                        # outcomes that say something about a pool member
+                        _note_proxy_pool_result(self, selected_proxy, False)
+                        raise
+                    _note_proxy_pool_result(self, selected_proxy, True)
+                    return opened
+
                 # The retry wraps context entry, where httpx performs the
                 # connection.  Thus a ConnectError/ReadError/ConnectTimeout
                 # from the primary actually opens the exact same request via
                 # the next gateway instead of merely selecting an unused one.
-                r = (router.route_request(host, _open_stream)
-                     if router is not None else _open_stream(proxy_url))
+                r = (router.route_request(host, _open_feeding_pool)
+                     if router is not None else _open_feeding_pool(proxy_url))
                 if r.status_code != 200:
                     sys.stderr.write(
                         f"  direct_http: HTTP {r.status_code} from {file_url[:80]}\n"
@@ -4944,8 +5069,10 @@ class TransportMixin:
         # Failure is non-fatal — we just skip resume and start fresh.
         try:
             import httpx as _hx
+            # Same egress as the chunk workers below: this HEAD carries the
+            # site's cookies to the same origin.
             from bulk_downloader.ssrf_transport import guarded_transport, PINNED
-            with _hx.Client(timeout=15.0, follow_redirects=True, transport=guarded_transport(PINNED)) as _hc:
+            with _hx.Client(timeout=15.0, follow_redirects=True, transport=guarded_transport(PINNED, proxy=proxy_url)) as _hc:
                 _head = _resume.head_probe(_hc, file_url,
                                             headers=headers_base,
                                             cookies=cookies)

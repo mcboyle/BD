@@ -402,8 +402,12 @@ def fetch_scene(
     user_agent: str = "",
     timeout_s: float = 15.0,
     id_regex: str = "",
+    proxy_url: Optional[str] = None,
 ) -> Optional[dict]:
     """Fetch a per-scene record from a HereSphere/DeoVR endpoint.
+
+    `proxy_url` is the site's egress (the runner resolves it, fail-closed,
+    before calling); None means the caller established that none applies.
 
     `api_base` should be the full base URL the probe identified —
     e.g. `https://members.naughtyamerica.com/heresphere` or
@@ -445,7 +449,7 @@ def fetch_scene(
         from bulk_downloader.ssrf_transport import guarded_transport, PINNED
         with httpx.Client(timeout=timeout_s, follow_redirects=False,
                           cookies=cookies or {}, headers=headers,
-                          transport=guarded_transport(PINNED)) as client:
+                          transport=guarded_transport(PINNED, proxy=proxy_url)) as client:
             r = _get_keeping_cookies_home(client, full_url, site_cookies)
             if r.status_code != 200:
                 log.debug("jsonapi: %s returned %d", full_url, r.status_code)
@@ -732,6 +736,7 @@ def fetch_and_extract(
     timeout_s: float = 15.0,
     id_regex: str = "",
     prefer_codec: str = "",
+    proxy_url: Optional[str] = None,
 ) -> JsonApiResult:
     """Full pipeline: fetch /heresphere/<id> → normalize → pick best.
 
@@ -740,7 +745,8 @@ def fetch_and_extract(
     """
     raw = fetch_scene(api_base, scene_url_or_id, protocol=protocol,
                       cookies=cookies, user_agent=user_agent,
-                      timeout_s=timeout_s, id_regex=id_regex)
+                      timeout_s=timeout_s, id_regex=id_regex,
+                      proxy_url=proxy_url)
     if raw is None:
         return JsonApiResult(ok=False, error="fetch_failed",
                              error_detail=f"could not fetch {api_base}")
