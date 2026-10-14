@@ -725,16 +725,39 @@ class BrowserMixin:
 
         Located at ./profiles/<site_id>/manual/.
 
-        Same stale-singleton-lock cleanup as _profile_dir."""
+        Same stale-singleton-lock cleanup as _profile_dir -- except while
+        this runner still has a manual browser open on the dir: its locks
+        are live, and deleting them lets a second Chromium open the same
+        profile under it."""
         from pathlib import Path
         d = Path("profiles") / self.site_id / "manual"
         d.mkdir(parents=True, exist_ok=True)
+        if self._manual_browser_open():
+            if any((d / x).is_symlink() or (d / x).exists()
+                   for x in ("SingletonLock", "SingletonCookie", "SingletonSocket")):
+                sys.stderr.write(
+                    f"  [{self.site_id}] manual profile: a manual browser is still open "
+                    f"on {d}; keeping SingletonLock (a second window on it will not open)\n")
+            return str(d.resolve())
         for lock in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
             p = d / lock
             try:
                 if p.is_symlink() or p.exists(): p.unlink()
             except Exception: pass
         return str(d.resolve())
+    def _manual_browser_open(self):
+        """True while a manual-login window or a captcha solve browser this
+        runner opened on the manual profile has not reported itself closed."""
+        def _open(h):
+            if h is None:
+                return False
+            closed = getattr(h, "_closed", None)
+            return not (closed is not None and hasattr(closed, "is_set") and closed.is_set())
+        if _open(getattr(self, "_manual_login_handle", None)):
+            return True
+        sessions = getattr(self, "_captcha_solve_sessions", None) or {}
+        return any(isinstance(s, dict) and s.get("kind") != "vnc" and _open(s.get("handle"))
+                   for s in list(sessions.values()))
     def _profile_dir(self, worker_idx=None):
         """Phase 9.3 / 19.fix: persistent profile dir.
 
