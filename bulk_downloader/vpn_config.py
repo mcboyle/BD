@@ -397,6 +397,12 @@ def rekey_tunnel(old_id: str, new_id: str) -> bool:
     ONLY safe rename path (a raw-editor tunnel_id edit is blocked by R1)."""
     if not old_id or not new_id or old_id == new_id:
         return False
+    # dss-fix M4: the same B19 rule add_tunnel_config enforces. A ':' in the
+    # new id lets another tunnel's purge prefix ("a:") match this one's secrets.
+    if not isinstance(new_id, str) or ":" in new_id:
+        raise ValueError(
+            f"tunnel_id must not contain ':' (got {new_id!r}); the "
+            f"secrets-store key namespace uses ':' as a separator")
     with _lock:
         target = None
         for t in _state["tunnels"]:

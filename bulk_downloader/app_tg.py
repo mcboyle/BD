@@ -93,9 +93,16 @@ def api_tg_settings_post():
     body = request.get_json(silent=True) or {}
     if not isinstance(body, dict):
         return jsonify({"ok": False, "error": "expected JSON object"}), 400
+    # dss-fix M3/L3: refuse a wrong-typed value rather than coerce it; the
+    # string "false" is not False and a list is not an allowlist string.
+    if "tg_bot_enabled" in body and not isinstance(body["tg_bot_enabled"], bool):
+        return jsonify({"ok": False, "error": "tg_bot_enabled must be true or false"}), 400
+    for k in ("tg_bot_token", "tg_bot_allowlist"):
+        if k in body and not isinstance(body[k], (str, type(None))):
+            return jsonify({"ok": False, "error": f"{k} must be a string"}), 400
     cfg = _load_global_notify_settings()
     if "tg_bot_enabled" in body:
-        cfg["tg_bot_enabled"] = bool(body["tg_bot_enabled"])
+        cfg["tg_bot_enabled"] = body["tg_bot_enabled"]
     # Token is only updated if provided (allows the UI to PATCH the
     # allowlist without forcing the user to re-paste the token).
     if "tg_bot_token" in body:
