@@ -224,7 +224,19 @@ def api_site_keep_alive_toggle(sid):
     if sid not in s_cfg:
         return jsonify({"ok": False, "error": "unknown site"}), 404
     body = request.json or {}
-    enabled = bool(body.get("enabled", True))
+    # sl-fix row 3: bool("false") is True, so a string "false"/"0" used to ENABLE
+    # keep-alive. Read the common spellings; refuse anything else before writing.
+    raw = body.get("enabled", True)
+    if isinstance(raw, str):
+        enabled = {"true": True, "1": True, "yes": True, "on": True,
+                   "false": False, "0": False, "no": False, "off": False,
+                   }.get(raw.strip().lower())
+    elif isinstance(raw, (bool, int)) and raw in (0, 1):
+        enabled = bool(raw)
+    else:
+        enabled = None
+    if enabled is None:
+        return jsonify({"ok": False, "error": "enabled must be a boolean"}), 400
     s_cfg[sid]["keep_alive_enabled"] = enabled
     _save_sites_config()
     if not enabled:
