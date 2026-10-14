@@ -218,25 +218,27 @@ def test_db_cookies_seeded_when_profile_is_fresh():
     fake_sync_api, mock_ctx, _mock_chromium = _build_mock_playwright()
     restore = _install_fake_playwright(fake_sync_api)
     try:
-        with _isolated_cwd() as td:
+        with _isolated_cwd():
             # DO NOT pre-create the profile dir. DB cookies file
-            # exists with one cookie.
-            cookies_dir = td / "cookies"
-            cookies_dir.mkdir()
-            (cookies_dir / "freshsite.json").write_text(
+            # exists with one cookie, at the account's jar
+            # (session-jar-integrity F14: cookie_jar_path, not cwd).
+            from bulk_downloader.cookies import cookie_jar_path
+            cfg = {"login_url": "http://fresh.com",
+                   "success_url": "http://fresh.com"}
+            jar = cookie_jar_path("freshsite", 0, cfg)
+            jar.parent.mkdir(parents=True, exist_ok=True)
+            jar.write_text(
                 '[{"name": "s", "value": "v", '
                 '"domain": ".fresh.com", "path": "/"}]')
 
             keeper = SessionKeeper(
-                "freshsite", 0,
-                {"login_url": "http://fresh.com",
-                 "success_url": "http://fresh.com"},
+                "freshsite", 0, cfg,
                 lambda *_: (False, "test"))
             ok = keeper._launch_browser()
             assert ok
 
             # add_cookies WAS called on the fresh profile, seeding
-            # the cookie loaded from cookies/freshsite.json.
+            # the cookie loaded from the account's jar.
             assert mock_ctx.add_cookies.called, (
                 "Expected add_cookies on a fresh profile so the "
                 "keeper inherits the runner's last login state. "

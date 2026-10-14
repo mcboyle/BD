@@ -1006,20 +1006,34 @@ class AuthMixin:
         # Phase 19.fix: if live ctx didn't give us cookies, fall back to
         # the polled snapshot. If THAT'S empty too, both sources failed —
         # tell the user clearly what to do.
-        if not cookies and snapshot:
-            sys.stderr.write(
-                f"  manual login: live ctx returned no cookies; "
-                f"using snapshot ({len(snapshot)} cookie(s))\n")
-            cookies = snapshot
-            ok = True  # flip to success since we have a usable snapshot
-            msg = f"Manual login captured {len(cookies)} cookies (from snapshot)"
-        elif not ok and snapshot:
-            sys.stderr.write(
-                f"  manual login: live ctx error '{msg[:60]}'; "
-                f"using snapshot ({len(snapshot)} cookie(s))\n")
-            cookies = snapshot
-            ok = True
-            msg = f"Manual login captured {len(cookies)} cookies (from snapshot)"
+        # session-jar-integrity F3: the poller keeps ANY non-empty snapshot,
+        # pre-login anonymous cookies included, so the fallback is a success
+        # only when the snapshot passes the login-success cookie check
+        # (login._looks_authenticated, auth-named cookie; no pre-login
+        # snapshot exists here, so before_cookies=None). Otherwise ok stays
+        # False: the jar is not replaced and no profile sync runs.
+        if (not cookies or not ok) and snapshot:
+            from .login import _looks_authenticated
+            authed, why = _looks_authenticated(snapshot, before_cookies=None)
+            source = ("live ctx returned no cookies" if ok
+                      else f"live ctx error '{msg[:60]}'")
+            if authed:
+                sys.stderr.write(
+                    f"  manual login: {source}; "
+                    f"using snapshot ({len(snapshot)} cookie(s))\n")
+                cookies = snapshot
+                ok = True  # flip to success: the snapshot is a logged-in jar
+                msg = f"Manual login captured {len(cookies)} cookies (from snapshot)"
+            else:
+                sys.stderr.write(
+                    f"  manual login: {source}; snapshot not used ({why})\n")
+                cookies = []
+                ok = False
+                msg = (f"Manual login not captured: {source}, and the "
+                       f"{len(snapshot)}-cookie snapshot does not look logged "
+                       f"in ({why}); the saved cookie jar was left unchanged. "
+                       "Click Manual Login again and finish the login before "
+                       "clicking I'm Done.")
         elif not cookies and not snapshot:
             # Neither worked. Build a clear error.
             ok = False

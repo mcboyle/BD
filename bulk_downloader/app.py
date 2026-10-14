@@ -2362,9 +2362,13 @@ def _start_session_keepers(site_id=None):
                 # the partial file would silently break the next worker
                 # launch. Previously this was hand-rolled .tmp+replace.
                 try:
-                    from .cookies import save_cookies_to_file, CookieRoundTripError
-                    cookie_path = Path("cookies") / f"{site_id}.json"
-                    save_cookies_to_file(cookie_path, cookies)
+                    from .cookies import (save_cookies_to_file, CookieRoundTripError,
+                                          cookie_jar_path)
+                    # this account's jar, not the site's account-0 jar
+                    # (session-jar-integrity F2)
+                    cookie_path = cookie_jar_path(site_id, account_idx, cfg)
+                    save_cookies_to_file(cookie_path, cookies,
+                                         account_idx=account_idx)
                 except CookieRoundTripError as e:
                     return True, (f"login ok; cookie round-trip validation "
                                    f"FAILED ({e.kind}): {e}")
