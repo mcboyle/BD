@@ -54,6 +54,27 @@ def _ensure_schema():
                    "ON queue_templates(name)")
 
 
+def job_url(raw) -> str:
+    """The queue key of one URL entry. An entry may carry tab-separated
+    ``Header=value`` pairs after the URL (runner load_urls, Phase 68); the
+    job is keyed by the URL alone, so row metadata must be looked up by it."""
+    return str(raw or "").split("\t", 1)[0].strip()
+
+
+def clean_urls(urls) -> list:
+    """Template URL entries: one per line (an entry holding a line break is
+    several), stripped, blanks and repeats dropped, order kept."""
+    seen = set()
+    clean = []
+    for entry in urls:
+        for u in str(entry or "").splitlines():
+            u = u.strip()
+            if not u or u in seen: continue
+            seen.add(u)
+            clean.append(u)
+    return clean
+
+
 def create(name: str, origin_site_id: str,
            urls: list[str],
            priority_map: Optional[dict] = None,
@@ -66,13 +87,7 @@ def create(name: str, origin_site_id: str,
     is preserved (it matters for the queue when applied).
     """
     _ensure_schema()
-    seen = set()
-    clean = []
-    for u in urls:
-        u = (u or "").strip()
-        if not u or u in seen: continue
-        seen.add(u)
-        clean.append(u)
+    clean = clean_urls(urls)
     with db_conn() as cx:
         cur = cx.execute(
             "INSERT INTO queue_templates("
@@ -120,7 +135,8 @@ def get(template_id: int) -> Optional[dict]:
     if not row:
         return None
     d = dict(row)
-    d["urls"] = [u for u in (d.get("urls") or "").split("\n") if u]
+    # clean_urls, not split("\n"): a row stored before the fix can hold "\r"
+    d["urls"] = clean_urls([d.get("urls") or ""])
     try:
         d["priority_map"] = json.loads(d.get("priority_map") or "{}")
     except json.JSONDecodeError:
@@ -146,12 +162,7 @@ def update(template_id: int,
     if name is not None:
         sets.append("name=?"); params.append(name.strip() or "(unnamed)")
     if urls is not None:
-        seen = set(); clean = []
-        for u in urls:
-            u = (u or "").strip()
-            if not u or u in seen: continue
-            seen.add(u); clean.append(u)
-        sets.append("urls=?"); params.append("\n".join(clean))
+        sets.append("urls=?"); params.append("\n".join(clean_urls(urls)))
     if priority_map is not None:
         sets.append("priority_map=?")
         params.append(json.dumps(priority_map))

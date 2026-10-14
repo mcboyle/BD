@@ -24,9 +24,11 @@ def _app_runners():
 # qt-validate (O1789 bughunt queue-templates-io M1 M5 L2 L5): every body field is type-checked before it reaches
 # queue_templates / sqlite. A wrong type is a 400 naming the field -- never a 500, never a silent coercion
 # ("https://x" stored as one URL per character). null = field absent.
+# qti-queue-meta r3: ONE check for create and update. priority_map values are part of it (a non-string
+# priority was stored and then silently ignored on apply).
 _FIELD_TYPES = {"name": (str, "a string"), "origin_site_id": (str, "a string"), "note": (str, "a string"),
                 "urls": (list, "a list of strings"), "force_set": (list, "a list of strings"),
-                "priority_map": (dict, "an object")}
+                "priority_map": (dict, "an object of url -> priority strings")}
 
 
 def _field_error(body):
@@ -36,6 +38,8 @@ def _field_error(body):
         if value is None:
             continue
         if not isinstance(value, kind) or (kind is list and not all(isinstance(u, str) for u in value)):
+            return f"{key} must be {what}"
+        if kind is dict and not all(isinstance(v, str) for v in value.values()):
             return f"{key} must be {what}"
     return None
 
@@ -137,7 +141,9 @@ def api_queue_template_apply(tid, sid):
             runner.jobs.clear()
             runner.urls.clear()
     # Insert URLs
-    new_urls = [u for u in t["urls"] if u not in runner.jobs]
+    # A template entry may be "url<TAB>Header=value"; the job is keyed by the
+    # URL alone (job_url), and so is the row's priority / force metadata.
+    new_urls = [u for u in t["urls"] if _qt.job_url(u) not in runner.jobs]
     added = 0
     if new_urls:
         result = runner.load_urls(new_urls, folder_scan=False)
@@ -147,13 +153,15 @@ def api_queue_template_apply(tid, sid):
     persist = []
     with runner._lock:
         # Append skips URLs already queued, so their metadata stays as it was.
-        for url in new_urls:
+        for entry in new_urls:
+            url = _qt.job_url(entry)
             if url not in runner.jobs: continue
             fields = {}
-            if url in pmap and isinstance(pmap[url], str):
-                runner.jobs[url]["priority"] = pmap[url]
-                fields["priority"] = pmap[url]
-            if url in fset:
+            priority = pmap.get(entry, pmap.get(url))
+            if priority and isinstance(priority, str):
+                runner.jobs[url]["priority"] = priority
+                fields["priority"] = priority
+            if entry in fset or url in fset:
                 runner.jobs[url]["force_download"] = True
                 fields["force_download"] = 1
             if fields:
