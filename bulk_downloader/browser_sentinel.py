@@ -95,16 +95,20 @@ def get_child_pids(pid: int, recursive: bool = True) -> list[int]:
 
     children: list[int] = []
 
-    # Method 1: /proc/{pid}/task/{pid}/children (Linux kernel 3.5+)
-    task_children_path = Path(f"/proc/{pid}/task/{pid}/children")
-    if task_children_path.is_file():
+    # Method 1: /proc/{pid}/task/{tid}/children for EVERY thread (Linux kernel 3.5+). ab-fix F4 (bughunt
+    # adapters-browser): a child belongs to the THREAD that forked it -- Chromium starts its network service
+    # from a non-main thread, so the main thread's list alone missed it (~120 MB) and, being non-empty, also
+    # skipped the PPid scan below.
+    try:
+        tids = [e.name for e in Path(f"/proc/{pid}/task").iterdir() if e.name.isdigit()]
+    except OSError:
+        tids = []
+    for tid in tids:
         try:
-            with open(task_children_path, "r", encoding="utf-8", errors="replace") as f:
-                raw_pids = f.read().split()
-                direct_children = [int(p) for p in raw_pids if p.isdigit()]
-                children.extend(direct_children)
-        except (ProcessLookupError, FileNotFoundError, PermissionError):
-            pass
+            with open(f"/proc/{pid}/task/{tid}/children", "r", encoding="utf-8", errors="replace") as f:
+                children.extend(int(p) for p in f.read().split() if p.isdigit())
+        except OSError:
+            continue
 
     # Method 2: Scan /proc/*/status PPid if Method 1 found nothing or was unavailable
     if not children:

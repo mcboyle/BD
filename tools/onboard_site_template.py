@@ -180,7 +180,10 @@ def build_capture_command(site_id: str, url: str, display: str, *,
 
 
 def run_capture_flow(info, *, run: bool):
-    shell_script = CAPTURE_DIR / f"run_capture_{info['host']}.sh"
+    # ab-fix F2 (bughunt adapters-browser): one script per CAPTURE, named for its unique wacz stem. A per-host
+    # name was rewritten in place by a second launch for the same host while bash still ran the first, so the
+    # first capture went on to run the second's scrub + draft steps and its own draft was never built.
+    shell_script = CAPTURE_DIR / f"run_capture_{Path(info['wacz']).stem}.sh"
 
     script = f"""#!/usr/bin/env bash
 set -euo pipefail
