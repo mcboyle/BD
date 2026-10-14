@@ -200,8 +200,12 @@ def api_site_reconnect(sid):
     acc_idx = body.get("account_idx")
     triggered = []
     if acc_idx is not None:
-        if _sk.force_check(sid, int(acc_idx)):
-            triggered.append(int(acc_idx))
+        try:
+            acc_idx = int(acc_idx)
+        except (TypeError, ValueError, OverflowError):
+            return jsonify({"ok": False, "error": "account_idx must be an integer"}), 400
+        if _sk.force_check(sid, acc_idx):
+            triggered.append(acc_idx)
     else:
         # All accounts for this site
         for k in _sk.get_status():

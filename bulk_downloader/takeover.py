@@ -136,6 +136,9 @@ import queue as _queue
 import threading as _threading
 
 _FRAME_QUEUE_MAX = 4  # small: screencast is newest-wins, not a backlog
+# Operator input waiting for the driver. Bounded: a session whose driver never
+# drains refuses input past this ('closed' -> 400) instead of growing forever.
+_INPUT_QUEUE_MAX = 256
 
 
 class SessionChannel:
@@ -146,7 +149,7 @@ class SessionChannel:
         # lives in the SAME registry so the cap and the sweep still see it).
         self.kind = kind
         self.frames: "_queue.Queue[str]" = _queue.Queue(maxsize=_FRAME_QUEUE_MAX)
-        self.inputs: "_queue.Queue[dict]" = _queue.Queue()
+        self.inputs: "_queue.Queue[dict]" = _queue.Queue(maxsize=_INPUT_QUEUE_MAX)
         self.closed = _threading.Event()
 
     def push_frame(self, frame_b64: str) -> None:
@@ -236,7 +239,7 @@ def enqueue_input(sid: str, event: dict) -> str:
         return "closed"
     try:
         ch.inputs.put_nowait(event)
-    except _queue.Full:  # pragma: no cover (unbounded queue)
+    except _queue.Full:  # _INPUT_QUEUE_MAX reached: driver is not draining
         return "closed"
     return "ok"
 
