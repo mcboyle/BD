@@ -268,26 +268,71 @@ def run(tool: str, flags: dict) -> dict:
 
 
 def _run_in(argv: list, scratch: str) -> dict:
+    # plugins-fix F10: read both pipes as the child writes, keep the first
+    # MAX_OUTPUT_BYTES of each and discard the rest (subprocess.run buffered it
+    # all before the cut), and run the child in its own session so the timeout
+    # kills its whole process group, not only the direct child.
+    import selectors
+    import signal
+    import time
+
+    def _text(b: bytearray) -> str:   # what text=True gave: universal newlines
+        return b.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+
+    proc = subprocess.Popen(
+        argv,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        shell=_USES_SHELL,  # False, pinned
+        cwd=scratch,
+        env={"PATH": "/usr/bin:/bin", "HOME": scratch},  # minimal, no inherited secrets
+        start_new_session=True,
+    )
+    kept = {proc.stdout: bytearray(), proc.stderr: bytearray()}
+    deadline = time.monotonic() + TIMEOUT_S
+    timed_out = False
+    with selectors.DefaultSelector() as sel:
+        for fh in kept:
+            sel.register(fh, selectors.EVENT_READ)
+        while sel.get_map():
+            left = deadline - time.monotonic()
+            if left <= 0:
+                timed_out = True
+                break
+            for key, _ev in sel.select(left):
+                chunk = os.read(key.fd, 65536)
+                if not chunk:
+                    sel.unregister(key.fileobj)
+                    continue
+                buf = kept[key.fileobj]
+                room = MAX_OUTPUT_BYTES - len(buf)
+                if room > 0:
+                    buf += chunk[:room]
+    if timed_out:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     try:
-        proc = subprocess.run(
-            argv,
-            stdin=subprocess.DEVNULL, capture_output=True,
-            text=True,
-            shell=_USES_SHELL,  # False, pinned
-            timeout=TIMEOUT_S,
-            cwd=scratch,
-            env={"PATH": "/usr/bin:/bin", "HOME": scratch},  # minimal, no inherited secrets
-        )
-        return {
-            "returncode": proc.returncode,
-            "stdout": (proc.stdout or "")[:MAX_OUTPUT_BYTES],
-            "stderr": (proc.stderr or "")[:MAX_OUTPUT_BYTES],
-            "argv": argv,
-            "timed_out": False,
-        }
+        proc.wait(timeout=max(deadline - time.monotonic(), 0) + 5)
     except subprocess.TimeoutExpired:
+        timed_out = True
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+    for fh in kept:
+        fh.close()
+    if timed_out:
         return {"returncode": None, "stdout": "", "stderr": "timed out after %ds" % TIMEOUT_S,
                 "argv": argv, "timed_out": True}
+    return {
+        "returncode": proc.returncode,
+        "stdout": _text(kept[proc.stdout]),
+        "stderr": _text(kept[proc.stderr]),
+        "argv": argv,
+        "timed_out": False,
+    }
 
 
 def available() -> list:
