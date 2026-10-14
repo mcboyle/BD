@@ -6,7 +6,7 @@ here, as GitHub runs it (bash -e), over every event shape: only a same-repo pull
 goes to the fleet. Trains, pushes to main, other same-repo PRs, fork PRs (even from a branch named cut/*),
 the nightly schedule and the Gitea mirror stay hosted (PM RULING ANSWER-pm-B2-B-A1-after-run-1822Z). A fork
 must never reach a self-hosted runner, so the fork cases are the ones this file exists for.
-gate-suites keeps version-at-land and isolation hosted and gives a cut a 60 min job timeout; postgres-integration stays hosted (its service needs Docker).
+gate-suites keeps version-at-land and isolation hosted and gate-suites gets a 60 min job timeout; postgres-integration stays hosted (its service needs Docker).
 """
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ def test_only_the_heavy_jobs_can_reach_the_fleet():
     shards = [m["name"] for m in jobs["gate-suites"]["strategy"]["matrix"]["include"]]
     assert {"version-at-land", "isolation"} <= set(shards)               # the exclusions name real shards
     tm = jobs["gate-suites"]["timeout-minutes"]
-    assert tm == "${{ needs.ci_docs_only.outputs.runner == 'fleet' && 60 || 30 }}", ("CUT-TIMEOUT-NOT-60", tm)
+    assert tm == 60, ("CUT-TIMEOUT-NOT-60", tm)                          # an int: test_v3_66_939 rejects an expression
     for n in HEAVY:
         assert "ci_docs_only" in ([jobs[n]["needs"]] if isinstance(jobs[n]["needs"], str) else jobs[n]["needs"])
     assert jobs["postgres-integration"]["runs-on"] == "ubuntu-latest"     # services: need Docker; fleet has none

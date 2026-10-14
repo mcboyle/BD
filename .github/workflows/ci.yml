@@ -443,8 +443,9 @@ jobs:
     runs-on: ${{ needs.ci_docs_only.outputs.runner == 'fleet' && matrix.name != 'version-at-land' && matrix.name != 'isolation' && fromJSON('["self-hosted", "bd-fleet"]') || 'ubuntu-latest' }}
     # pytest-timeout runs inside pytest. This is the independent owner bound
     # for a dead interpreter/runner, kept well below Actions' six-hour default.
-    # A cut gets 60: on probe #1236 two fleet shards ran 25-28 min of gate step and were cancelled at 30.
-    timeout-minutes: ${{ needs.ci_docs_only.outputs.runner == 'fleet' && 60 || 30 }}
+    # 60, the ceiling test_v3_66_939 allows (an integer): on cut probe #1236 two fleet shards ran 25-28 min
+    # of gate step and were cancelled at 30. Hosted shards finish in under 15 min, so 60 costs them nothing.
+    timeout-minutes: 60
     strategy:
       # One shard's failure must not cancel the others: a cut usually wants to
       # see every gate that is red, not the first one.
