@@ -80,12 +80,35 @@ def api_dev_fixture_site_start():
     _check_csrf()
     try:
         body = request.json or {}
+        name = body.get("name", "site1")
+        if not isinstance(name, str):
+            return jsonify({"ok": False, "error": "name must be a string"}), 400
+        port = _fixture_port(body.get("port"))
+        if port is False:
+            return jsonify({"ok": False,
+                            "error": "port must be an integer 1-65535"}), 400
         from . import dev_suite as _ds
-        return jsonify(_ds.fixture_site_start(
-            name=body.get("name", "site1"),
-            port=body.get("port")))
+        return jsonify(_ds.fixture_site_start(name=name, port=port))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
+
+
+def _fixture_port(raw):
+    """dev-exec-lows F10: a caller port must be a TCP port. None (absent)
+    keeps the fixture default; an int or a decimal-digit string in 1-65535
+    is the port; anything else (bool, float, "abc", 99999, 0) is False ->
+    400. Before this, "abc" raised (500) and 99999 reported ok with a url
+    on :99999 while werkzeug bound an ephemeral port."""
+    if raw is None:
+        return None
+    if isinstance(raw, str) and raw.isascii() and raw.isdigit():
+        try:
+            raw = int(raw)
+        except ValueError:  # r2: over int_max_str_digits (4300) was a 500
+            return False
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return False
+    return raw if 1 <= raw <= 65535 else False
 
 
 @dev_bp.route("/api/dev/fixture_site/stop", methods=["POST"])
