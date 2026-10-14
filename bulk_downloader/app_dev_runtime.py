@@ -68,8 +68,12 @@ def api_dev_runs_recent():
     guard = _dev_mode_guard()
     if guard: return guard
     try:
+        limit = int(request.args.get("limit", 20))
+    except ValueError:  # dev-exec-lows F10: was a 500 with the int() text
+        return jsonify({"ok": False, "error": "limit must be an integer"}), 400
+    try:
         from . import dev_tools as _dt
-        limit = min(50, max(1, int(request.args.get("limit", 20))))
+        limit = min(50, max(1, limit))
         return jsonify({"runs": _dt.recent_runs(limit=limit)})
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
@@ -177,9 +181,17 @@ def api_dev_stuck_jobs():
     guard = _dev_mode_guard()
     if guard: return guard
     try:
+        older_than = int(request.args.get("older_than", 1800))
+    except ValueError:
+        return jsonify({"ok": False,
+                        "error": "older_than must be an integer"}), 400
+    # dev-exec-lows F10: clamp like the low end in db_tools.stuck_jobs; an
+    # unbounded value overflowed the cutoff timedelta (500, "Python int too
+    # large to convert to C int").
+    older_than = min(10 * 365 * 86400, max(1, older_than))  # 1 s .. 10 y
+    try:
         from . import dev_suite as _ds
-        return jsonify(_ds.stuck_jobs(
-            request.args.get("older_than", 1800)))
+        return jsonify(_ds.stuck_jobs(older_than))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
