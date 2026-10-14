@@ -3,7 +3,8 @@
 Reports installed Python packages (importlib.metadata), frontend npm deps
 (frontend/package.json), browser assets (Playwright cache), and Python version.
 Writes reports/environment.md. CLI: --root, --outdir, --json
-Also serves install_report / dependency_report via --mode.
+No mode switch here: dependency_report.py is a thin composer over report(),
+and install_report.py composes offline_pack_report.
 """
 import os as _os_rc, sys as _sys_rc
 _sys_rc.path.insert(0, _os_rc.path.dirname(_os_rc.path.abspath(__file__)))
@@ -25,20 +26,32 @@ def _python_packages():
 def _npm_deps(root):
     p = os.path.join(root, "frontend", "package.json")
     try:
-        pj = json.load(open(p))
-        return {"dependencies": pj.get("dependencies", {}),
-                "devDependencies": pj.get("devDependencies", {}),
-                "version": pj.get("version")}
+        with open(p) as fh:
+            pj = json.load(fh)
     except (OSError, ValueError):
         return {}
+    if not isinstance(pj, dict):
+        return {}  # non-object package.json: same as unreadable
+
+    def _deps(k):
+        v = pj.get(k)
+        return v if isinstance(v, dict) else {}
+    return {"dependencies": _deps("dependencies"),
+            "devDependencies": _deps("devDependencies"),
+            "version": pj.get("version")}
 
 
 def _browser_assets():
     cands = [os.environ.get("PLAYWRIGHT_BROWSERS_PATH"),
              os.path.expanduser("~/.cache/ms-playwright")]
-    found = []
+    found, seen = [], set()
     for c in cands:
         if c and os.path.isdir(c):
+            # PLAYWRIGHT_BROWSERS_PATH may name the default cache: list it once
+            key = os.path.realpath(c)
+            if key in seen:
+                continue
+            seen.add(key)
             try:
                 found += [os.path.join(c, n) for n in os.listdir(c)]
             except OSError:

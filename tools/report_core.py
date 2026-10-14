@@ -54,9 +54,18 @@ def kv_lines(d):
     return [f"{k}: {v}" for k, v in d.items()]
 
 
+def cell(v):
+    """One markdown table cell: `|` escaped and line breaks folded to a space, so
+    a value can neither add a column nor split the row."""
+    s = str(v).replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return s.replace("|", "\\|")
+
+
 def table(headers, rows, aligns=None):
+    if aligns is not None and len(aligns) != len(headers):
+        raise ValueError(f"table: {len(aligns)} aligns for {len(headers)} headers")
     sep = "|" + "|".join(aligns[i] if aligns else "---" for i in range(len(headers))) + "|"
-    out = ["| " + " | ".join(headers) + " |", sep]
+    out = ["| " + " | ".join(cell(h) for h in headers) + " |", sep]
     for r in rows:
-        out.append("| " + " | ".join(str(c) for c in r) + " |")
+        out.append("| " + " | ".join(cell(c) for c in r) + " |")
     return out

@@ -49,11 +49,11 @@ def _md(d):
     def yn(b):
         return "✓" if b else "·"
     for t in d["per_template"]:
-        L.append(f"| {t['dir']} | {t['host']} | {t['status']} | "
+        L.append(f"| {_RC.cell(t['dir'])} | {_RC.cell(t['host'])} | {_RC.cell(t['status'])} | "
                  f"{t['completeness_score']} | {yn(t['trigger_present'])} | "
                  f"{yn(t['row_selectors_present'])} | {yn(t['api_block_present'])} | "
                  f"{yn(t['resolutions_present'])} | {yn(t['network_patterns_present'])} | "
-                 f"{yn(t['promotion_ready'])} | {','.join(t['blocked_terms']) or '—'} |")
+                 f"{yn(t['promotion_ready'])} | {_RC.cell(','.join(t['blocked_terms']) or '—')} |")
     L += ["", "## Warning catalog", ""]
     for w, n in d["warnings"].items():
         L.append(f"- {w}: {n}")

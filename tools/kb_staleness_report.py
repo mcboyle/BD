@@ -18,7 +18,11 @@ def report(root="."):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(); ap.add_argument("--root", default="."); ap.add_argument("--json", action="store_true")
-    a = ap.parse_args(argv); d = report(a.root)
+    a = ap.parse_args(argv)
+    if not os.path.isdir(a.root):
+        print(f"error: --root {a.root} is not a directory", file=sys.stderr)
+        return 2
+    d = report(a.root)
     print(json.dumps(d, indent=2) if a.json else
           f"archival candidates {d['archival_count']} | stale version refs {len(d['stale_version_refs'])}")
     return 0

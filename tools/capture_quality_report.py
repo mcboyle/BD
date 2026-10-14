@@ -40,34 +40,47 @@ _DOM_KEYS = ("dom_events", "domEvents", "events")
 def _scan_payloads(root, dirs):
     """Parse capture_*.json artifacts for DOM/rrweb/snapdom metrics."""
     wacz = dom_events = snapshots = rrweb_hits = snapdom_hits = json_caps = 0
+    unreadable = 0
+    seen = set()
     for d in dirs:
         base = os.path.join(root, d)
         if not os.path.isdir(base):
             continue
+        # the same dir named twice (default list + --captures-dir) is scanned once
+        key = os.path.realpath(base)
+        if key in seen:
+            continue
+        seen.add(key)
         wacz += len(glob.glob(os.path.join(base, "*.wacz")))
         for p in glob.glob(os.path.join(base, "capture_*.json")):
-            json_caps += 1
             try:
-                data = json.load(open(p))
+                with open(p) as fh:
+                    data = json.load(fh)
             except (OSError, ValueError):
-                continue
+                data = None
             if not isinstance(data, dict):
+                # corrupt / non-object payloads carry no markers: counted apart,
+                # never in the coverage denominator
+                unreadable += 1
                 continue
+            json_caps += 1
             for k in _DOM_KEYS:
                 v = data.get(k)
                 if isinstance(v, list):
                     dom_events += len(v)
+            # snapshot count from the first non-empty list key, independent of
+            # which key flags snapdom (a `snapdom: true` flag hid the list)
             for k in _SNAPDOM_KEYS:
                 v = data.get(k)
-                if isinstance(v, list):
+                if isinstance(v, list) and v:
                     snapshots += len(v)
-                if data.get(k):
-                    snapdom_hits += 1
                     break
+            if any(data.get(k) for k in _SNAPDOM_KEYS):
+                snapdom_hits += 1
             if any(data.get(k) for k in _RRWEB_KEYS):
                 rrweb_hits += 1
-    return {"wacz": wacz, "capture_json": json_caps, "dom_events": dom_events,
-            "snapshots": snapshots,
+    return {"wacz": wacz, "capture_json": json_caps, "unreadable_json": unreadable,
+            "dom_events": dom_events, "snapshots": snapshots,
             "rrweb_coverage": (round(rrweb_hits / json_caps, 3) if json_caps else None),
             "snapdom_coverage": (round(snapdom_hits / json_caps, 3) if json_caps else None)}
 
@@ -82,7 +95,8 @@ def build(root=".", dirs=None):
             "yield": {"drafts": stats["drafts"], "candidates": stats["candidates"],
                       "gate_ready": stats["gate_ready"]},
             "template_generation_success_rate": success,
-            "artifacts_present": bool(metrics["wacz"] or metrics["capture_json"])}
+            "artifacts_present": bool(metrics["wacz"] or metrics["capture_json"]
+                                      or metrics["unreadable_json"])}
 
 
 def _md(d):
@@ -94,6 +108,7 @@ def _md(d):
               "the success rate is computed from draft/candidate yield._", ""]
     L += ["## Artifact metrics", "",
           f"- WACZ: {m['wacz']}", f"- capture JSON: {m['capture_json']}",
+          f"- unreadable capture JSON (not counted): {m['unreadable_json']}",
           f"- DOM events: {m['dom_events']}", f"- snapshots: {m['snapshots']}",
           f"- rrweb coverage: {m['rrweb_coverage']}",
           f"- snapdom coverage: {m['snapdom_coverage']}", "",

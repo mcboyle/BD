@@ -44,6 +44,7 @@ import glob
 import json
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -136,8 +137,17 @@ def _present(val):
 
 def gold_profile(gold):
     """Which load-bearing fields a reviewed gold populates, with counts."""
-    dl = (gold.get("selectors") or {}).get("download") or {}
+    if not isinstance(gold, dict):
+        raise ValueError(f"gold root is {type(gold).__name__}, expected an object")
+    sel = gold.get("selectors") or {}
+    if not isinstance(sel, dict):
+        raise ValueError(f"gold 'selectors' is {type(sel).__name__}, expected an object")
+    dl = sel.get("download") or {}
+    if not isinstance(dl, dict):
+        raise ValueError(f"gold 'selectors.download' is {type(dl).__name__}, expected an object")
     api = gold.get("api") or {}
+    if not isinstance(api, dict):
+        raise ValueError(f"gold 'api' is {type(api).__name__}, expected an object")
     named = [k for k in api.keys() if k != "base"]
     p = {
         "download.trigger": {"present": _present(dl.get("trigger"))},
@@ -267,7 +277,10 @@ def report(gold_path=None, capture_path=None):
     rows = []
     for g in golds:
         gold = json.loads(Path(g).read_text("utf-8"))
-        gp = gold_profile(gold)
+        try:
+            gp = gold_profile(gold)
+        except ValueError as e:
+            raise ValueError(f"{g}: {e}") from e
         cls = classify(gp, bp)
         targets, human = _targets(cls, gp)
         rows.append({"gold": Path(g).name, "host": gold.get("host"),
@@ -308,8 +321,12 @@ def main(argv=None):
     args = ap.parse_args(argv)
     try:
         rep = report(gold_path=args.gold, capture_path=args.capture)
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
         print(f"error: {e}", file=sys.stderr)
+        return 2
+    if rep.get("note"):
+        # nothing measured: a usage error (exit 2), not a measurement
+        print(f"error: {rep['note']}", file=sys.stderr)
         return 2
     print(json.dumps(rep, indent=2, sort_keys=True) if args.json else render_markdown(rep))
     return 0
