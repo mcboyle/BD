@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1865 - train282a: row
+
+T282a-B = train-15 (re-kit: T282a-A PR #1248 closed, version collision with train-14; ledger v3.66.1865) (O3142 F3: on MAIN 78a18bfa (train-13 landed); disjoint from D2-D train-14 (43 paths); member list frozen at assembly; members = the BOARDed product cuts that merge clean and are disjoint from in-flight trains). Product train; BOARD per O1672; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge from a worktree (F4); gates off-hub (gates-remote.sh).
+FIX: session-jar-tests fix-forward r1 -- F4 fix-forward from the train-5 band: tests/test_o1789_session_jar_integrity_r1.py moved to the session-jar r2 contract (S147-A, test-only, BOARDED 21:38Z cx-lens-3).
+FIX: F059 refresh -- APPFEAT F059 frontend, B2 clean carry on fe0ef7a9 (S102-B, BOARDED 21:1xZ).
+
+
 ## v3.66.1863 - train281y: row
 
 T281y-C = train-13 (O3141/O3142 F3: on MAIN 133387b4 (train-11 landed; T281y-B superseded, PR #1245 closed).
