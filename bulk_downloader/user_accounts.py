@@ -31,6 +31,7 @@ import contextlib
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -126,15 +127,28 @@ def _load(base_dir=None) -> dict:
     except FileNotFoundError:
         return {"users": {}, "signing_key": ""}
     except (OSError, ValueError) as exc:
-        raise AccountsStoreError(
-            f"accounts store unreadable ({type(exc).__name__}): {path}") from exc
+        raise _refused(f"accounts store unreadable ({type(exc).__name__}): {path}") from exc
     if not isinstance(doc, dict):
-        raise AccountsStoreError(f"accounts store is not a JSON object: {path}")
+        raise _refused(f"accounts store is not a JSON object: {path}")
     doc.setdefault("users", {})
     doc.setdefault("signing_key", "")
     if not isinstance(doc["users"], dict):
-        raise AccountsStoreError(f"accounts store has no user map: {path}")
+        raise _refused(f"accounts store has no user map: {path}")
     return doc
+
+
+_log = logging.getLogger(__name__)
+_refusals_logged: set[str] = set()
+
+
+def _refused(why: str) -> AccountsStoreError:
+    """The error for an unreadable store, logged once per distinct reason (every
+    request reads the store; one line per request would bury the log)."""
+    if why not in _refusals_logged:
+        _refusals_logged.add(why)
+        _log.error("%s -- auth fails closed: no login, no session, no account "
+                   "change, first-admin bootstrap stays shut", why)
+    return AccountsStoreError(why)
 
 
 _UNREADABLE = "accounts store unreadable (file kept; repair or remove it)"
