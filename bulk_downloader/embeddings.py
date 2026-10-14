@@ -19,18 +19,27 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import unicodedata
 
 DEFAULT_DIMS = 256
-_WORD_RE = re.compile(r"[a-z0-9]+")
+# Unicode letters/digits (``\w`` minus ``_``): on ASCII this is exactly the old
+# ``[a-z0-9]+`` after lowercasing, so ASCII vectors are unchanged, while
+# Cyrillic / CJK / Greek / accented words now embed instead of vanishing.
+_WORD_RE = re.compile(r"[^\W_]+")
+# Bumped whenever ``_tokens`` changes what a stored vector means. An index built
+# under another version must be rebuilt, never scored against (1 = ``[a-z0-9]+``).
+TOKENIZER_VERSION = 2
 _NGRAM = 3  # per-word character n-gram size
 
 
 def _tokens(text: str) -> list[str]:
-    """Lowercase word tokens plus character n-grams of each word (padded), so
-    'jwplayer' and 'jwplayers' share most of their subword features. Deterministic
-    and dependency-free."""
+    """Casefolded word tokens plus character n-grams of each word (padded), so
+    'jwplayer' and 'jwplayers' share most of their subword features. Text is NFKC
+    normalized first, so precomposed and decomposed 'café' are one token, with
+    no accent stripping. Deterministic and dependency-free."""
     out: list[str] = []
-    for w in _WORD_RE.findall((text or "").lower()):
+    norm = unicodedata.normalize("NFKC", text or "").casefold()
+    for w in _WORD_RE.findall(norm):
         out.append(w)
         if len(w) >= _NGRAM:
             padded = f"^{w}$"
@@ -54,7 +63,11 @@ def _bucket_and_sign(token: str, dims: int) -> tuple[int, float]:
 def embed(text: str, dims: int = DEFAULT_DIMS) -> list[float]:
     """Feature-hash ``text`` into a length-``dims`` L2-normalized vector. Empty or
     tokenless text returns the zero vector (norm 0), which ``cosine`` treats as
-    orthogonal to everything (no division by zero)."""
+    orthogonal to everything (no division by zero). A ``dims`` that is not a
+    positive int falls back to ``DEFAULT_DIMS`` (the rule ``semantic_search``
+    applies to its config), so a bad width never raises mid-embed."""
+    if isinstance(dims, bool) or not isinstance(dims, int) or dims <= 0:
+        dims = DEFAULT_DIMS
     vec = [0.0] * dims
     for tok in _tokens(text):
         idx, sign = _bucket_and_sign(tok, dims)

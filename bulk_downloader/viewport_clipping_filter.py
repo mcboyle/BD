@@ -88,6 +88,14 @@ class ViewportBounds:
     width: int
     height: int
 
+    def __post_init__(self) -> None:
+        # A 0x0 or negative viewport would put every node off canvas, and a bool
+        # is not a size: refuse both rather than silently drop the whole page.
+        for name in ("width", "height"):
+            v = getattr(self, name)
+            if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+                raise ValueError(f"Invalid viewport {name}: {v!r}")
+
 
 class ViewportClippingFilter:
     def __init__(self, viewport: ViewportBounds) -> None:
@@ -142,6 +150,10 @@ def _get_rect(node: Any) -> Optional[Tuple[float, float, float, float]]:
         return None
     r = node.get("rect")
     if not isinstance(r, dict):
+        return None
+    # A bool coordinate is not a measurement (False would read as 0): unmeasurable,
+    # so never a reason to drop the node.
+    if any(isinstance(r.get(k), bool) for k in ("x", "y", "width", "height")):
         return None
     try:
         return float(r["x"]), float(r["y"]), float(r["width"]), float(r["height"])
