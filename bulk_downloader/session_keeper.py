@@ -94,10 +94,10 @@ from typing import Callable
 # Dropping the `&&` would pass every positive test and start tearing live
 # sessions down into _auto_relogin. tests/test_heartbeat_detects_a_logged_out_page.py
 # ::test_a_change_password_form_is_not_a_logout is the canary for exactly that.
-_SIGNIN_WORD = r"\b(?:log|sign)[\s_-]?in\b"
-
-_LOGIN_URL_RE = re.compile(
-    _SIGNIN_WORD + r"|/auth(?:/|$)|/sessions?/new\b", re.I)
+# The word and the URL regex built on it live in constants.py (SIGNIN_WORD,
+# LOGIN_URL_RE) so runner_transport._is_login_wall_href reads the same source
+# without importing the keeper (t154-coupling-residual). Same objects, old names.
+from .constants import LOGIN_URL_RE as _LOGIN_URL_RE, SIGNIN_WORD as _SIGNIN_WORD
 
 # The JS carries the SAME pattern, interpolated rather than retyped. When it was
 # a second literal, a mutation had to edit both copies to take effect -- which is

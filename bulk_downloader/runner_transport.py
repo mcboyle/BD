@@ -31,7 +31,7 @@ from .detect import res_label, fmt_bytes, safe_dest
 from .fname import resolve_filename_template, _sanitize_filename_var
 from .website_title import history_title_kwargs, scene_heading_over_chrome_title
 from .constants import (
-    _HTTPDownloadFailed, _DownloadTruncated, _StagingUnavailable,
+    _HTTPDownloadFailed, _DownloadTruncated, _StagingUnavailable, LOGIN_URL_RE,
 )
 from . import staging_claim
 from .dedup import HeaderDuplicateRejected
@@ -548,18 +548,18 @@ def _frame_player_config_override(page, best, direct_url, *, user_agent=_HOSTER_
 
 def _is_login_wall_href(href):
     """True when a download candidate's href is the site's login page
-    (``/login-required/``, ``/login``, ``/sign-in``...). The session keeper's
-    login-URL vocabulary decides, read on the URL path only."""
+    (``/login-required/``, ``/login``, ``/sign-in``...). The login-URL
+    vocabulary the session keeper also reads (constants.LOGIN_URL_RE) decides,
+    read on the URL path only."""
     if not isinstance(href, str) or not href.strip():
         return False
     from urllib.parse import urlparse
 
-    from .session_keeper import _LOGIN_URL_RE
     try:
         path = urlparse(href.strip()).path or ""
     except ValueError:
         return False
-    return bool(_LOGIN_URL_RE.search(path))
+    return bool(LOGIN_URL_RE.search(path))
 
 
 def _closeable_response_context(response):
