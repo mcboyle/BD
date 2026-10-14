@@ -73,6 +73,11 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+try:
+    import fcntl
+except ImportError:  # Windows: the thread lock still serializes this process
+    fcntl = None  # type: ignore[assignment]
+
 # ── API contract ──────────────────────────────────────────────────────
 PLUGIN_API_VERSION = 2          # current major; what the host emits/reports
 # Supported plugin-API range (R5). A plugin loads iff its declared API range
@@ -1694,34 +1699,79 @@ _CONFIG_KEYS = ("enabled", "disabled", "order", "allow_full_access", "node_bin",
                 "risk_acknowledged", "granted_capabilities", "force_isolated")
 
 
+class PluginConfigError(ValueError):
+    """A plugins.json write refused: the patch has a wrong-typed value."""
+
+
+class PluginConfigUnreadable(PluginConfigError):
+    """A plugins.json write refused: the existing file cannot be read as a JSON
+    object, and merging into {} would erase every key it holds."""
+
+
+_config_write_lock = threading.Lock()
+
+
+def _check_config_patch(patch) -> None:
+    """dss-fix M3/L5: refuse a wrong-typed value rather than coerce it. The
+    string "false" is not False -- bool("false") opened the full-access gate."""
+    if not isinstance(patch, dict):
+        raise PluginConfigError("plugin config must be a JSON object")
+    for k in ("allow_full_access", "risk_acknowledged"):
+        if k in patch and not isinstance(patch[k], bool):
+            raise PluginConfigError(f"{k} must be true or false")
+    if "node_bin" in patch and not isinstance(patch["node_bin"], (str, type(None))):
+        raise PluginConfigError("node_bin must be a string")
+    for k in ("enabled", "disabled", "order", "granted_capabilities", "force_isolated"):
+        if k in patch and not isinstance(patch[k], (list, type(None))):
+            raise PluginConfigError(f"{k} must be a list")
+
+
 def write_config(patch: dict) -> dict:
     """Merge `patch` into plugins.json and write it (only known keys honored).
     Creates the plugin dir if needed. Returns the new on-disk config. This is
     the write side of the GUI plugin-config panel -- BD_PLUGINS_ENABLE /
     BD_PLUGINS_ALLOW_FULL_ACCESS remain env overrides of the same knobs, and
     node_bin (the node-runtime path for node plugins) is GUI-settable here with
-    BD_PLUGINS_NODE_BIN as its env override."""
+    BD_PLUGINS_NODE_BIN as its env override.
+
+    dss-fix M2: one read-modify-write at a time (a thread lock plus a flock on a
+    sibling lock file for other processes), written to a temp file and renamed
+    in, and an existing file that does not parse as an object is REFUSED
+    (PluginConfigUnreadable, file untouched) -- never merged into {}."""
+    _check_config_patch(patch)
     pdir = _plugin_dir()
     pdir.mkdir(parents=True, exist_ok=True)
     fp = pdir / "plugins.json"
-    cur: dict = {}
-    if fp.is_file():
+    with _config_write_lock, open(pdir / "plugins.json.lock", "a+b") as lock_fh:
+        if fcntl is not None:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+        cur: dict = {}
+        if fp.exists():
+            try:
+                raw = json.loads(fp.read_text("utf-8"))
+            except (OSError, ValueError) as e:
+                raise PluginConfigUnreadable(
+                    f"plugins.json is unreadable ({type(e).__name__}); nothing "
+                    f"was written -- repair or remove it") from e
+            if not isinstance(raw, dict):
+                raise PluginConfigUnreadable("plugins.json is not a JSON object; nothing was written")
+            cur = raw
+        for k in _CONFIG_KEYS:
+            if k not in patch:
+                continue
+            if k in ("allow_full_access", "risk_acknowledged"):
+                cur[k] = patch[k]
+            elif k == "node_bin":
+                cur[k] = str(patch[k] or "").strip()
+            elif isinstance(patch[k], list):
+                cur[k] = [str(x) for x in patch[k]]
+        tmp = pdir / f".plugins.json.{os.getpid()}.{threading.get_ident()}.tmp"
         try:
-            raw = json.loads(fp.read_text("utf-8"))
-            if isinstance(raw, dict):
-                cur = raw
-        except Exception:  # noqa: BLE001
-            cur = {}
-    for k in _CONFIG_KEYS:
-        if k not in patch:
-            continue
-        if k in ("allow_full_access", "risk_acknowledged"):
-            cur[k] = bool(patch[k])
-        elif k == "node_bin":
-            cur[k] = str(patch[k] or "").strip()
-        elif isinstance(patch[k], list):
-            cur[k] = [str(x) for x in patch[k]]
-    fp.write_text(json.dumps(cur, indent=2), "utf-8")
+            tmp.write_text(json.dumps(cur, indent=2), "utf-8")
+            os.replace(tmp, fp)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
     return cur
 
 

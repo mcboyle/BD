@@ -54,12 +54,18 @@ def api_plugins_config():
     if request.method == "POST":
         _check_csrf()
         try:
-            body = request.get_json(force=True, silent=True) or {}
+            body = request.get_json(force=True, silent=True)
+            if body is None:
+                body = {}
             cfg = _pl.write_config(body)
             _pl.reset()
             _pl.load_all()
             return jsonify({"ok": True, "config": cfg,
                             "full_access_enabled": _pl.full_access_enabled()})
+        except _pl.PluginConfigUnreadable as e:  # dss-fix M2: file kept as is
+            return jsonify({"ok": False, "error": str(e)[:200]}), 409
+        except _pl.PluginConfigError as e:  # dss-fix M3/L5: a wrong-typed body
+            return jsonify({"ok": False, "error": str(e)[:200]}), 400
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)[:200]}), 500
     try:

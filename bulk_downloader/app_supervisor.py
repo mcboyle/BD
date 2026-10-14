@@ -39,6 +39,14 @@ def api_supervisor_status():
     return jsonify({"ok": True, "stats": _supervisor_mod.stats()})
 
 
+def _whole_bps(v) -> int:
+    """A bytes/s rate as an int; ValueError (-> 400) when it is not a number."""
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        raise ValueError(f"bps must be a whole number, got {v!r}") from None
+
+
 @supervisor_bp.route("/api/supervisor/configure", methods=["POST"])
 def api_supervisor_configure():
     """Hot-reload supervisor rate limits."""
@@ -49,15 +57,18 @@ def api_supervisor_configure():
         return jsonify({"ok": False, "error": "supervisor unavailable"})
     body = request.get_json(silent=True) or {}
     enabled = bool(body.get("enabled", False))
-    global_bps = int(body.get("global_bps", 0) or 0)
     per_site_bps = body.get("per_site_bps") or {}
     if not isinstance(per_site_bps, dict):
         return jsonify({"ok": False, "error": "per_site_bps must be a dict"})
-    # Sanitize
-    sanitized_per_site = {
-        str(k): int(v) for k, v in per_site_bps.items()
-        if v is not None
-    }
+    # dss-fix L5: a rate that is not a whole number is a 400, not an int() 500
+    try:
+        global_bps = _whole_bps(body.get("global_bps", 0))
+        sanitized_per_site = {
+            str(k): _whole_bps(v) for k, v in per_site_bps.items()
+            if v is not None
+        }
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     _supervisor_mod.configure(
         enabled=enabled, global_bps=global_bps,
         per_site_bps=sanitized_per_site,

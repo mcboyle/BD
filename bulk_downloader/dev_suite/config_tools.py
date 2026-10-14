@@ -285,9 +285,12 @@ def config_snapshot(name=None):
     dest = _os.path.join(_snapshot_dir(), fname)
     try:
         # atomic write — .tmp sibling then replace, same contract as
-        # _save_app_config
+        # _save_app_config. dss-fix M6: the snapshot holds the same secrets
+        # as app_config.json (0600), so it is owner-only too, never umask-wide.
         tmp = dest + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
+        fd = _os.open(tmp, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
+        _os.fchmod(fd, 0o600)
+        with _os.fdopen(fd, "w", encoding="utf-8") as fh:
             _cfg_json.dump(dict(_app._app_cfg), fh, indent=2,
                            ensure_ascii=False)
         _os.replace(tmp, dest)
@@ -331,6 +334,45 @@ def config_snapshot_list():
 
 
 
+def _undo_restore(_app, data, prior, prior_disk):
+    """Put back every key a failed restore touched: its prior value, or no key
+    at all if it was absent. Other keys on disk (a concurrent writer's) are
+    left alone. True when both the file and the live config were put back."""
+    import os as _os
+    from bulk_downloader.global_config import app_config_transaction
+    ok = True
+    cfg_file = _app.APP_CFG_FILE
+    if not isinstance(prior_disk, dict):
+        ok = False
+    else:
+        try:
+            with app_config_transaction(cfg_file):
+                disk = _cfg_json.loads(cfg_file.read_text(encoding="utf-8"))
+                for k in data:
+                    if k in prior_disk:
+                        disk[k] = prior_disk[k]
+                    else:
+                        disk.pop(k, None)
+                tmp = cfg_file.with_suffix(".json.tmp")
+                tmp.write_text(_cfg_json.dumps(disk, indent=2, ensure_ascii=False),
+                               encoding="utf-8")
+                _os.chmod(tmp, 0o600)
+                tmp.replace(cfg_file)
+        except Exception:  # noqa: BLE001
+            ok = False
+    for k in data:
+        if k in prior:
+            _app._app_cfg[k] = prior[k]
+        else:
+            _app._app_cfg.pop(k, None)
+    try:
+        _app._load_app_config()
+    except Exception:  # noqa: BLE001
+        ok = False
+    return ok
+
+
+
 def config_restore(name=None):
     """D-90 (A) — restore a named config snapshot. The snapshot is
     validated as JSON, then applied via app._save_app_config()
@@ -369,6 +411,16 @@ def config_restore(name=None):
     if not isinstance(data, dict):
         return {"tool": "config_restore", "ok": False,
                 "error": "snapshot is not a JSON object"}
+    # dss-fix M5: _load_app_config is the validator, and it runs only after the
+    # save. A snapshot it rejects must not stay persisted (or live): the keys
+    # the snapshot touched go back to their prior values, on disk and in
+    # memory, before the failure is reported.
+    prior = dict(_app._app_cfg)
+    try:  # None = unreadable: a rollback cannot know what to put back
+        prior_disk = (_cfg_json.loads(_app.APP_CFG_FILE.read_text(encoding="utf-8"))
+                      if _app.APP_CFG_FILE.exists() else {})
+    except (OSError, ValueError):
+        prior_disk = None
     try:
         # apply to the live config, then persist atomically via the
         # app's own writer, then reload so every dependent subsystem
@@ -377,8 +429,10 @@ def config_restore(name=None):
         _app._save_app_config()
         _app._load_app_config()
     except Exception as e:
+        rolled_back = _undo_restore(_app, data, prior, prior_disk)
         return {"tool": "config_restore", "ok": False,
-                "error": f"restore failed: {type(e).__name__}: {e}"}
+                "error": f"restore failed: {type(e).__name__}: {e}",
+                "rolled_back": rolled_back}
     return {
         "tool": "config_restore",
         "ok": True,

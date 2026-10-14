@@ -194,8 +194,17 @@ def get_all() -> dict:
         return _snapshot()
 
 
+def _refuse_bad_ids(widgets) -> None:
+    """dss-fix L5: an entry whose id is not a string is a malformed request
+    (ValueError -> 400), not an unknown widget to drop silently."""
+    for item in widgets if isinstance(widgets, list) else []:
+        if isinstance(item, dict) and not isinstance(item.get("id"), str):
+            raise ValueError("each widget id must be a string")
+
+
 def set_global(widgets: list[dict]) -> list[dict]:
     """Replace the global widget list. Returns the sanitized list."""
+    _refuse_bad_ids(widgets)
     sanitized = _sanitize_list(widgets)
     with _lock:
         previous = _state["global"]
@@ -213,6 +222,7 @@ def set_for_site(site_id: str, widgets: list[dict]) -> list[dict]:
     Passing an empty list removes the per-site override (site falls back to global)."""
     if not site_id or not isinstance(site_id, str):
         raise ValueError("site_id required")
+    _refuse_bad_ids(widgets)
     sanitized = _sanitize_list(widgets)
     with _lock:
         previous = _state["per_site"].get(site_id)

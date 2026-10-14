@@ -78,7 +78,18 @@ def test_write_config_coerces_types():
     tmp = tempfile.mkdtemp()
     orig = _with_dir(tmp)
     try:
-        cfg = P.write_config({"allow_full_access": 1, "enabled": ["a.py", 2]})
+        err_cls = getattr(P, "PluginConfigError", ValueError)
+        try:
+            res = P.write_config({"allow_full_access": 1, "enabled": ["a.py", 2]})
+        except err_cls as exc:
+            assert isinstance(exc, P.PluginConfigError)
+            assert "allow_full_access must be true or false" in str(exc)
+        else:
+            raise AssertionError(
+                f"expected PluginConfigError for allow_full_access=1, got {res!r}"
+            )
+        assert not (Path(tmp) / "plugins.json").exists()
+        cfg = P.write_config({"allow_full_access": True, "enabled": ["a.py", 2]})
         assert cfg["allow_full_access"] is True
         assert cfg["enabled"] == ["a.py", "2"]
     finally:
