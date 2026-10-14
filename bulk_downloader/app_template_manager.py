@@ -136,6 +136,65 @@ def api_template_manager_disable():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
+
+def _draft_reply(res):
+    if res.get("ok"):
+        return jsonify(res), 200
+    err = res.get("error") or ""
+    code = (404 if err == "draft not found"
+            else 409 if err == "draft already exists" else 400)
+    return jsonify(res), code
+
+
+@template_manager_bp.route("/api/template_manager/draft", methods=["GET"])
+def api_template_manager_draft_get():
+    """F017 — one draft's JSON for the edit form. Query: ?file=<name>.template-draft.json.
+    Refused when the draft holds a secret-looking value."""
+    try:
+        from .template_manager import get_draft
+        return _draft_reply(get_draft(request.args.get("file") or ""))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+
+@template_manager_bp.route("/api/template_manager/draft", methods=["POST"])
+def api_template_manager_draft_create():
+    """F017 — create a draft. Body: {"name": "<host>", "template"?: {...}}.
+    Never enabled; an existing draft is not overwritten (409)."""
+    _check_csrf()
+    body = request.get_json(silent=True) or {}
+    try:
+        from .template_manager import create_draft
+        return _draft_reply(create_draft(str(body.get("name") or ""),
+                                         body.get("template")))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+
+@template_manager_bp.route("/api/template_manager/draft", methods=["PUT"])
+def api_template_manager_draft_update():
+    """F017 — replace a draft's JSON. Body: {"file": "...", "template": {...}}."""
+    _check_csrf()
+    body = request.get_json(silent=True) or {}
+    try:
+        from .template_manager import update_draft
+        return _draft_reply(update_draft(str(body.get("file") or ""),
+                                         body.get("template")))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+
+@template_manager_bp.route("/api/template_manager/draft", methods=["DELETE"])
+def api_template_manager_draft_delete():
+    """F017 — delete a draft. Query: ?file=<name>.template-draft.json.
+    Reviewed templates cannot be deleted (use disable)."""
+    _check_csrf()
+    try:
+        from .template_manager import delete_draft
+        return _draft_reply(delete_draft(request.args.get("file") or ""))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
 # ── Item 4: F3.2 drift-repair sweep -- status + control surface ──────────────
 @template_manager_bp.route("/api/automation/drift_repair")
 def api_drift_repair_status():

@@ -17,9 +17,11 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Callout } from "@/components/ui/Callout";
-import { apiGet, apiPost } from "@/lib/api-client";
+import { Input } from "@/components/ui/input";
+import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api-client";
 import type {
   TemplateActionResult,
+  TemplateDraftDoc,
   TemplateManagerEntry,
   TemplateManagerList,
 } from "@/lib/api-types";
@@ -165,7 +167,7 @@ export function TemplateManager() {
   // never one-click: arm a confirmation dialog first (the backend audit + CSRF
   // still apply on the actual POST). null = no dialog open.
   const [pending, setPending] = useState<{
-    action: "promote" | "disable";
+    action: "promote" | "disable" | "delete";
     file: string;
     label: string;
     apiCandidate?: { base: string; endpoints: string[] } | null;
@@ -174,7 +176,101 @@ export function TemplateManager() {
   // the dialog arms — accepting the API is a deliberate per-promote decision.
   const [acceptApi, setAcceptApi] = useState(false);
 
-  const busy = promoteMut.isPending || disableMut.isPending;
+  const deleteMut = useMutation<TemplateActionResult, Error, string>({
+    mutationFn: (file) =>
+      apiDelete<TemplateActionResult>(
+        `/api/template_manager/draft?file=${encodeURIComponent(file)}`,
+      ),
+    onSuccess: (res) => {
+      if (res.ok) toast.success(`Deleted ${res.deleted}`);
+      else toast.error(res.error ?? "Delete failed");
+      qc.invalidateQueries({ queryKey: ["template-manager"] });
+    },
+    onError: (err) => toast.error(`Delete failed: ${err.message}`),
+  });
+
+  // F017 — create / edit a draft as JSON. Drafts stay review-only: the server
+  // never stores one as enabled and refuses secret-looking values.
+  const [editor, setEditor] = useState<{
+    mode: "create" | "edit";
+    file?: string;
+    name: string;
+    json: string;
+    error?: string;
+  } | null>(null);
+  const saveMut = useMutation<
+    TemplateActionResult,
+    Error,
+    { mode: "create" | "edit"; file?: string; name: string; template: unknown }
+  >({
+    mutationFn: ({ mode, file, name, template }) =>
+      mode === "create"
+        ? apiPost<TemplateActionResult>("/api/template_manager/draft", {
+            name,
+            template,
+          })
+        : apiPut<TemplateActionResult>("/api/template_manager/draft", {
+            file,
+            template,
+          }),
+    onSuccess: (res) => {
+      if (res.ok) {
+        toast.success(
+          res.created ? `Created ${res.created}` : `Saved ${res.updated}`,
+        );
+        setEditor(null);
+      } else {
+        setEditor((e) => (e ? { ...e, error: res.error ?? "Save failed" } : e));
+      }
+      qc.invalidateQueries({ queryKey: ["template-manager"] });
+    },
+    onError: (err) =>
+      setEditor((e) => (e ? { ...e, error: err.message } : e)),
+  });
+
+  async function openEdit(file: string) {
+    try {
+      const doc = await apiGet<TemplateDraftDoc>(
+        `/api/template_manager/draft?file=${encodeURIComponent(file)}`,
+      );
+      if (!doc.ok || !doc.template) {
+        toast.error(doc.error ?? "Could not load draft");
+        return;
+      }
+      setEditor({
+        mode: "edit",
+        file,
+        name: file,
+        json: JSON.stringify(doc.template, null, 2),
+      });
+    } catch (err) {
+      toast.error(`Could not load draft: ${(err as Error).message}`);
+    }
+  }
+
+  function saveEditor() {
+    if (!editor) return;
+    let template: unknown;
+    try {
+      template = JSON.parse(editor.json);
+    } catch (err) {
+      setEditor({ ...editor, error: `Invalid JSON: ${(err as Error).message}` });
+      return;
+    }
+    if (!template || typeof template !== "object" || Array.isArray(template)) {
+      setEditor({ ...editor, error: "Template must be a JSON object" });
+      return;
+    }
+    saveMut.mutate({
+      mode: editor.mode,
+      file: editor.file,
+      name: editor.name.trim(),
+      template,
+    });
+  }
+
+  const busy =
+    promoteMut.isPending || disableMut.isPending || deleteMut.isPending;
 
   // library-fix F1: a 200 body that is not a template list ({"ok":false},
   // missing or null reviewed/drafts, a bare array) is a failed load, not an
@@ -197,6 +293,7 @@ export function TemplateManager() {
         // never send accept_api unless a candidate exists AND it was checked
         accept_api: !!pending.apiCandidate && acceptApi,
       });
+    else if (pending.action === "delete") deleteMut.mutate(pending.file);
     else disableMut.mutate(pending.file);
     setPending(null);
     setAcceptApi(false);
@@ -261,8 +358,8 @@ export function TemplateManager() {
             Reviewed templates are the ones the runtime may apply; you can
             enable or disable each here. Drafts are listed separately and are
             never auto-enabled — promoting one with unsafe selectors is refused
-            until it's fixed. Build new templates from the{" "}
-            <span className="text-ink">Live capture workflow</span>.
+            until it's fixed. Create, edit or delete drafts here, or build them
+            from the <span className="text-ink">Live capture workflow</span>.
           </Callout>
           <section className="space-y-2">
             <h2 className="eyebrow">
@@ -300,9 +397,21 @@ export function TemplateManager() {
           </section>
 
           <section className="space-y-2">
-            <h2 className="eyebrow">
-              Drafts ({drafts.length})
-            </h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="eyebrow">
+                Drafts ({drafts.length})
+              </h2>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  setEditor({ mode: "create", name: "", json: "{}" })
+                }
+                disabled={busy}
+              >
+                New draft
+              </Button>
+            </div>
             <p className="text-xs text-ink-3">
               Drafts are never auto-enabled. Promoting one with unsafe selectors
               is refused — fix it first.
@@ -313,24 +422,50 @@ export function TemplateManager() {
                 t={t}
                 reasonId={`promote-blocked-${i}`}
                 action={
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      setPending({
-                        action: "promote",
-                        file: t.file,
-                        label: t.host ?? t.file,
-                        apiCandidate: t.api_candidate ?? null,
-                      })
-                    }
-                    disabled={busy || t.has_blocking_lint}
-                    title={t.has_blocking_lint ? `Can't promote: ${blockingReason(t)}` : undefined}
-                    aria-describedby={t.has_blocking_lint ? `promote-blocked-${i}` : undefined}
-                    aria-label={`Promote ${t.host ?? t.file}`}
-                  >
-                    Promote
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void openEdit(t.file)}
+                      disabled={busy}
+                      aria-label={`Edit ${t.host ?? t.file}`}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setPending({
+                          action: "delete",
+                          file: t.file,
+                          label: t.host ?? t.file,
+                        })
+                      }
+                      disabled={busy}
+                      aria-label={`Delete ${t.host ?? t.file}`}
+                    >
+                      Delete
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        setPending({
+                          action: "promote",
+                          file: t.file,
+                          label: t.host ?? t.file,
+                          apiCandidate: t.api_candidate ?? null,
+                        })
+                      }
+                      disabled={busy || t.has_blocking_lint}
+                      title={t.has_blocking_lint ? `Can't promote: ${blockingReason(t)}` : undefined}
+                      aria-describedby={t.has_blocking_lint ? `promote-blocked-${i}` : undefined}
+                      aria-label={`Promote ${t.host ?? t.file}`}
+                    >
+                      Promote
+                    </Button>
+                  </div>
                 }
               />
             ))}
@@ -431,12 +566,16 @@ export function TemplateManager() {
             <DialogTitle>
               {pending?.action === "promote"
                 ? "Promote draft?"
-                : "Disable template?"}
+                : pending?.action === "delete"
+                  ? "Delete draft?"
+                  : "Disable template?"}
             </DialogTitle>
             <DialogDescription>
               {pending?.action === "promote"
                 ? `Enable "${pending?.label}" as a reviewed template — it will start matching live captures. This action is audited.`
-                : `Disable "${pending?.label}" — it will no longer match captures. This action is audited.`}
+                : pending?.action === "delete"
+                  ? `Delete the draft "${pending?.label}"? The draft file is removed; reviewed templates are not affected.`
+                  : `Disable "${pending?.label}" — it will no longer match captures. This action is audited.`}
             </DialogDescription>
           </DialogHeader>
           {pending?.action === "promote" && pending.apiCandidate && (
@@ -488,7 +627,73 @@ export function TemplateManager() {
               Cancel
             </Button>
             <Button onClick={runPending} disabled={busy}>
-              {pending?.action === "promote" ? "Promote" : "Disable"}
+              {pending?.action === "promote"
+                ? "Promote"
+                : pending?.action === "delete"
+                  ? "Delete"
+                  : "Disable"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!editor}
+        onOpenChange={(o) => {
+          if (!o) setEditor(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editor?.mode === "create" ? "New draft" : "Edit draft"}
+            </DialogTitle>
+            <DialogDescription>
+              {editor?.mode === "create"
+                ? "Name the draft (usually the site host) and give its template JSON. It is saved as a review-only draft."
+                : `Edit "${editor?.file}". It stays a review-only draft until promoted.`}
+            </DialogDescription>
+          </DialogHeader>
+          {editor?.mode === "create" && (
+            <Input
+              value={editor.name}
+              onChange={(e) =>
+                setEditor({ ...editor, name: e.target.value, error: undefined })
+              }
+              placeholder="example.com"
+              aria-label="Draft name"
+            />
+          )}
+          <textarea
+            className="h-56 w-full rounded border border-input bg-background p-2 font-mono text-xs"
+            value={editor?.json ?? ""}
+            onChange={(e) =>
+              editor &&
+              setEditor({ ...editor, json: e.target.value, error: undefined })
+            }
+            aria-label="Draft template JSON"
+          />
+          {editor?.error && (
+            <p role="alert" className="text-xs font-medium text-red">
+              {editor.error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditor(null)}
+              disabled={saveMut.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveEditor}
+              disabled={
+                saveMut.isPending ||
+                (editor?.mode === "create" && !editor.name.trim())
+              }
+            >
+              {editor?.mode === "create" ? "Create" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -733,9 +733,19 @@ export interface TemplateActionResult {
   ok: boolean;
   promoted?: string;
   disabled?: string;
+  created?: string;
+  updated?: string;
+  deleted?: string;
   enabled?: boolean;
   from?: string;
   api_accepted?: boolean;
+  error?: string;
+}
+// F017 — GET /api/template_manager/draft?file=… (the edit form's source).
+export interface TemplateDraftDoc {
+  ok: boolean;
+  file?: string;
+  template?: Record<string, unknown>;
   error?: string;
 }
 

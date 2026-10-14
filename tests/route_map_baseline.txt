@@ -730,6 +730,10 @@
 /api/template/test_extract	POST	api_template_test_extract
 /api/template_manager	GET	api_template_manager_list
 /api/template_manager/disable	POST	api_template_manager_disable
+/api/template_manager/draft	DELETE	api_template_manager_draft_delete
+/api/template_manager/draft	GET	api_template_manager_draft_get
+/api/template_manager/draft	POST	api_template_manager_draft_create
+/api/template_manager/draft	PUT	api_template_manager_draft_update
 /api/template_manager/drift	GET	api_template_manager_drift
 /api/template_manager/inventory	GET	api_template_manager_inventory
 /api/template_manager/promote	POST	api_template_manager_promote
