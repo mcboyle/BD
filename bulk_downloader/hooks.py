@@ -24,6 +24,7 @@ accepts placeholders ({path}, {url}, {site}, {filename}, {size},
 {resolution}, {hash}) is rendered with the same vars dict.
 """
 
+import collections
 import json
 import os
 import re
@@ -37,8 +38,18 @@ import urllib.request
 from pathlib import Path
 
 # Module-level thread pool: cap concurrent outbound calls so a slow
-# webhook endpoint can't pile up workers. Simple semaphore is enough.
+# webhook endpoint can't pile up workers. fire_event takes a slot BEFORE it
+# starts a thread; with all 8 busy the event waits in the bounded backlog
+# and a finishing worker picks it up, so threads never exceed 8.
 _HOOK_SEMAPHORE = threading.Semaphore(8)
+_HOOK_BACKLOG = collections.deque()
+_HOOK_BACKLOG_MAX = 1000
+_HOOK_BACKLOG_LOCK = threading.Lock()
+
+# Per-site webhook retries: the global queue's schedule (webhooks._RETRY_DELAYS),
+# 5 attempts in all. A Retry-After header is honoured up to the last delay.
+_SITE_WEBHOOK_DELAYS = (1, 2, 5, 30)
+_site_retry_sleep = time.sleep  # seam: tests record the waits instead of sleeping
 
 # Event-name → human-readable label, used in webhook payloads + logs.
 EVENTS = ["completed", "failed", "needs_review", "low_disk", "cookies_expiring"]
@@ -108,7 +119,7 @@ def _log(msg):
     sys.stderr.write(f"  hook: {msg}\n")
 
 
-def _render_template(template, vars, shell_quote=False):
+def _render_template(template, vars, shell_quote=False, url_quote=False):
     """Substitute {placeholder} occurrences in `template` from the `vars`
     dict. Unknown placeholders are left in place (so a typo doesn't
     silently lose data — it shows up in the output). Returns the
@@ -124,6 +135,10 @@ def _render_template(template, vars, shell_quote=False):
 
     For webhooks and non-shell sinks, shell_quote stays off so the
     rendered string is the user's literal template + literal values.
+    A template that IS a URL (per-site webhook_urls) passes url_quote=True:
+    each value is percent-encoded whole, so a filename like "a?x=1#b/../c"
+    stays one path segment and cannot add query keys or path segments to
+    the operator's URL.
 
     O1815 R9: substitution is ONE pass over the template. Substituted
     values are never rescanned, so a site-controlled {url} that contains
@@ -140,6 +155,8 @@ def _render_template(template, vars, shell_quote=False):
             # template structure (e.g., `--option={key}` with empty key
             # should yield `--option=`, not `--option=''`).
             sval = shlex.quote(sval)
+        elif url_quote:
+            sval = urllib.parse.quote(sval, safe="")
         rendered[k] = sval
     pattern = re.compile("{(" + "|".join(re.escape(k) for k in rendered) + ")}")
     return pattern.sub(lambda m: rendered[m.group(1)], template)
@@ -404,7 +421,7 @@ def _hook_urlopen(req, timeout=15):
 
 # ── 20.2: Generic outbound webhook ────────────────────────────────────
 
-def send_webhook(url, payload, timeout=15, headers=None):
+def send_webhook(url, payload, timeout=15, headers=None, retry_info=None):
     """JSON POST to `url`. Returns (ok, status_or_error, response_body).
 
     Uses urllib so no extra dependency. httpx would be nicer but we
@@ -419,7 +436,12 @@ def send_webhook(url, payload, timeout=15, headers=None):
     implement bidirectional webhooks (the server can answer 'skip',
     'rewrite URL', 'change priority', etc.). EVERY return path is a
     three-tuple, so every caller must unpack three: tuple unpacking does
-    not ignore a trailing element, it raises ValueError."""
+    not ignore a trailing element, it raises ValueError.
+
+    `retry_info`, when a dict, receives what a retry decision needs:
+    retryable (bool) and retry_after (seconds or None)."""
+    if retry_info is not None:
+        retry_info.update(retryable=False, retry_after=None)
     if not url: return True, "(no webhook configured)", None
     ok, msg = _validate_webhook_url(url)
     if not ok: return False, f"rejected: {msg}", None
@@ -445,9 +467,71 @@ def send_webhook(url, payload, timeout=15, headers=None):
         body = ""
         try: body = e.read().decode("utf-8", "replace")[:500]
         except Exception: pass
+        if retry_info is not None:
+            retry_info.update(
+                retryable=_http_status_retryable(e.code),
+                retry_after=_retry_after_seconds((e.headers or {}).get("Retry-After")))
         return False, f"HTTP {e.code}: {body}", None
     except Exception as e:
+        if retry_info is not None:
+            # network trouble (URLError, timeouts, resets) is worth another
+            # try; a malformed URL (InvalidURL is a ValueError) never is
+            retry_info["retryable"] = isinstance(e, OSError)
         return False, f"{type(e).__name__}: {e}", None
+
+
+def _http_status_retryable(code):
+    """One failure classification for the global queue and per-site sends:
+    4xx means the request is wrong and is dropped, except 408 and 429, where
+    the receiver asks to be tried again; 3xx and 5xx are retried."""
+    return not (400 <= int(code) < 500) or int(code) in (408, 429)
+
+
+def _retry_after_seconds(value):
+    """Retry-After as seconds (delta-seconds or HTTP-date), None if absent
+    or unparseable. Never raises: the value is the receiver's text, and
+    str.isdigit() is True for "\u00b2" and other non-ASCII digits that
+    float() refuses."""
+    if value is None: return None
+    value = str(value).strip()
+    if value.isascii() and value.isdigit(): return float(value)
+    try:
+        import email.utils
+        when = email.utils.parsedate_to_datetime(value)
+        return max(0.0, when.timestamp() - time.time())
+    except Exception:
+        return None
+
+
+def _url_for_log(url):
+    """scheme://host[:port] plus "/..." when there is more: a webhook URL's
+    userinfo, path and query can be the credential (Discord/Slack tokens),
+    so none of them reach a log line."""
+    try:
+        pp = urllib.parse.urlsplit(url)
+        host = pp.hostname or "?"
+        if ":" in host: host = f"[{host}]"
+        port = f":{pp.port}" if pp.port else ""
+        rest = "/..." if (pp.path not in ("", "/") or pp.query or pp.fragment) else ""
+        return f"{pp.scheme}://{host}{port}{rest}"
+    except Exception:
+        return "(unparseable url)"
+
+
+def _scrub_url_parts(msg, url, shown):
+    """Remove a webhook URL from an error message: the whole URL, and also
+    its userinfo, path and query on their own, since http.client's
+    InvalidURL text quotes only the path."""
+    msg = msg.replace(url, shown)
+    try:
+        pp = urllib.parse.urlsplit(url)
+        parts = [pp.password, pp.username, pp.path, pp.query,
+                 urllib.parse.unquote(pp.path)]
+    except Exception:
+        return msg
+    for part in sorted({p for p in parts if p and len(p) > 1}, key=len, reverse=True):
+        msg = msg.replace(part, "/...")
+    return msg
 
 
 # ── 20.3: Stash GraphQL hook ──────────────────────────────────────────
@@ -596,12 +680,38 @@ def fire_event(event, site_config, job=None, extra=None):
     if not site_config: site_config = {}
     vars = build_vars(site_config, event, job, extra=extra)
 
-    def _run():
-        with _HOOK_SEMAPHORE:
-            _dispatch(event, site_config, vars, job or {})
+    task = (event, site_config, vars, job or {})
+    with _HOOK_BACKLOG_LOCK:
+        if not _HOOK_SEMAPHORE.acquire(blocking=False):
+            if len(_HOOK_BACKLOG) >= _HOOK_BACKLOG_MAX:
+                _log(f"{event}: hook backlog full ({_HOOK_BACKLOG_MAX}), event dropped")
+            else:
+                _HOOK_BACKLOG.append(task)
+            return
+    try:
+        threading.Thread(target=_hook_worker, args=(task,), daemon=True,
+                         name=f"hook-{event}").start()
+    except Exception as e:
+        _HOOK_SEMAPHORE.release()
+        _log(f"{event}: hook thread failed to start: {e}")
 
-    threading.Thread(target=_run, daemon=True,
-                     name=f"hook-{event}").start()
+
+def _hook_worker(task):
+    """Holds one _HOOK_SEMAPHORE slot: runs its task, then backlog tasks,
+    and gives the slot back only when the backlog is empty. The release
+    happens under _HOOK_BACKLOG_LOCK, the same lock fire_event takes to
+    choose between a slot and the backlog, so no task is left behind."""
+    while task is not None:
+        try:
+            _dispatch(*task)
+        except Exception as e:
+            _log(f"{task[0]}: dispatch failed: {type(e).__name__}: {e}")
+        with _HOOK_BACKLOG_LOCK:
+            if _HOOK_BACKLOG:
+                task = _HOOK_BACKLOG.popleft()
+            else:
+                task = None
+                _HOOK_SEMAPHORE.release()
 
 
 def _eval_pipeline_condition(condition, vars):
@@ -736,10 +846,13 @@ def _dispatch(event, site_config, vars, job):
         payload = dict(vars)
         payload["job"] = {k: v for k, v in (job or {}).items() if k != "screenshot"}
         for url in webhook_urls:
-            url = _render_template(url, vars).strip()
+            url = _render_template(url, vars, url_quote=True).strip()
             if not url: continue
-            ok, msg, _resp = send_webhook(url, payload)
-            _log(f"webhook {url[:50]}: {'ok' if ok else 'FAIL'} — {msg}")
+            ok, msg, attempts = _send_site_webhook(url, payload)
+            shown = _url_for_log(url)
+            msg = _scrub_url_parts(str(msg), url, shown)
+            _log(f"webhook {shown}: {'ok' if ok else 'FAIL'} — {msg}"
+                 + (f" (attempts {attempts})" if attempts > 1 else ""))
 
     # 3. Stash scan — typically on `completed`
     if (event == "completed" and site_config.get("stash_enabled")
@@ -832,6 +945,22 @@ def _dispatch(event, site_config, vars, job):
             _log(f"push ({event}): sent={sent}" + (f" — {err}" if err else ""))
         except Exception as e:
             _log(f"push ({event}) failed: {str(e)[:120]}")
+
+
+def _send_site_webhook(url, payload):
+    """POST a per-site webhook with the global queue's retry rules (same
+    classification, same delays). Returns (ok, msg, attempts)."""
+    attempt = 0
+    while True:
+        info = {}
+        ok, msg, _resp = send_webhook(url, payload, retry_info=info)
+        attempt += 1
+        if ok or not info["retryable"] or attempt > len(_SITE_WEBHOOK_DELAYS):
+            return ok, msg, attempt
+        delay = _SITE_WEBHOOK_DELAYS[attempt - 1]
+        if info["retry_after"]:
+            delay = max(delay, min(info["retry_after"], _SITE_WEBHOOK_DELAYS[-1]))
+        _site_retry_sleep(delay)
 
 
 def _split_lines(s):

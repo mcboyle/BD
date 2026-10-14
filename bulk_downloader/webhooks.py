@@ -38,13 +38,20 @@ Delivery:
   • Fire is best-effort: queue an HTTP POST, return immediately.
   • Background drain worker pops from webhook_queue, POSTs, retries
     with exponential backoff on failure (1s → 2s → 5s → 30s → drop).
+    Each item is claimed (compare-and-set lease) before it is POSTed, so
+    the drain thread and POST /api/webhooks/drain never deliver it twice.
+    Subscriptions drain in parallel and a failing one stops for the pass,
+    so a dead receiver cannot hold back a healthy one.
   • HMAC-SHA256 signature in `X-BD-Signature` header when subscription
-    has a secret.
+    has a secret, over `<X-BD-Timestamp>.<X-BD-Delivery-Id>.<body>`, so a
+    captured delivery cannot be replayed under a fresh timestamp.
 
 Failure handling:
-  • 5xx + network errors → retry up to 5 times
-  • 4xx → drop immediately (caller's config is wrong)
+  • 5xx, 3xx, 408, 429 + network errors → retry, 5 attempts in all;
+    a Retry-After header lengthens the wait (capped at an hour)
+  • other 4xx → drop immediately (caller's config is wrong)
   • 3xx → don't follow redirects (could leak credentials)
+  • subscription removed or disabled → its queued items are dropped
 """
 from __future__ import annotations
 
@@ -61,8 +68,21 @@ _drain_lock = threading.Lock()
 _drain_thread: Optional[threading.Thread] = None
 _drain_stop = threading.Event()
 
-# Retry schedule (seconds). Attempt index → delay before next retry.
-_RETRY_DELAYS = [1, 2, 5, 30, 120]
+# Retry schedule (seconds). Index = the attempt that just failed → delay
+# before the next one; a failure past the end drops the item.
+_RETRY_DELAYS = [1, 2, 5, 30]
+# A claimed item's next_retry_ts is pushed this far out while it is in
+# flight; longer than the 10 s POST timeout, so only a crashed pass's
+# claim ever expires.
+_CLAIM_LEASE = 60
+_RETRY_AFTER_MAX = 3600
+_DRAIN_PARALLEL = 8
+
+# Every name a webhooks.fire() call site emits: runner terminal statuses,
+# alerts_engine, maintenance windows. A subscription to any other name
+# could never fire, so add_subscription refuses it.
+WEBHOOK_EVENTS = ("download.done", "download.failed", "download.needs_review",
+                  "alert.fired", "maintenance.start", "maintenance.end")
 
 
 def _ensure_tables():
@@ -103,6 +123,8 @@ def add_subscription(*, url: str, events: list,
     ['download.done', 'download.failed']."""
     if not url or not isinstance(events, list) or not events:
         return None
+    if any(not isinstance(e, str) or e not in WEBHOOK_EVENTS for e in events):
+        return None
     # F-APP05-03: reject SSRF hosts at registration, reusing the operator-chosen
     # webhook policy from v3.66.553 (rejects cloud-metadata/link-local/CGNAT/
     # multicast/unspecified + non-http schemes; ALLOWS RFC1918 LAN + loopback +
@@ -131,6 +153,8 @@ def remove_subscription(sub_id: int) -> bool:
         with _db.db_conn() as cx:
             cur = cx.execute("DELETE FROM webhook_subscriptions WHERE id = ?",
                              (int(sub_id),))
+            cx.execute("DELETE FROM webhook_queue WHERE subscription_id = ?",
+                       (int(sub_id),))
             return cur.rowcount > 0
     except Exception:
         return False
@@ -191,9 +215,16 @@ def fire(event_name: str, payload: dict):
 
 
 def _sign(secret: str, body: bytes) -> str:
-    """Compute HMAC-SHA256 over the request body."""
+    """Compute HMAC-SHA256 over `body` (the bytes _signed_bytes builds)."""
     return hmac.new(secret.encode("utf-8"), body,
                     hashlib.sha256).hexdigest()
+
+
+def _signed_bytes(timestamp: str, delivery_id: str, body: bytes) -> bytes:
+    """What X-BD-Signature covers: `<timestamp>.<delivery id>.<body>`. The
+    receiver rebuilds it from the two headers and the raw body, then checks
+    the timestamp is recent and the delivery id unseen."""
+    return f"{timestamp}.{delivery_id}.".encode("utf-8") + body
 
 
 def _deliver_one(item: dict) -> dict:
@@ -209,12 +240,12 @@ def _deliver_one(item: dict) -> dict:
                                      WHERE id = ?""",
                                  (item["subscription_id"],)).fetchone()
         if not sub_row:
-            return {"ok": False, "error": "subscription gone"}
+            return {"ok": False, "error": "subscription gone", "permanent": True}
         sub = dict(sub_row)
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
     if not sub.get("enabled"):
-        return {"ok": False, "error": "subscription disabled"}
+        return {"ok": False, "error": "subscription disabled", "permanent": True}
     url = sub["url"]
     # F-CBD12-01: re-validate the stored URL at delivery time -- defends against
     # DNS rebinding between registration and delivery, and against a hand-edited
@@ -234,18 +265,26 @@ def _deliver_one(item: dict) -> dict:
         "X-BD-Timestamp": str(int(time.time())),
     }
     if secret:
-        headers["X-BD-Signature"] = "sha256=" + _sign(secret, body_bytes)
+        headers["X-BD-Signature"] = "sha256=" + _sign(
+            secret, _signed_bytes(headers["X-BD-Timestamp"],
+                                  headers["X-BD-Delivery-Id"], body_bytes))
     try:
         r = requests.post(url, data=body_bytes, headers=headers,
                          timeout=10, allow_redirects=False)
         if r.status_code < 300:
             return {"ok": True, "status": r.status_code}
-        # 4xx is permanent
-        if 400 <= r.status_code < 500:
+        from .hooks import _http_status_retryable, _retry_after_seconds  # lazy: no static import edge
+        # 4xx is permanent, except 408/429: the receiver asks us to come back
+        if not _http_status_retryable(r.status_code):
             return {"ok": False, "status": r.status_code,
                     "error": "4xx — drop", "permanent": True}
-        return {"ok": False, "status": r.status_code,
-                "error": f"HTTP {r.status_code}"}
+        out = {"ok": False, "status": r.status_code,
+               "error": f"HTTP {r.status_code}"}
+        retry_after = _retry_after_seconds(
+            (getattr(r, "headers", None) or {}).get("Retry-After"))
+        if retry_after is not None:
+            out["retry_after"] = min(retry_after, _RETRY_AFTER_MAX)
+        return out
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
 
@@ -259,61 +298,114 @@ def _drain_once(*, max_items: int = 50) -> dict:
     try:
         from . import db as _db
         with _db.db_conn() as cx:
-            rows = cx.execute("""SELECT * FROM webhook_queue
-                                  WHERE next_retry_ts <= ?
-                                  ORDER BY id ASC LIMIT ?""",
+            # Round-robin over subscriptions (every lane's head before any
+            # lane's second item), so one subscription's backlog cannot
+            # fill the whole LIMIT and starve the others.
+            rows = cx.execute("""SELECT * FROM (
+                                    SELECT *, ROW_NUMBER() OVER (
+                                        PARTITION BY subscription_id ORDER BY id
+                                    ) AS lane_pos
+                                    FROM webhook_queue WHERE next_retry_ts <= ?)
+                                  ORDER BY lane_pos, id LIMIT ?""",
                               (now, int(max_items))).fetchall()
         items = [dict(r) for r in rows]
     except Exception:
         return stats
+    # One lane per subscription: items keep their order inside a lane, and
+    # lanes run side by side, so a receiver that hangs costs only its own.
+    lanes: dict = {}
     for item in items:
-        stats["processed"] += 1
-        result = _deliver_one(item)
-        try:
-            from . import db as _db
-            with _db.db_conn() as cx:
-                if result.get("ok"):
-                    cx.execute("DELETE FROM webhook_queue WHERE id = ?",
-                               (item["id"],))
-                    cx.execute("""UPDATE webhook_subscriptions
-                                  SET last_fired_ts = ?,
-                                      fire_count = fire_count + 1
-                                  WHERE id = ?""",
-                               (time.time(), item["subscription_id"]))
-                    stats["ok"] += 1
-                elif result.get("permanent"):
-                    cx.execute("DELETE FROM webhook_queue WHERE id = ?",
-                               (item["id"],))
-                    cx.execute("""UPDATE webhook_subscriptions
-                                  SET error_count = error_count + 1,
-                                      last_error = ?
-                                  WHERE id = ?""",
-                               (result.get("error", "")[:300],
-                                item["subscription_id"]))
-                    stats["dropped"] += 1
-                else:
-                    next_attempt = item["attempt"] + 1
-                    if next_attempt >= len(_RETRY_DELAYS):
-                        cx.execute("DELETE FROM webhook_queue WHERE id = ?",
-                                   (item["id"],))
-                        cx.execute("""UPDATE webhook_subscriptions
-                                      SET error_count = error_count + 1,
-                                          last_error = ?
-                                      WHERE id = ?""",
-                                   ("max retries exhausted: " + result.get("error", "")[:200],
-                                    item["subscription_id"]))
-                        stats["dropped"] += 1
-                    else:
-                        delay = _RETRY_DELAYS[next_attempt]
-                        cx.execute("""UPDATE webhook_queue
-                                      SET attempt = ?, next_retry_ts = ?, last_error = ?
-                                      WHERE id = ?""",
-                                   (next_attempt, time.time() + delay,
-                                    result.get("error", "")[:300], item["id"]))
-                        stats["retried"] += 1
-        except Exception as e:
-            sys.stderr.write(f"[webhooks] state update failed: {e}\n")
+        lanes.setdefault(item["subscription_id"], []).append(item)
+    stats_lock = threading.Lock()
+
+    def run_lane(lane):
+        for item in lane:
+            if not _claim(item):
+                continue  # another pass (drain thread vs POST /drain) owns it
+            result = _deliver_one(item)
+            _record(item, result, stats, stats_lock)
+            if not result.get("ok") and not result.get("permanent"):
+                break  # receiver failing: its later items wait for the next pass
+
+    if len(lanes) <= 1:
+        for lane in lanes.values():
+            run_lane(lane)
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(_DRAIN_PARALLEL, len(lanes)),
+                                thread_name_prefix="bd-webhook-lane") as ex:
+            for fut in [ex.submit(run_lane, lane) for lane in lanes.values()]:
+                try:
+                    fut.result()
+                except Exception as e:
+                    sys.stderr.write(f"[webhooks] drain lane failed: {e}\n")
     return stats
+
+
+def _claim(item: dict) -> bool:
+    """Compare-and-set lease on one queue row: only the pass whose UPDATE
+    still sees the row's (attempt, next_retry_ts) delivers it."""
+    try:
+        from . import db as _db
+        with _db.db_conn() as cx:
+            cur = cx.execute("""UPDATE webhook_queue SET next_retry_ts = ?
+                                WHERE id = ? AND attempt = ? AND next_retry_ts = ?""",
+                             (time.time() + _CLAIM_LEASE, item["id"],
+                              item["attempt"], item["next_retry_ts"]))
+            return cur.rowcount == 1
+    except Exception as e:
+        sys.stderr.write(f"[webhooks] claim failed: {e}\n")
+        return False
+
+
+def _record(item: dict, result: dict, stats: dict, stats_lock) -> None:
+    """Write one delivery's outcome back to the queue and its subscription."""
+    outcome = "ok" if result.get("ok") else "dropped"
+    try:
+        from . import db as _db
+        with _db.db_conn() as cx:
+            if result.get("ok"):
+                cx.execute("DELETE FROM webhook_queue WHERE id = ?",
+                           (item["id"],))
+                cx.execute("""UPDATE webhook_subscriptions
+                              SET last_fired_ts = ?,
+                                  fire_count = fire_count + 1
+                              WHERE id = ?""",
+                           (time.time(), item["subscription_id"]))
+            elif result.get("permanent"):
+                cx.execute("DELETE FROM webhook_queue WHERE id = ?",
+                           (item["id"],))
+                cx.execute("""UPDATE webhook_subscriptions
+                              SET error_count = error_count + 1,
+                                  last_error = ?
+                              WHERE id = ?""",
+                           (result.get("error", "")[:300],
+                            item["subscription_id"]))
+            elif item["attempt"] >= len(_RETRY_DELAYS):
+                cx.execute("DELETE FROM webhook_queue WHERE id = ?",
+                           (item["id"],))
+                cx.execute("""UPDATE webhook_subscriptions
+                              SET error_count = error_count + 1,
+                                  last_error = ?
+                              WHERE id = ?""",
+                           ("max retries exhausted: " + result.get("error", "")[:200],
+                            item["subscription_id"]))
+            else:
+                delay = max(_RETRY_DELAYS[item["attempt"]],
+                            result.get("retry_after") or 0)
+                cx.execute("""UPDATE webhook_queue
+                              SET attempt = ?, next_retry_ts = ?, last_error = ?
+                              WHERE id = ?""",
+                           (item["attempt"] + 1, time.time() + delay,
+                            result.get("error", "")[:300], item["id"]))
+                outcome = "retried"
+    except Exception as e:
+        sys.stderr.write(f"[webhooks] state update failed: {e}\n")
+        outcome = None
+    with stats_lock:
+        stats["processed"] += 1
+        if outcome:
+            stats[outcome] += 1
 
 
 def start_drain_worker():
@@ -331,11 +423,25 @@ def start_drain_worker():
                     _drain_once()
                 except Exception as e:
                     sys.stderr.write(f"[webhooks] drain loop: {e}\n")
-                _drain_stop.wait(10)
+                _drain_stop.wait(_next_wait())
 
         _drain_thread = threading.Thread(target=loop, daemon=True,
                                          name="bd-webhook-drain")
         _drain_thread.start()
+
+
+def _next_wait(cap: float = 10.0) -> float:
+    """Seconds until the earliest queued item is due, within [0.5, cap], so
+    the 1 s and 2 s retries are not floored to the 10 s tick."""
+    try:
+        from . import db as _db
+        with _db.db_conn() as cx:
+            r = cx.execute("SELECT MIN(next_retry_ts) FROM webhook_queue").fetchone()
+        if r and r[0] is not None:
+            return max(0.5, min(cap, float(r[0]) - time.time()))
+    except Exception:
+        pass
+    return cap
 
 
 def stop_drain_worker():
