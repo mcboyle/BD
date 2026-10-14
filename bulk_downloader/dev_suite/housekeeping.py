@@ -44,6 +44,28 @@ _BD_VPN_DIRNAMES = ("bd_vpn_ovpn", "bd_vpn_wg")
 _TEMPDIR_MIN_AGE_S = 3600.0   # never sweep anything younger than 1h
 
 
+def _dry_run_flag(dry_run):
+    """Fail closed: only an explicit False, or one of the JSON-string
+    spellings "false"/"0"/"no", turns the dry run off. None, 0, [], {}
+    and "" stay a dry run -- bool() made each of them a real sweep."""
+    if isinstance(dry_run, str):
+        return dry_run.lower() not in ("false", "0", "no")
+    return dry_run is not False
+
+
+def _tempdir_min_age(min_age_seconds):
+    """The caller may ask for an OLDER cut-off, never a younger one:
+    0, negatives, nan and +/-inf all fall back to the 1h floor."""
+    import math as _math
+    try:
+        asked = float(min_age_seconds)
+    except (TypeError, ValueError, OverflowError):
+        return _TEMPDIR_MIN_AGE_S
+    if _math.isfinite(asked) and asked > _TEMPDIR_MIN_AGE_S:
+        return asked
+    return _TEMPDIR_MIN_AGE_S
+
+
 
 def _scan_bd_temp_artifacts():
     """Walk the system temp dir and return BD's own temp dirs +
@@ -73,9 +95,14 @@ def _scan_bd_temp_artifacts():
                        or name in _BD_VPN_DIRNAMES):
             kind = ("vpn_config" if name in _BD_VPN_DIRNAMES
                     else "backup_restore")
+            # A bd_vpn_* dir is a VPN backend's long-lived CONF_DIR, not
+            # a per-job temp dir: its mtime dates the last conf written,
+            # so a tunnel up for over an hour looks stale while wg-quick
+            # down still needs the conf inside. Reported, never swept.
             temp_dirs.append({"name": name, "path": full,
                               "age_seconds": age, "kind": kind,
-                              "sweepable": age >= _TEMPDIR_MIN_AGE_S})
+                              "sweepable": (kind == "backup_restore"
+                                            and age >= _TEMPDIR_MIN_AGE_S)})
         elif not is_dir and name.endswith(".lock"):
             # NOT a BD artifact. Measured v3.66.844: nothing in the tree
             # writes a *.lock file. storage_tier's exclusive placeholder is
@@ -121,27 +148,22 @@ def lockfile_scan():
 def tempdir_clean(dry_run=True, min_age_seconds=None):
     """D-114 (A) — remove BD's OWN stale temp dirs and lingering .lock
     files from the system temp dir. Scoped strictly to bdback_/
-    bdback_preview_/bdrestore_/bd_vpn_* dirs and *.lock files; never
-    touches anything else. Only removes entries older than
-    min_age_seconds (default 1h) so an in-flight backup is safe.
+    bdback_preview_/bdrestore_ dirs and *.lock files; never touches
+    anything else (bd_vpn_* conf dirs are scanned but never swept).
+    Only removes entries older than min_age_seconds, which can raise
+    the 1h floor but never lower it, so an in-flight backup is safe.
 
     dry_run=True (the default) reports what it WOULD remove and
     deletes nothing — pass dry_run=False to actually sweep."""
     import os as _os
     import shutil as _sh
-    dry_run = bool(dry_run) if not isinstance(dry_run, str) \
-        else dry_run.lower() not in ("false", "0", "no", "")
-    if min_age_seconds is None:
-        min_age = _TEMPDIR_MIN_AGE_S
-    else:
-        try:
-            min_age = max(0.0, float(min_age_seconds))
-        except (TypeError, ValueError):
-            min_age = _TEMPDIR_MIN_AGE_S
+    dry_run = _dry_run_flag(dry_run)
+    min_age = _tempdir_min_age(min_age_seconds)
     temp_dirs, locks, tmp_root, err = _scan_bd_temp_artifacts()
     if err:
         return {"tool": "tempdir_clean", "ok": False, "error": err}
-    targets = [d for d in temp_dirs if d["age_seconds"] >= min_age]
+    targets = [d for d in temp_dirs if d["kind"] == "backup_restore"
+               and d["age_seconds"] >= min_age]
     target_locks = [f for f in locks if f["age_seconds"] >= min_age]
     removed, failed = [], []
     if not dry_run:
