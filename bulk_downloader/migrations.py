@@ -447,11 +447,16 @@ def apply_pending(
 
 
 def _backup_db_before_migration():
-    """ROB-2: copy the live DB file aside before migrations mutate it, returning
+    """ROB-2: copy the live DB aside before migrations mutate it, returning
     the backup path (``<db>.premigration.bak``) or None if there is no DB file /
-    the copy failed. Best-effort and safe at boot (single-threaded, pre-workers):
-    checkpoints WAL first so the copied file is self-contained."""
-    import shutil
+    the copy failed. Best-effort and safe at boot.
+
+    migrations-integrity-fix r2: the copy used to be wal_checkpoint(TRUNCATE) +
+    shutil.copy2 of the main file. An open reader makes that checkpoint busy (its
+    rc was swallowed), so commits still in <db>-wal were missing from the .bak and
+    a restore discarded them. The pages now come through SQLite's online backup
+    API, which reads the committed state including the WAL, into a temp file that
+    replaces the .bak only once complete."""
     try:
         from . import db as _db
         src = _db._resolve_db_path()
@@ -460,31 +465,62 @@ def _backup_db_before_migration():
     if not src or not os.path.exists(src):
         return None
     dst = src + ".premigration.bak"
+    tmp = dst + ".tmp"
     try:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        live = sqlite3.connect(src)
         try:
-            with _db.db_conn() as cx:
-                cx.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        except Exception:
-            pass
-        shutil.copy2(src, dst)
+            out = sqlite3.connect(tmp)
+            try:
+                # backup() retries SQLITE_LOCKED forever, so a destination that resolves
+                # to the source (a shared-cache URI) would hang boot. Only the tmp file.
+                opened = out.execute("PRAGMA database_list").fetchone()[2]
+                if not opened or not os.path.samefile(opened, tmp):
+                    raise sqlite3.OperationalError("backup destination is not %s" % tmp)
+                live.backup(out)
+            finally:
+                out.close()
+        finally:
+            live.close()
+        os.replace(tmp, dst)
         return dst
     except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
         return None
 
 
 def _restore_db_from_backup(bak: str) -> bool:
-    """ROB-2: restore the live DB from a pre-migration backup. Returns True on a
-    successful copy-back. Best-effort; safe at boot."""
-    import shutil
+    """ROB-2: restore the live DB from a pre-migration backup. Returns True only
+    when the live DB's schema reads back as the backup's. Best-effort; safe at boot.
+
+    staging-integrity F3: a file copy over the live DB left <db>-wal/-shm behind and
+    their frames won, so the migrated schema and ledger survived a reported restore.
+    The pages now go through SQLite's online backup API (the live DB's own journal),
+    after the pooled handles that saw the migrated state are closed."""
     try:
         from . import db as _db
         src = _db._resolve_db_path()
-        if bak and os.path.exists(bak) and src:
-            shutil.copy2(bak, src)
-            return True
+        if not (bak and os.path.exists(bak) and src):
+            return False
+        _db.close_all_pooled_connections()
+        schema = "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        source = sqlite3.connect(bak)
+        try:
+            live = sqlite3.connect(src)
+            try:
+                source.backup(live)
+                return (live.execute(schema).fetchall()
+                        == source.execute(schema).fetchall())
+            finally:
+                live.close()
+        finally:
+            source.close()
     except Exception:
-        pass
-    return False
+        return False
 
 
 def _snapshot_schema(cx) -> dict:
@@ -704,9 +740,11 @@ def _m5(cx):
     if "library_id" not in cols:
         cx.execute(
             "ALTER TABLE history ADD COLUMN library_id INTEGER DEFAULT NULL")
-        cx.execute(
-            "CREATE INDEX IF NOT EXISTS idx_history_lib "
-            "ON history(library_id)")
+    # staging-integrity F6: outside the column guard -- a run killed between the
+    # ALTER and the index would otherwise skip the index on every later run.
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_history_lib "
+        "ON history(library_id)")
 
 
 @migration(version=6, name="add_history_removed_at")

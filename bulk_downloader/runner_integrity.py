@@ -54,7 +54,16 @@ def _quarantine_failure(final_path):
         except FileExistsError:
             continue
         os.close(fd)
-        os.replace(final_path, target)
+        try:
+            os.replace(final_path, target)
+        except OSError:
+            # staging-integrity F7: drop our own 0-byte placeholder so a failed
+            # move neither leaves an empty "evidence" file nor burns the slot.
+            try:
+                os.unlink(target)
+            except OSError:
+                pass
+            raise
         return target
     raise FileExistsError("no free hash-quarantine filename")
 
