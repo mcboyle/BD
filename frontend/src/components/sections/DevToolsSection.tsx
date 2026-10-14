@@ -33,11 +33,23 @@ function errText(e: unknown): string {
   return e && typeof e === "object" && "message" in e ? String((e as Error).message) : String(e);
 }
 
+// dev-paired-session-scope: a paired device gets the app API, not /api/dev/*.
+// The dev guard answers 403 with its reason ("dev tools need the master token on
+// a paired device"); show that reason instead of an empty runner.
+function devRefusal(e: unknown): string | null {
+  if (!e || typeof e !== "object" || (e as { status?: unknown }).status !== 403) return null;
+  const body = (e as { body?: unknown }).body;
+  const reason =
+    body && typeof body === "object" ? (body as { error?: unknown }).error : undefined;
+  return typeof reason === "string" ? reason : errText(e);
+}
+
 export function DevToolsSection() {
   const devEnabled = useDevEnabled();
   const enabled = !!devEnabled.data?.enabled;
 
   const discover = useDevDiscover(enabled);
+  const refusal = devRefusal(discover.error);
   const run = useDevRun();
   const [runId, setRunId] = useState<string | null>(null);
   const runStatus = useDevRunStatus(runId);
@@ -101,7 +113,11 @@ export function DevToolsSection() {
       </div>
 
       {/* Dev test runner — only when dev mode is enabled on the backend */}
-      {enabled ? (
+      {enabled && refusal ? (
+        <p className="mt-3 text-xs text-destructive" role="alert">
+          {refusal}
+        </p>
+      ) : enabled ? (
         <div className="mt-3 border-t border-border/40 pt-3">
           <p className="mb-1 text-xs font-medium">
             Dev test runner ({discover.data?.files?.length ?? 0} files discovered)
