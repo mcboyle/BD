@@ -1,5 +1,5 @@
 """Cookie file load/save and expiry tracking."""
-import json, time
+import json, os, tempfile, time
 from pathlib import Path
 
 # ─── COOKIES ──────────────────────────────────────────────────────────────────
@@ -149,7 +149,79 @@ class CookieFileNotAJarError(ValueError):
     existing `except (OSError, ValueError)` log it instead of crashing."""
 
 
-def save_cookies_to_file(path, cookies, *, validate: bool = True):
+# The directory the process started in, resolved once: the BD_HOME fallback,
+# so a later chdir never moves a jar (session-jar-integrity F14).
+try:
+    _START_DIR = Path.cwd().resolve()
+except OSError:
+    _START_DIR = None
+_BD_HOMES = {}
+
+
+def _bd_home():
+    """BD_HOME as an absolute path, resolved once per value; unset -> the
+    directory the process started in. Never the cwd of the moment."""
+    raw = os.environ.get("BD_HOME") or ""
+    home = _BD_HOMES.get(raw)
+    if home is None:
+        home = Path(raw).resolve() if raw else (_START_DIR or Path.cwd().resolve())
+        _BD_HOMES[raw] = home
+    return home
+
+
+def cookie_jar_path(site_id, account_idx=0, site_config=None, root=None):
+    """The jar a (site, account) session lives in (session-jar-integrity
+    F2/F14) -- the one resolver for the keeper and the relogin callback.
+
+    The site's configured cookie_file when set, else <BD_HOME>/cookies
+    (`root` overrides that directory). Account 0 keeps the plain name
+    (<sid>.json, or the cookie_file itself), so existing installs need no
+    migration; account N>0 gets the __a<N> stem suffix. One shared path per
+    site let account 1's keeper overwrite account 0's session, and a
+    cwd-relative path made the keeper miss the jar the app had saved."""
+    idx = int(account_idx or 0)
+    cfg = site_config if isinstance(site_config, dict) else {}
+    configured = str(cfg.get("cookie_file") or "").strip()
+    if configured:
+        p = Path(configured)
+        return p if idx == 0 else p.with_name(f"{p.stem}__a{idx}{p.suffix}")
+    name = f"{site_id}.json" if idx == 0 else f"{site_id}__a{idx}.json"
+    return (Path(root) if root is not None else _bd_home() / "cookies") / name
+
+
+def _jar_site_id(p, account_idx):
+    """The vault site id for jar path `p`: its stem, less the __a<N>
+    suffix cookie_jar_path adds for account N>0."""
+    sid, tag = p.stem, f"__a{int(account_idx or 0)}"
+    if account_idx and sid.endswith(tag):
+        sid = sid[:-len(tag)]
+    return sid
+
+
+def _replace_with_text(dest, text):
+    """Write `text` to a unique temp file beside `dest` (owner-only), then
+    os.replace it over `dest`. A unique name per call: two writers on the
+    same jar used to share <file>.tmp, and the loser's replace raised
+    FileNotFoundError (session-jar-integrity S34)."""
+    fd, tmp_name = tempfile.mkstemp(dir=str(dest.parent),
+                                    prefix=dest.name + ".", suffix=".tmp")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        # AF5 (v3.66.42): cookie jars are session credentials — publish
+        # owner-only (0600) rather than at the umask default. Best-effort.
+        try: tmp.chmod(0o600)
+        except Exception: pass
+        tmp.replace(dest)
+    except BaseException:
+        try: tmp.unlink()
+        except OSError: pass
+        raise
+
+
+def save_cookies_to_file(path, cookies, *, validate: bool = True,
+                         account_idx: int = 0):
     """Persist cookies to JSON. Used after manual takeover login to save
     captured cookies to the configured Cookie File Path.
 
@@ -181,8 +253,13 @@ def save_cookies_to_file(path, cookies, *, validate: bool = True):
     should treat this as a save failure and retry. Pass
     validate=False to skip (useful for unit tests that mock
     filesystems).
+
+    session-jar-integrity: the previous good jar is kept as <file>.bak before
+    every replace, and the vault mirror goes to (site, account_idx) only --
+    it used to land on account "0" whatever account saved.
     """
     p = Path(path)
+    existing, parses = None, False
     # aac-fix F12: never overwrite a file that is not a cookie jar -- a JSON
     # document of another shape, or a non-JSON file not named *.json. A *.json
     # file that does not parse is a damaged jar and stays replaceable, so a
@@ -199,14 +276,11 @@ def save_cookies_to_file(path, cookies, *, validate: bool = True):
             raise CookieFileNotAJarError(
                 f"refusing to overwrite {p}: it exists and is not a cookie jar")
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(json.dumps(cookies, indent=2, ensure_ascii=False),
-                   encoding="utf-8")
-    # AF5 (v3.66.42): cookie jars are session credentials — publish
-    # owner-only (0600) rather than at the umask default. Best-effort.
-    try: tmp.chmod(0o600)
-    except Exception: pass
-    tmp.replace(p)
+    if parses:
+        # a recovery copy of the jar this save replaces; a damaged jar
+        # (parses False) never overwrites a good .bak
+        _replace_with_text(p.with_name(p.name + ".bak"), existing)
+    _replace_with_text(p, json.dumps(cookies, indent=2, ensure_ascii=False))
     if validate:
         _verify_cookie_roundtrip(p, expected_count=len(cookies))
     # Row 893: synchronize encrypted session state to cluster vault
@@ -214,9 +288,10 @@ def save_cookies_to_file(path, cookies, *, validate: bool = True):
         from .vault_sync import get_vault_sync
         vs = get_vault_sync()
         if vs is not None:
-            sid = p.stem
+            sid = _jar_site_id(p, account_idx)
             if sid:
-                vs.set_session(sid, "0", {"cookies": cookies})
+                vs.set_session(sid, str(int(account_idx or 0)),
+                               {"cookies": cookies})
     except Exception:
         pass
     return p
