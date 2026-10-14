@@ -165,6 +165,7 @@ from .db import (
     queue_load, queue_upsert, queue_bulk_upsert, queue_delete,
     queue_delete_status, queue_bulk_delete, queue_bulk_update,
     queue_reorder, queue_set_priority, run_intent_is_running, run_intent_set,
+    window_park_is_set, window_park_set,
 )
 
 # v3.43.60: VPN runtime integration. Keep runner.py importable for diagnostics
@@ -1295,6 +1296,19 @@ def _record_run_intent(runner, running):
                     "a restart may resume it despite this stop/pause")
 
 
+def _record_window_park(runner, parked):
+    """ddr-fix F4: persist whether the download window parked this site, so
+    window entry resumes exactly what the window parked (and a restart in
+    between keeps the answer). Same stub and failure contract as
+    _record_run_intent."""
+    site_id = getattr(runner, "site_id", None)
+    if not site_id or window_park_set(site_id, parked):
+        return
+    log = getattr(runner, "log", None)
+    if log is not None:
+        log.warning("window-park mark not persisted for %s", site_id)
+
+
 class StartOutcome(str, enum.Enum):
     """Exceptional public outcomes from ``start()``.
 
@@ -1536,6 +1550,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         lifecycle = getattr(self, "lifecycle_subsystem", None)
         if lifecycle is not None:
             lifecycle.set_state(val)
+        if val == "window_paused":
+            # ddr-fix F3: outside its window the pool holds at the same gate as
+            # pause() (workers block at self._pause.wait()); the next arming
+            # transition sets it again. No run intent is written here.
+            pause_event = getattr(self, "_pause", None)
+            if pause_event is not None:
+                pause_event.clear()
 
     @property
     def _rl_autostart(self) -> bool:
@@ -2235,6 +2256,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # an empty pending set makes it return early.  It must not inherit a
         # recovery capability that does not belong to its current state.
         self._hold_refused_resume_state = None
+        if self._reopen_window_held_run():
+            return
         if self._state=="running": return
         # A fresh run must not inherit liveness state from worker threads that
         # belonged to the previous run. Guard both maps with the same lock so
@@ -2265,6 +2288,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         try:
             from . import download_window as _dw
             if not _dw.site_in_window(self.config):
+                # ddr-fix F4: this start was parked by the window; window
+                # entry (window_enter) resumes it.
+                _record_window_park(self, True)
                 if self._state != "window_paused":
                     self._state = "window_paused"
                     self.log_event("window",
@@ -2275,6 +2301,14 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # Window module failure must NOT block start() — fail-open
             sys.stderr.write(
                 f"[{self.site_id}] window check failed, allowing start: {e}\n")
+        # ddr-fix r3 (R158-C F1): the window no longer holds this site, so
+        # lift the gate window_paused closed before any later check returns
+        # early; otherwise an in-flight transfer stays blocked behind it.
+        if self._state == "window_paused":
+            with _download_hold.barrier():
+                if (self._state == "window_paused"
+                        and _download_hold.downloads_allowed()[0]):
+                    self._pause.set()
         # v3.43.80 Phase 160: maintenance-window pause check. If an
         # active maintenance window lists "workers" or "all" in its
         # actions_paused, don't pick up new URLs. In-flight downloads
@@ -2769,6 +2803,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # inside it).
         with _download_hold.barrier():
             _record_run_intent(self, False)
+            _record_window_park(self, False)  # ddr-fix F4: operator Pause wins
             if self._state != "running":
                 return
             self._hold_refused_resume_state = None
@@ -2841,6 +2876,76 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 except Exception:
                     pass
 
+    def window_leave(self, action="paused"):
+        """ddr-fix F3/F4: the download window closed. Park the site only if it
+        was running (or already parked by the window), and mark it so
+        window_enter() resumes it; an idle, stopped or operator-paused site is
+        not touched. action "stopped" stops it; anything else holds the
+        workers at the pause gate without recording run intent."""
+        parked = self._state in ("running", "window_paused") or (
+            window_park_is_set(self.site_id))
+        if not parked:
+            self.log_event("window", "Left active window — site not running "
+                           f"({self._state}); nothing to park")
+            return False
+        self.log_event("window", f"Left active window — applying {action!r}")
+        if action == "stopped":
+            self.stop()
+        else:
+            self._state = "window_paused"
+        _record_window_park(self, True)
+        return True
+
+    def window_enter(self):
+        """ddr-fix F4 (PERMISSION, operator DECISION 0438Z item 1): the
+        download window opened. Resume only a site the window itself parked;
+        an operator Stop/Pause or a never-started site stays put, and no run
+        intent is recorded for it."""
+        if not window_park_is_set(self.site_id):
+            self.log_event("window", "Entered active window — not parked by "
+                           f"the window ({self._state}); left as is")
+            return None
+        _record_window_park(self, False)
+        self.log_event("window", "Entered active window — resuming workers")
+        return self.start()
+
+    def _reopen_window_held_run(self):
+        """ddr-fix r3 (R158-C F1): window_paused closed the gate on a live run;
+        the window is open again but start() has nothing to arm (no claimable
+        pending job, nothing a Stop parked). start() would bump the run
+        generation and return before the arming line, leaving the in-flight
+        transfer blocked and the site stuck in window_paused. Give the live
+        run its gate back instead -- same generation, same overseer -- as if
+        the window had never closed. Returns True when it did."""
+        if self._state != "window_paused":
+            return False
+        if not any(t.is_alive() for t in tuple(getattr(self, "_worker_threads", ()))):
+            return False
+        try:
+            from . import download_window as _dw
+            if not _dw.site_in_window(self.config):
+                return False
+        except Exception:
+            pass  # start() fails open on a window-module error as well
+        now = time.time()
+        with self._lock:
+            for j in self.jobs.values():
+                if not isinstance(j, dict):
+                    continue
+                if j.get("status") == "pending" and now >= j.get("retry_after", 0):
+                    return False
+                if j.get("status") == "stopped" and j.get("message") == "Stopped":
+                    return False
+        with _download_hold.barrier():
+            if (self._state != "window_paused"
+                    or not _download_hold.downloads_allowed()[0]):
+                return False
+            self._pause.set()
+            self._state = "running"
+        self.log_event("window", "Entered active window — in-flight work "
+                       "resumed; nothing new to start")
+        return True
+
     def _repend_jobs_parked_by_stop(self):
         """dl95-justporn-3: Stop parks the jobs it interrupted ("pending" and
         "running" -> "stopped", message "Stopped"), and start() admits only
@@ -2878,6 +2983,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     def stop(self):
         self._rl_autostart = False  # P3-A: operator stop cancels a pending rate-limit resume
         _record_run_intent(self, False)
+        _record_window_park(self, False)  # ddr-fix F4: operator Stop wins
         self._hold_refused_resume_state = None
         if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
             self.lifecycle_subsystem.stop()
