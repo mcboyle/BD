@@ -12,6 +12,10 @@
 # never loaded. BD_ENV_FILE overrides the location; BD_SKIP_ENV_CHECK=1 is the
 # single documented escape hatch, named in the refusal so it is a gate and not
 # a wall.
+case "${1-}" in
+  -h|--help) sed -n '2,6p' "${BASH_SOURCE[0]}"; exit 0;;
+  -c) [ "$#" -ge 2 ] || { echo "bd: -c needs a shell snippet (bd -c '<snippet>')" >&2; exit 2; };;  # early-exit-ok
+esac
 _bd_tool_file="$(readlink -f "${BASH_SOURCE[0]}")" || exit 2
 _bd_tool_dir="$(CDPATH= cd -- "$(dirname -- "$_bd_tool_file")" && pwd -P)" || exit 2
 if [ -f "$_bd_tool_dir/.bdenv.sh" ]; then
@@ -28,7 +32,19 @@ if [ "${BD_SKIP_ENV_CHECK:-0}" != "1" ]; then
     echo "  Set BD_ENV_FILE=<path>, or BD_SKIP_ENV_CHECK=1 to proceed bare." >&2
     exit 2
   fi
-  . "$BD_ENV_FILE" || exit $?
+  # A command that fails part-way through the env file leaves a half-loaded
+  # session; the file's final status alone would hide it. The ERR trap sees
+  # every unguarded failure while sourcing (no `||` here: that would mask them).
+  _bd_env_failed=  # early-exit-ok
+  trap '_bd_env_failed=1' ERR  # early-exit-ok
+  . "$BD_ENV_FILE"  # early-exit-ok
+  trap - ERR  # early-exit-ok
+  if [ -n "$_bd_env_failed" ]; then  # early-exit-ok
+    echo "BD-UNEVALUABLE: a command in $BD_ENV_FILE failed while loading it." >&2  # early-exit-ok
+    echo "  The environment is only partly loaded; fix the env file, or set" >&2  # early-exit-ok
+    echo "  BD_SKIP_ENV_CHECK=1 to proceed bare." >&2  # early-exit-ok
+    exit 2  # early-exit-ok
+  fi
 fi
 if [ $# -eq 0 ]; then
     exec bash -i
@@ -36,5 +52,5 @@ elif [ "$1" = "-c" ]; then
     shift
     exec bash -c "$@"
 else
-    exec "$@"
+    exec -- "$@"  # early-exit-ok
 fi

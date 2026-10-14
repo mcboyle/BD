@@ -51,9 +51,13 @@ def main():
     if not pop.report(cen, sys.stderr):
         return sec.EXIT_CANNOT_EVALUATE
     tools=[os.path.join(a.bin,n) for n in _tools]
-    noshebang=[]; notexec=[]; parse_err=[]; noentry=[]; drift=[]
+    noshebang=[]; notexec=[]; parse_err=[]; noentry=[]; drift=[]; unreadable=[]
     for t in tools:
-        b=os.path.basename(t); raw=open(t,"rb").read()
+        b=os.path.basename(t)
+        try:
+            with open(t,"rb") as fh: raw=fh.read()
+        except OSError as e:
+            unreadable.append(f"{b}: {e.strerror or e}"); continue
         first=raw.split(b"\n",1)[0]
         if not first.startswith(b"#!"): noshebang.append(b)
         if not os.access(t,os.X_OK): notexec.append(b)
@@ -68,7 +72,18 @@ def main():
             except SyntaxError as e:
                 parse_err.append((b,f"L{e.lineno}: {e.msg}"))
         pk=os.path.join(a.pk,b)
-        if os.path.exists(pk) and open(pk,"rb").read()!=raw: drift.append(b)
+        if os.path.exists(pk):
+            try:
+                with open(pk,"rb") as fh: pk_raw=fh.read()
+            except OSError as e:
+                unreadable.append(f"{pk}: {e.strerror or e}"); continue
+            if pk_raw!=raw: drift.append(b)
+    if unreadable:
+        # A tool the check could not read was not examined: never fold it into
+        # "structurally sound" (or crash with a traceback that reads as a defect).
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=UNREADABLE (%s)\n"
+                         % (a.bin, "; ".join(unreadable)))
+        return sec.EXIT_CANNOT_EVALUATE
     print(f"toolchain: {len(tools)} tools  {DIM}(static checks only -- no execution){RST}")
     def emit(name,lst,fmt=lambda x:x):
         if lst:
