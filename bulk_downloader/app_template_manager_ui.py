@@ -123,8 +123,14 @@ def _drift_for(file_arg):
     cand = DR._load(str(cand_path))
     gold_rel = DR._default_gold(cand)  # takes the loaded dict; returns a relative path
     if not gold_rel:
+        if isinstance(cand, dict) and any(cand.get(k) for k in ("host", "hostname", "site")):
+            return None, "candidate host is not a plain hostname; cannot locate gold"
         return None, "candidate has no host; cannot locate gold"
     gold_path = (_REPO_ROOT / gold_rel)
+    # the gold must be a file directly under templates/reviewed (the host comes from the draft)
+    reviewed = (_REPO_ROOT / "templates" / "reviewed").resolve()
+    if gold_path.resolve().parent != reviewed:
+        return None, "gold path escapes templates/reviewed"
     if not gold_path.is_file():
         return None, "no reviewed gold for this host"
     gold = DR._load(str(gold_path))
@@ -251,7 +257,7 @@ def _row_html(name, r):
     host = html.escape(str(r["host"]))
     status = html.escape(str(r["status"]))
     sel = ", ".join(html.escape(s) for s in r["selector_groups"]) or "—"
-    res = ", ".join(str(x) for x in r["resolutions"]) or "—"
+    res = ", ".join(html.escape(str(x)) for x in r["resolutions"]) or "—"
     npat = (r["network_patterns_count"]
             if r["network_patterns_count"] is not None else "—")
     badges = []
