@@ -507,4 +507,10 @@ def restore_store(db_name: str, dest: str | os.PathLike,
         verified = bool(v.get("ok"))
     except Exception:
         verified = False
-    return {"ok": True, "dest": dest, "verified": verified}
+    # BK-REST F8: a restore whose output does not verify (absent, empty, not a
+    # healthy SQLite db) restored nothing usable -- that is not ok.
+    if not verified:
+        return {"ok": False, "dest": dest, "verified": False,
+                "reason": "restored file failed verification (missing or not "
+                          "a healthy SQLite db)"}
+    return {"ok": True, "dest": dest, "verified": True}
