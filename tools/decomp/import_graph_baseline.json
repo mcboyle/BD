@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6258,
+  "edge_count": 6261,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -7517,6 +7517,11 @@
     ],
     "tests/test_ssrf_public_literal.py": [
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_staging_toctou_f1_no_clobber.py": [
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_stale_locks_check_is_gone.py": [
       "bulk_downloader/selftest.py"
