@@ -30,6 +30,57 @@ from flask import Blueprint, jsonify, request
 auth_bp = Blueprint("auth", __name__)
 
 _COOKIE = "bd_user"
+# /api/auth/login back-off (auth_throttle, off unless BD_AUTH_THROTTLE is on).
+# Every attempt is counted under two labels, keyed on the casefolded username
+# whether or not it exists (same path and same PBKDF2 cost, so no username oracle):
+#   pair  (username, client address): full escalating back-off. A success clears
+#         only this label, so one account's login never resets another account's
+#         counter, and a failure flood from address X never refuses the user on Y.
+#   user  (username, every address): a soft ceiling for guesses spread over many
+#         addresses; its cooldown is capped at BD_AUTH_THROTTLE_BASE seconds, so it
+#         slows the real user but never locks them out. Only the failures of the
+#         last BD_AUTH_THROTTLE_MAX seconds count, and a success clears it.
+# An attempt is counted on both labels BEFORE the PBKDF2 verify, in the same lock
+# hold as the check (auth_throttle.reserve), and each label has one verify in flight
+# at most: a burst of concurrent guesses gets no more 401s than the same guesses
+# sent one by one. A success then drops both labels; a failure or an exception in
+# the verify (or in reserve) leaves the attempt counted. reserve is inside the try
+# and the release in its finally frees only this request's own attempt (owner): no
+# label outlives its request, and a refused request never frees another's.
+def _login_labels(username):
+    who = username.casefold()
+    return (("user_login", "pair", who, request.remote_addr or ""),
+            ("user_login", "user", who))
+
+
+def _too_many(retry):
+    resp = jsonify({"ok": False,
+                    "error": f"too many attempts; try again in {retry:.0f}s"})
+    resp.headers["Retry-After"] = str(int(retry) + 1)
+    return resp, 429
+
+
+def _json_object():
+    """The request's JSON body if it is an object, else None (400)."""
+    body = request.get_json(silent=True)
+    return body if isinstance(body, dict) else None
+
+
+def _bad(error):
+    return jsonify({"ok": False, "error": error}), 400
+
+
+def _str_field(body, key, default=""):
+    """``body[key]`` if absent/None (-> default) or a string, else None."""
+    v = body.get(key)
+    if v is None:
+        return default
+    return v if isinstance(v, str) else None
+
+
+def _store_unreadable():
+    from . import user_accounts as _ua
+    return jsonify({"ok": False, "error": _ua._UNREADABLE}), 503
 
 
 def _caller(base_dir=None):
@@ -41,12 +92,29 @@ def _caller(base_dir=None):
 @auth_bp.route("/api/auth/login", methods=["POST"])
 def api_auth_login():
     from . import user_accounts as _ua
-    body = request.get_json(silent=True) or {}
-    username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
+    from . import auth_throttle as _at
+    body = _json_object()
+    if body is None:
+        return _bad("body must be a JSON object")
+    username, password = _str_field(body, "username"), _str_field(body, "password")
+    if username is None or password is None:
+        return _bad("username and password must be strings")
+    username = username.strip()
     if not username or not password:
         return jsonify({"ok": False, "error": "missing username or password"}), 400
-    if not _ua.verify_password(username, password):
+    # Checked and counted before the PBKDF2 verify: a throttled guess costs no hash.
+    labels = _login_labels(username)
+    per_user = labels[1]
+    me = object()  # this request's mark on the labels it holds
+    ok = False
+    try:
+        allowed, retry = _at.reserve(labels, soft=(per_user,), owner=me)
+        if not allowed:
+            return _too_many(retry)
+        ok = _ua.verify_password(username, password)
+    finally:
+        _at.release(labels, success=ok, owner=me)
+    if not ok:
         return jsonify({"ok": False, "error": "invalid credentials"}), 401
     token = _ua.issue_session(username)
     resp = jsonify({"ok": True, "user": _ua.get_user(username)})
@@ -56,6 +124,15 @@ def api_auth_login():
 
 @auth_bp.route("/api/auth/logout", methods=["POST"])
 def api_auth_logout():
+    # Revoke server-side, not just in this browser: a copy of the old cookie
+    # must stop working. Per user (a new session stamp), so every device of
+    # this user is logged out; per-token revocation would need a denylist.
+    from . import user_accounts as _ua
+    who = _caller()
+    if who and not _ua.revoke_sessions(who["username"]):
+        resp = jsonify({"ok": False, "error": "could not revoke the session"})
+        resp.delete_cookie(_COOKIE)
+        return resp, 500
     resp = jsonify({"ok": True})
     resp.delete_cookie(_COOKIE)
     return resp
@@ -66,29 +143,44 @@ def api_auth_whoami():
     from . import user_accounts as _ua
     # bootstrap: no account exists yet, so the SPA offers "create the first admin".
     # Keyed on the account count, never on the multi_user flag (svam-fix F2).
+    try:
+        bootstrap = _ua.count() == 0
+    except _ua.AccountsStoreError:
+        return _store_unreadable()
     return jsonify({"ok": True, "user": _caller(),
                     "multi_user": _ua.multi_user_enabled(),
-                    "bootstrap": _ua.count() == 0})
+                    "bootstrap": bootstrap})
 
 
 @auth_bp.route("/api/auth/users", methods=["POST"])
 def api_auth_users_create():
     from . import user_accounts as _ua
-    body = request.get_json(silent=True) or {}
-    username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
-    role = body.get("role") or "operator"
+    body = _json_object()
+    if body is None:
+        return _bad("body must be a JSON object")
+    username, password = _str_field(body, "username"), _str_field(body, "password")
+    role = _str_field(body, "role", "operator")
+    if username is None or password is None or role is None:
+        return _bad("username, password and role must be strings")
+    username, role = username.strip(), role or "operator"
     # bootstrap: the very first account can be created without auth (there is no
     # admin yet); after that, only an admin may create users.
-    if _ua.count() > 0:
+    try:
+        bootstrap = _ua.count() == 0
+    except _ua.AccountsStoreError:
+        return _store_unreadable()
+    if not bootstrap:
         who = _caller()
         if not (who and who.get("role") == "admin"):
             return jsonify({"ok": False, "error": "admin role required"}), 403
+        ok, msg = _ua.create_user(username, password, role=role)
     else:
         # The bootstrap account IS the initial admin: any other role would leave no
-        # admin to create the rest (svam-fix F1).
-        role = "admin"
-    ok, msg = _ua.create_user(username, password, role=role)
+        # admin to create the rest (svam-fix F1). only_if_empty re-checks the
+        # count under the store lock: a concurrent bootstrap that won is a 403.
+        ok, msg = _ua.create_user(username, password, role="admin", only_if_empty=True)
+        if msg == _ua.NOT_EMPTY:
+            return jsonify({"ok": False, "error": "admin role required"}), 403
     return (jsonify({"ok": True, "user": _ua.get_user(username)}), 200) if ok \
         else (jsonify({"ok": False, "error": msg}), 400)
 
@@ -117,13 +209,17 @@ def api_auth_user_set_role(username):
     denied = _require_admin()
     if denied is not None:
         return denied
-    body = request.get_json(silent=True) or {}
-    role = (body.get("role") or "").strip()
-    ok, msg = _ua.set_role(username, role)
+    body = _json_object()
+    if body is None:
+        return _bad("body must be a JSON object")
+    role = _str_field(body, "role")
+    if role is None:
+        return _bad("role must be a string")
+    ok, msg = _ua.set_role(username, role.strip(), keep_last_admin=True)
     if ok:
         return jsonify({"ok": True, "user": _ua.get_user(username)})
-    # "no such user" -> 404; validation (bad role / empty) -> 400
-    status = 404 if msg == "no such user" else 400
+    # "no such user" -> 404; last admin -> 409; validation (bad role / empty) -> 400
+    status = {"no such user": 404, _ua.LAST_ADMIN: 409}.get(msg, 400)
     return jsonify({"ok": False, "error": msg}), status
 
 
@@ -134,8 +230,12 @@ def api_auth_user_set_password(username):
     denied = _require_admin()
     if denied is not None:
         return denied
-    body = request.get_json(silent=True) or {}
-    new_password = body.get("password") or ""
+    body = _json_object()
+    if body is None:
+        return _bad("body must be a JSON object")
+    new_password = _str_field(body, "password")
+    if new_password is None:
+        return _bad("password must be a string")
     ok, msg = _ua.set_password(username, new_password)
     if ok:
         return jsonify({"ok": True})
@@ -150,9 +250,11 @@ def api_auth_user_delete(username):
     denied = _require_admin()
     if denied is not None:
         return denied
-    if _ua.delete_user(username):
+    ok, msg = _ua.delete_user_checked(username, keep_last_admin=True)
+    if ok:
         return jsonify({"ok": True})
-    return jsonify({"ok": False, "error": "no such user"}), 404
+    status = {"no such user": 404, _ua.LAST_ADMIN: 409}.get(msg, 400)
+    return jsonify({"ok": False, "error": msg}), status
 
 
 def register_routes(app) -> int:

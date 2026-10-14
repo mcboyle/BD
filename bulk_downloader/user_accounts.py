@@ -207,6 +207,23 @@ def _signing_key(doc: dict, base_dir=None) -> str:
 
 _DUMMY_SALT = "00" * 16
 _BAD_RECORD = "user record is corrupt (not an object)"
+LAST_ADMIN = "refused: that would leave no admin account"
+NOT_EMPTY = "refused: accounts already exist"
+
+
+def _other_admins(users: dict, name: str) -> int:
+    """Admins in ``users`` other than ``name``."""
+    return sum(1 for n, r in users.items()
+               if n != name and isinstance(r, dict) and r.get("role") == "admin")
+
+
+def _loses_last_admin(users: dict, name: str) -> bool:
+    """True when ``name`` is an admin and no other admin exists: removing or
+    demoting it would leave no admin, and nobody could ever manage accounts
+    again (or, with the store empty, the unauthenticated bootstrap reopens)."""
+    rec = users.get(name)
+    return (isinstance(rec, dict) and rec.get("role") == "admin"
+            and _other_admins(users, name) == 0)
 
 
 def _new_session_stamp() -> str:
@@ -238,10 +255,16 @@ def _hash_password(password: str, salt: str, iters: int) -> str:
 
 def create_user(username: str, password: str, role: str = "operator",
                 base_dir: str | os.PathLike | None = None, *,
-                oidc_binding: tuple[str, str] | None = None) -> tuple[bool, str]:
+                oidc_binding: tuple[str, str] | None = None,
+                only_if_empty: bool = False) -> tuple[bool, str]:
+    """``only_if_empty``: the first-admin bootstrap. Refused with NOT_EMPTY
+    unless the store has no user, checked under the store lock so two
+    concurrent bootstraps cannot both create an admin."""
     username = (username or "").strip()
     if not _NAME_RE.match(username):
         return False, "username must be 1-64 chars of [A-Za-z0-9_.-], no spaces"
+    if not username.strip("."):
+        return False, "username cannot be only dots"
     if not password:
         return False, "password must be non-empty"
     if role not in ROLES:
@@ -260,8 +283,13 @@ def create_user(username: str, password: str, role: str = "operator",
     try:
         with _store_lock(base_dir):
             doc = _load(base_dir)
+            if only_if_empty and doc["users"]:
+                return False, NOT_EMPTY
             if username in doc["users"]:
                 return False, "user already exists"
+            folded = username.casefold()
+            if any(n.casefold() == folded for n in doc["users"]):
+                return False, "a user with that name in different case already exists"
             doc["users"][username] = rec
             _signing_key(doc, base_dir)  # ensure a key exists
             if not _save(doc, base_dir):
@@ -369,7 +397,9 @@ def list_users(base_dir: str | os.PathLike | None = None) -> list[dict]:
 
 
 def set_role(username: str, role: str,
-             base_dir: str | os.PathLike | None = None) -> tuple[bool, str]:
+             base_dir: str | os.PathLike | None = None, *,
+             keep_last_admin: bool = False) -> tuple[bool, str]:
+    """``keep_last_admin``: refuse (LAST_ADMIN) demoting the only admin."""
     if role not in ROLES:
         return False, f"role must be one of {ROLES}"
     name = (username or "").strip()
@@ -380,6 +410,8 @@ def set_role(username: str, role: str,
                 return False, "no such user"
             if not isinstance(doc["users"][name], dict):
                 return False, _BAD_RECORD
+            if keep_last_admin and role != "admin" and _loses_last_admin(doc["users"], name):
+                return False, LAST_ADMIN
             doc["users"][name]["role"] = role
             return (True, "updated") if _save(doc, base_dir) else (False, "write failed")
     except AccountsStoreError:
@@ -415,16 +447,44 @@ def set_password(username: str, new_password: str,
 
 def delete_user(username: str,
                 base_dir: str | os.PathLike | None = None) -> bool:
+    return delete_user_checked(username, base_dir)[0]
+
+
+def delete_user_checked(username: str,
+                        base_dir: str | os.PathLike | None = None, *,
+                        keep_last_admin: bool = False) -> tuple[bool, str]:
+    """``delete_user`` with the reason. ``keep_last_admin``: refuse
+    (LAST_ADMIN) deleting the only admin."""
     name = (username or "").strip()
     try:
         with _store_lock(base_dir):
             doc = _load(base_dir)
-            if name in doc["users"]:
-                del doc["users"][name]
-                return _save(doc, base_dir)
+            if name not in doc["users"]:
+                return False, "no such user"
+            if keep_last_admin and _loses_last_admin(doc["users"], name):
+                return False, LAST_ADMIN
+            del doc["users"][name]
+            return (True, "deleted") if _save(doc, base_dir) else (False, "write failed")
+    except AccountsStoreError:
+        return False, _UNREADABLE
     except OSError:
-        pass
-    return False
+        return False, "could not lock accounts store"
+
+
+def revoke_sessions(username: str,
+                    base_dir: str | os.PathLike | None = None) -> bool:
+    """Give the user a new session stamp: every bd_user token issued to them
+    so far stops verifying (logout revokes per user, on every device)."""
+    name = (username or "").strip()
+    try:
+        with _store_lock(base_dir):
+            doc = _load(base_dir)
+            if not isinstance(doc["users"].get(name), dict):
+                return False
+            doc["users"][name]["sess"] = _new_session_stamp()
+            return _save(doc, base_dir)
+    except OSError:
+        return False
 
 
 def count(base_dir: str | os.PathLike | None = None) -> int:
@@ -473,7 +533,8 @@ def verify_session(token: str,
     """Validate a ``bd_user`` token: signature intact, not expired, and the user
     still exists. Returns ``{username, role}`` or ``None``. Never raises."""
     try:
-        parts = (token or "").split(".")
+        # rsplit: a username may contain "." (john.doe); exp and sig never do.
+        parts = (token or "").rsplit(".", 2)
         if len(parts) != 3:
             return None
         username, exp_s, sig = parts
