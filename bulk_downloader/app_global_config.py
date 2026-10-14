@@ -361,6 +361,10 @@ def api_global_config():
         if "ai_enabled" in data:
             _app_cfg["ai_enabled"] = bool(data["ai_enabled"])
         if "ai_api_key" in data:
+            # dss-global-secrets F4: str() of a list/dict/bool/number was stored
+            # as the live key; refuse it like the schema secrets (auth_token ...).
+            if data["ai_api_key"] is not None and not isinstance(data["ai_api_key"], str):
+                return jsonify({"error": "ai_api_key must be str"}), 400
             new_key = str(data["ai_api_key"] or "")
             # v3.43.43: if the UI didn't touch the field, it sends
             # back the masking sentinel "<configured>". Treat that
