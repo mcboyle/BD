@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6289,
+  "edge_count": 6314,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1987,6 +1987,7 @@
     "bulk_downloader/runner_extractors.py": [
       "bulk_downloader/candidate_filter.py",
       "bulk_downloader/constants.py",
+      "bulk_downloader/cookie_scope.py",
       "bulk_downloader/db.py",
       "bulk_downloader/detect.py",
       "bulk_downloader/events.py",
@@ -2003,6 +2004,7 @@
       "bulk_downloader/netns_isolation.py",
       "bulk_downloader/plugins.py",
       "bulk_downloader/provider_resolve.py",
+      "bulk_downloader/registrable_domain.py",
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/spa_media_extract.py",
@@ -2211,6 +2213,7 @@
     ],
     "bulk_downloader/session_keeper.py": [
       "bulk_downloader/cloak.py",
+      "bulk_downloader/cookie_scope.py",
       "bulk_downloader/cookies.py",
       "bulk_downloader/db.py",
       "bulk_downloader/download_egress.py",
@@ -2372,6 +2375,7 @@
       "bulk_downloader/pillow_hardening.py"
     ],
     "bulk_downloader/tier_probe.py": [
+      "bulk_downloader/cookie_scope.py",
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/timeline.py": [
@@ -5223,6 +5227,15 @@
       "bulk_downloader/viewport_clipping_filter.py",
       "tools/multi_site_benchmark.py"
     ],
+    "tests/test_o1789_cookie_egress_class.py": [
+      "bulk_downloader/cookie_scope.py",
+      "bulk_downloader/download_egress.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/session_keeper.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/tier_probe.py"
+    ],
     "tests/test_o1789_dah_api_input.py": [
       "bulk_downloader/app_gallerydl_update.py",
       "bulk_downloader/app_multi_conn.py",
@@ -5783,6 +5796,13 @@
     "tests/test_plugin_uninstall.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/plugins.py"
+    ],
+    "tests/test_plugins_fix_r1.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_macros.py",
+      "bulk_downloader/macro_recorder.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/tool_bridge.py"
     ],
     "tests/test_pointer_inspector.py": [
       "bulk_downloader/pointer_inspector.py"
@@ -7514,6 +7534,16 @@
       "tools/cockpit_console.py",
       "tools/cockpit_core.py"
     ],
+    "tests/test_settings_fe_fix.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_share_scope_status.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/shares.py"
+    ],
     "tests/test_shares_oidc_csrf_cookie.py": [
       "bulk_downloader/__init__.py",
       "bulk_downloader/app.py",
@@ -7562,6 +7592,11 @@
     ],
     "tests/test_ssrf_public_literal.py": [
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_staging_toctou_f1_no_clobber.py": [
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_stale_locks_check_is_gone.py": [
       "bulk_downloader/selftest.py"

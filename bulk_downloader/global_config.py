@@ -262,6 +262,25 @@ def set_config(updates: dict) -> bool:
         return False
 
 
+class _ReaderChoices(tuple):
+    """settings-fe-fix r2 (R130-C F1): a "choices" set for a key whose reader
+    normalises. Iterating yields the canonical options (the 400 text names them);
+    ``in`` applies the reader's own strip + lower and also accepts the reader's
+    aliases, so a value the reader acts on (stored on BASE or hand-edited) never
+    makes a full Settings save 400. Anything the reader does not name still 400s."""
+
+    def __new__(cls, canonical, aliases=()):
+        self = super().__new__(cls, canonical)
+        self._accept = frozenset(str(a).strip().lower() for a in (*canonical, *aliases))
+        return self
+
+    def __contains__(self, value) -> bool:
+        return isinstance(value, str) and value.strip().lower() in self._accept
+
+
+_BOOL_WORDS = ("1", "true", "yes", "on", "0", "false", "no", "off")
+
+
 # ─── BP-CFG (v3.66.285): global-config schema validation ─────────────────────
 # get()/get_config() do a FLAT lookup. A nested block in app_config.json (e.g.
 # {"automation": {"auto_refresh": true}}) means code reading get("auto_refresh")
@@ -350,7 +369,13 @@ GLOBAL_CONFIG_SCHEMA: dict = {
     # env > store > default), so a Settings write is honored when the env is unset;
     # the env remains a deliberate deploy override. novnc_url backs BD_NOVNC_URL
     # (read store > env > default in tools/cockpit_core.py). Both non-safety strings.
-    "browser_backend":     {"type": str, "safety": False, "safe_default": ""},
+    # settings-fe-fix F09 (r2): "choices" = what cloak._coerce_backend names (strip +
+    # lower, its aliases and legacy bool words); "" = unset.
+    "browser_backend":     {"type": str, "safety": False, "safe_default": "",
+                            "choices": _ReaderChoices(
+                                ("", "cloakbrowser", "playwright"),
+                                ("cloak", "cloak_browser", "pw", "vanilla", "plain",
+                                 *_BOOL_WORDS))},
     "novnc_url":           {"type": str, "safety": False, "safe_default": ""},
     # v3.66.506 (Bucket 3a): the third leg of cloak.resolve_backend()'s backend
     # triple, promoted from a display-only alias to a first-class declared key.
@@ -462,13 +487,20 @@ GLOBAL_CONFIG_SCHEMA: dict = {
     "redact_extra_headers":       {"type": str,  "safety": False, "safe_default": ""},
     "redact_network_urls":        {"type": str,  "safety": False, "safe_default": ""},
     "secrets_audit":              {"type": str,  "safety": False, "safe_default": ""},
-    "secrets_audit_sink":         {"type": str,  "safety": False, "safe_default": ""},
+    # settings-fe-fix F09 (r2): secrets_audit._sink strips + lowers; "" = unset.
+    "secrets_audit_sink":         {"type": str,  "safety": False, "safe_default": "",
+                                   "choices": _ReaderChoices(("", "file", "log"))},
     "secrets_audit_file":         {"type": str,  "safety": False, "safe_default": ""},
     "secrets_audit_max_bytes":    {"type": str,  "safety": False, "safe_default": ""},
     "held_out_stale_days":        {"type": str,  "safety": False, "safe_default": ""},
     "lib_reconcile_missing_days": {"type": str,  "safety": False, "safe_default": ""},
     "fleet_nodes":                {"type": str,  "safety": False, "safe_default": ""},
-    "youtube_cipher":             {"type": str,  "safety": False, "safe_default": ""},
+    # settings-fe-fix F09 (r2): youtube._yt_cipher_backend strips + lowers and takes
+    # ytdlp/yt_dlp and playerjs/player_js; "" = unset.
+    "youtube_cipher":             {"type": str,  "safety": False, "safe_default": "",
+                                   "choices": _ReaderChoices(
+                                       ("", "off", "yt-dlp", "player-js"),
+                                       ("ytdlp", "yt_dlp", "playerjs", "player_js"))},
     # Phase 4.2 (v3.66.316): bucket-3 GUARD vars (single follow-on guard cut).
     # hud_overlay backs BD_HUD_OVERLAY (capture_session guard #3, _hud_enabled) —
     # the global decorative-HUD enable, default ON; the per-capture --no-hud flag
@@ -501,9 +533,14 @@ GLOBAL_CONFIG_SCHEMA: dict = {
     # auth/shell/path/dev controls carry a danger_note in the GUI; test_mode does not.
     "auth_token":        {"type": str,  "safety": False, "safe_default": ""},
     "bd_token":          {"type": str,  "safety": False, "safe_default": ""},
-    "dev_mode":          {"type": str,  "safety": False, "safe_default": ""},
+    # settings-fe-fix F09 (r2): dev_tools.is_dev_mode strips + lowers; 0/false/off/no
+    # = off, the rest = on. Its on/off words are accepted, other text is refused.
+    "dev_mode":          {"type": str,  "safety": False, "safe_default": "",
+                          "choices": _ReaderChoices(("", "0", "1"), _BOOL_WORDS)},
     "test_mode":         {"type": bool, "safety": False, "safe_default": False},
-    "cockpit_shell":     {"type": str,  "safety": False, "safe_default": ""},
+    # settings-fe-fix r3 (F1): cockpit_shell._shell_pref strips; "0" = off.
+    "cockpit_shell":     {"type": str,  "safety": False, "safe_default": "",
+                          "choices": _ReaderChoices(("", "0", "1"))},
     "cockpit_tasks":     {"type": str,  "safety": False, "safe_default": ""},
     "framework_reports": {"type": str,  "safety": False, "safe_default": ""},
     # v3.66.503 (Bucket 1): HLS / Live-recorder / Captcha-relay tunables, promoted

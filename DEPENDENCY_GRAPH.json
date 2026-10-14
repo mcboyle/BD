@@ -2432,7 +2432,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1856,
+    "edge_count": 1860,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3099,6 +3099,11 @@
         "bulk_downloader/bg_scheduler.py",
         "tools/dast_probe.py",
         "tools/functional_probe.py"
+      ],
+      "bulk_downloader/cookie_scope.py": [
+        "bulk_downloader/runner_extractors.py",
+        "bulk_downloader/session_keeper.py",
+        "bulk_downloader/tier_probe.py"
       ],
       "bulk_downloader/cookies.py": [
         "bulk_downloader/admission.py",
@@ -4241,6 +4246,7 @@
         "bulk_downloader/phoenix_catalog.py",
         "bulk_downloader/playlist_extractor.py",
         "bulk_downloader/rate_limit.py",
+        "bulk_downloader/runner_extractors.py",
         "bulk_downloader/search_extractor.py",
         "bulk_downloader/spa_media_extract.py",
         "tools/player_struct_embed.py"
@@ -7331,6 +7337,7 @@
       "bulk_downloader/runner_extractors.py": [
         "bulk_downloader/candidate_filter.py",
         "bulk_downloader/constants.py",
+        "bulk_downloader/cookie_scope.py",
         "bulk_downloader/db.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/events.py",
@@ -7347,6 +7354,7 @@
         "bulk_downloader/netns_isolation.py",
         "bulk_downloader/plugins.py",
         "bulk_downloader/provider_resolve.py",
+        "bulk_downloader/registrable_domain.py",
         "bulk_downloader/runner_transport.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/spa_media_extract.py",
@@ -7555,6 +7563,7 @@
       ],
       "bulk_downloader/session_keeper.py": [
         "bulk_downloader/cloak.py",
+        "bulk_downloader/cookie_scope.py",
         "bulk_downloader/cookies.py",
         "bulk_downloader/db.py",
         "bulk_downloader/download_egress.py",
@@ -7716,6 +7725,7 @@
         "bulk_downloader/pillow_hardening.py"
       ],
       "bulk_downloader/tier_probe.py": [
+        "bulk_downloader/cookie_scope.py",
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/timeline.py": [

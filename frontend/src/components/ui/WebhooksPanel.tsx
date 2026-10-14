@@ -92,9 +92,11 @@ export function WebhooksPanel() {
           disabled={drain.isPending}
           onClick={() =>
             drain.mutate(undefined, {
+              // settings-fe-fix F14: _drain_once returns {processed, ok, retried, dropped}.
               onSuccess: (r) =>
                 toast.success(
-                  `Drain complete: ${String(r.sent ?? 0)} sent, ${String(r.failed ?? 0)} failed`,
+                  `Drain complete: ${String(r.processed ?? 0)} processed, ${String(r.ok ?? 0)} delivered, ` +
+                    `${String(r.retried ?? 0)} retried, ${String(r.dropped ?? 0)} dropped`,
                 ),
               onError: (e) => toast.error(e.message),
             })
@@ -127,7 +129,11 @@ export function WebhooksPanel() {
                 disabled={remove.isPending}
                 onClick={() =>
                   remove.mutate(s.id, {
-                    onSuccess: () => toast.success("Webhook removed"),
+                    // settings-fe-fix F14: ok:false = no subscription was removed.
+                    onSuccess: (r) =>
+                      r.ok === false
+                        ? toast.error(`Webhook ${s.id} was not removed`)
+                        : toast.success("Webhook removed"),
                     onError: (e) => toast.error(e.message),
                   })
                 }

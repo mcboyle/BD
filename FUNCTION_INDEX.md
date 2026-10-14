@@ -629,7 +629,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_extractors.py` (39 entries)
+## `bulk_downloader/runner_extractors.py` (52 entries)
 
 ```
 - L0015 `_dest_in_dir` `[private]` — v3.66.840: collision-safe ABSOLUTE destination for a rendered name.
@@ -647,30 +647,43 @@ Schema version: 2
 - L0373 `_landed_video_height` `[private]` — The landed file's first video stream height via the pinned ffprobe, or 0.
 - L0382 `_landed_body_kind` `[private]` — dl95-ok-3: what a page-media direct transfer actually saved.
 - L0406 `site_untaught` — dl95-dailymotion-1: True iff the site has no applied template and no learned
-- L0415 `ExtractorsMixin` `[class]`
-  - L0416 `ExtractorsMixin._try_ytdlp_fallback` `[private]` — Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
-  - L0550 `ExtractorsMixin._try_ytdlp_untaught` `[private]` — dl95-dailymotion-1: the last resort before "No download button found" on an
-  - L0569 `ExtractorsMixin._try_gallerydl_fallback` `[private]` — C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback
-  - L0678 `ExtractorsMixin._try_deep_detect_fallback` `[private]` — v3.66.6 — Backlog #7 wiring. When the primary scrape path
-  - L1034 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
-  - L1070 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
-  - L1339 `ExtractorsMixin._spa_player_heights` `[private]` — dl95-txxx-5: a candidate of unknown height that the page's own
-  - L1361 `ExtractorsMixin._try_player_media_extractor` `[private]` — dl95-porndoe-1: start the page's player and take its FEATURE media.
-  - L1384 `ExtractorsMixin._try_spa_api_media_extractor` `[private]` — Row 722 (G5): API/media extraction fallback for SPA scene pages.
-  - L1961 `ExtractorsMixin._direct_media_url_handled` `[private]` — dl95-file-examples-1: a job URL that is itself a direct media href
-  - L2002 `ExtractorsMixin._spa_trailer_only` `[private]` — dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
-  - L2037 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
-  - L2302 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
-  - L2528 `ExtractorsMixin._spa_hls_ranked_variant` `[private]` — dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
-  - L2550 `ExtractorsMixin._spa_option_summary` `[private]`
-  - L2555 `ExtractorsMixin._hold_below_minimum` `[private]` — The page-media arms' min_resolution hold, worded as the button path's.
-  - L2566 `ExtractorsMixin._kvs_flashvars_media` `[private]` — dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
-  - L2591 `ExtractorsMixin._spa_measure_hls_masters` `[private]` — tpl95-xnxx-1: an HLS master of unknown height is labelled by its
-  - L2609 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
-  - L2902 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
-  - L3004 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
-  - L3070 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
-  - L3205 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
+- L0420 `_dd_probe_cookie_jar` `[private]` — Playwright context cookies as a CookieJar that scopes each cookie like the
+- L0428 `_dd_cross_site_referer` `[private]` — strict-origin-when-cross-origin: the page ORIGIN only (no path, no query);
+- L0443 `_DDProbeHttp` `[private]` — The http object handed to deep_detect_live. Requests to the page's own
+  - L0449 `_DDProbeHttp.__init__` `[dunder]`
+  - L0470 `_DDProbeHttp.cookies`
+  - L0473 `_DDProbeHttp._for` `[private]`
+  - L0476 `_DDProbeHttp.head`
+  - L0479 `_DDProbeHttp.get`
+  - L0482 `_DDProbeHttp.post`
+  - L0485 `_DDProbeHttp.stream`
+  - L0488 `_DDProbeHttp.close`
+  - L0495 `_DDProbeHttp.__enter__` `[dunder]`
+  - L0498 `_DDProbeHttp.__exit__` `[dunder]`
+- L0503 `ExtractorsMixin` `[class]`
+  - L0504 `ExtractorsMixin._try_ytdlp_fallback` `[private]` — Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
+  - L0638 `ExtractorsMixin._try_ytdlp_untaught` `[private]` — dl95-dailymotion-1: the last resort before "No download button found" on an
+  - L0657 `ExtractorsMixin._try_gallerydl_fallback` `[private]` — C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback
+  - L0766 `ExtractorsMixin._try_deep_detect_fallback` `[private]` — v3.66.6 — Backlog #7 wiring. When the primary scrape path
+  - L1127 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
+  - L1163 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
+  - L1432 `ExtractorsMixin._spa_player_heights` `[private]` — dl95-txxx-5: a candidate of unknown height that the page's own
+  - L1454 `ExtractorsMixin._try_player_media_extractor` `[private]` — dl95-porndoe-1: start the page's player and take its FEATURE media.
+  - L1477 `ExtractorsMixin._try_spa_api_media_extractor` `[private]` — Row 722 (G5): API/media extraction fallback for SPA scene pages.
+  - L2054 `ExtractorsMixin._direct_media_url_handled` `[private]` — dl95-file-examples-1: a job URL that is itself a direct media href
+  - L2095 `ExtractorsMixin._spa_trailer_only` `[private]` — dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
+  - L2130 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
+  - L2395 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
+  - L2621 `ExtractorsMixin._spa_hls_ranked_variant` `[private]` — dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
+  - L2643 `ExtractorsMixin._spa_option_summary` `[private]`
+  - L2648 `ExtractorsMixin._hold_below_minimum` `[private]` — The page-media arms' min_resolution hold, worded as the button path's.
+  - L2659 `ExtractorsMixin._kvs_flashvars_media` `[private]` — dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
+  - L2684 `ExtractorsMixin._spa_measure_hls_masters` `[private]` — tpl95-xnxx-1: an HLS master of unknown height is labelled by its
+  - L2702 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
+  - L2995 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
+  - L3096 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
+  - L3162 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
+  - L3297 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
 ```
 
 
@@ -728,7 +741,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_transport.py` (121 entries)
+## `bulk_downloader/runner_transport.py` (123 entries)
 
 ```
 - L0081 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
@@ -783,75 +796,77 @@ Schema version: 2
 - L1297 `_unguard_reveal` `[private]`
 - L1318 `_reveal_trigger_is_the_download` `[private]` — GEN 4/5: the pre-click navigated a frame or popup (aborted, never
 - L1339 `_pick_download_option` `[private]` — Choose by quality preference; video items before image/zip items.
-- L1376 `_staged_direct_download` `[private]` — dl95-cumlouder-1: stage a direct download under a claimed ``.part``.
-- L1412 `_progress_rate` `[private]` — Bytes/s over the current ~1 Hz progress window. Both transfer loops start
-- L1424 `_egress_refusal` `[private]` — The exception that refuses an egress for this site. Every caller of
-- L1434 `_proxy_pool_pick` `[private]` — A member of the site's ``proxy_pool``, or None when no pool is set.
-- L1457 `_note_proxy_pool_result` `[private]` — Feed one outcome of a pool member to the pool's health record.
-- L1470 `TransportMixin` `[class]`
-  - L1471 `TransportMixin._regional_gateway_router` `[private]` — Return this runner's regional policy router, if configured.
-  - L1489 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
-  - L1513 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
-  - L1524 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
-  - L1541 `TransportMixin._start_daily_byte_accumulator` `[private]`
-  - L1550 `TransportMixin._finish_daily_byte_accumulator` `[private]`
-  - L1559 `TransportMixin._browser_download_stopped` `[private]` — dl95-porndig-3 (filthykings-1 split): Playwright's save_as blocks
-  - L1588 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
-  - L1608 `TransportMixin._flush_after_interrupted_write` `[private]`
-  - L1616 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process clients -- the one
-  - L1696 `TransportMixin._site_client_egress` `[private]` — Egress for a small in-process HTTP client built on this site's behalf.
-  - L1731 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
-  - L1844 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L2029 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L2232 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L2265 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
-  - L2288 `TransportMixin._winner_href_routes` `[private]` — True when the winner's own URL is a media file or a manifest.
-  - L2311 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
-  - L2345 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
-  - L2354 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
-  - L2363 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
-  - L2388 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L2397 `TransportMixin._header_dedup_bytes` `[private]` — Prefix length the header-stage dedup samples; 0 = gate off
-  - L2419 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
-  - L2470 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L2499 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L2642 `TransportMixin._download_from_next_tier` `[private]` — dl95-teenmegaworld-1: the winning tier was clicked and fired no
-  - L2693 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
-  - L2749 `TransportMixin._clear_late_gates` `[private]` — dl95-porndoe-1-live-2: interstitial.clear_gates for a layer that
-  - L2764 `TransportMixin._fallback_to_page_media` `[private]` — dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
-  - L2828 `TransportMixin._is_page_body` `[private]` — fx-txxx-premium-page-fallback: True when the saved bytes open as a
-  - L2845 `TransportMixin._direct_page_body_refused` `[private]` — fx-txxx-premium-page-fallback E2 (lens C2-C): True when a finished
-  - L2871 `TransportMixin._html_answer_rejects` `[private]` — fx-txxx-premium-page-fallback: True when the saved file is an HTML
-  - L2909 `TransportMixin._below_min_resolution_by_file` `[private]` — dl95-xnxx-1: the pre-click min_resolution gate (runner "Min-resolution
-  - L2968 `TransportMixin._taller_manifest_seen` `[private]` — fx-xnxx-hls-720-to-sd r3: True when the manifest watcher saw an adaptive
-  - L2983 `TransportMixin._file_below_own_media` `[private]` — fx-xnxx-hls-720-to-sd: see ``_below_min_resolution_by_file``. Only the
-  - L3009 `TransportMixin._browser_save_stopped` `[private]` — dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
-  - L3021 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L4253 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
-  - L4328 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
-  - L4376 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L5039 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L5089 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L5500 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L5533 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L5557 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
-  - L5582 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
-  - L5608 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
-  - L5628 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
-  - L5652 `TransportMixin._probe_video_height` `[private]` — ffprobe the pixel height of the primary video stream (``"v:0"``).
-  - L5677 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
-  - L5694 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
-  - L5711 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
-- L5726 `_ManifestConsumers` `[private]`
-  - L5727 `_ManifestConsumers.__init__` `[dunder]`
-  - L5730 `_ManifestConsumers.join`
-- L5737 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
-- L5785 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
-  - L5795 `HTTP3Transport.__init__` `[dunder]`
-  - L5803 `HTTP3Transport.allocate_stream_id`
-  - L5808 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
-- L5831 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
-- L5844 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
+- L1385 `_note_diverted_promote` `[private]`
+- L1390 `_take_diverted_promote` `[private]` — The path this job's bytes were actually promoted to; ``final_path`` if not diverted.
+- L1396 `_staged_direct_download` `[private]` — dl95-cumlouder-1: stage a direct download under a claimed ``.part``.
+- L1432 `_progress_rate` `[private]` — Bytes/s over the current ~1 Hz progress window. Both transfer loops start
+- L1444 `_egress_refusal` `[private]` — The exception that refuses an egress for this site. Every caller of
+- L1454 `_proxy_pool_pick` `[private]` — A member of the site's ``proxy_pool``, or None when no pool is set.
+- L1477 `_note_proxy_pool_result` `[private]` — Feed one outcome of a pool member to the pool's health record.
+- L1490 `TransportMixin` `[class]`
+  - L1491 `TransportMixin._regional_gateway_router` `[private]` — Return this runner's regional policy router, if configured.
+  - L1509 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
+  - L1533 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
+  - L1544 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
+  - L1561 `TransportMixin._start_daily_byte_accumulator` `[private]`
+  - L1570 `TransportMixin._finish_daily_byte_accumulator` `[private]`
+  - L1579 `TransportMixin._browser_download_stopped` `[private]` — dl95-porndig-3 (filthykings-1 split): Playwright's save_as blocks
+  - L1608 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
+  - L1628 `TransportMixin._flush_after_interrupted_write` `[private]`
+  - L1636 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process clients -- the one
+  - L1716 `TransportMixin._site_client_egress` `[private]` — Egress for a small in-process HTTP client built on this site's behalf.
+  - L1751 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
+  - L1864 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L2049 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L2252 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L2285 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
+  - L2308 `TransportMixin._winner_href_routes` `[private]` — True when the winner's own URL is a media file or a manifest.
+  - L2331 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
+  - L2365 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
+  - L2374 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
+  - L2383 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
+  - L2408 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L2417 `TransportMixin._header_dedup_bytes` `[private]` — Prefix length the header-stage dedup samples; 0 = gate off
+  - L2439 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
+  - L2490 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L2525 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L2668 `TransportMixin._download_from_next_tier` `[private]` — dl95-teenmegaworld-1: the winning tier was clicked and fired no
+  - L2719 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
+  - L2775 `TransportMixin._clear_late_gates` `[private]` — dl95-porndoe-1-live-2: interstitial.clear_gates for a layer that
+  - L2790 `TransportMixin._fallback_to_page_media` `[private]` — dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
+  - L2854 `TransportMixin._is_page_body` `[private]` — fx-txxx-premium-page-fallback: True when the saved bytes open as a
+  - L2871 `TransportMixin._direct_page_body_refused` `[private]` — fx-txxx-premium-page-fallback E2 (lens C2-C): True when a finished
+  - L2897 `TransportMixin._html_answer_rejects` `[private]` — fx-txxx-premium-page-fallback: True when the saved file is an HTML
+  - L2935 `TransportMixin._below_min_resolution_by_file` `[private]` — dl95-xnxx-1: the pre-click min_resolution gate (runner "Min-resolution
+  - L2994 `TransportMixin._taller_manifest_seen` `[private]` — fx-xnxx-hls-720-to-sd r3: True when the manifest watcher saw an adaptive
+  - L3009 `TransportMixin._file_below_own_media` `[private]` — fx-xnxx-hls-720-to-sd: see ``_below_min_resolution_by_file``. Only the
+  - L3035 `TransportMixin._browser_save_stopped` `[private]` — dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
+  - L3047 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L4288 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
+  - L4363 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
+  - L4411 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L5078 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L5128 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L5539 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L5572 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L5596 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L5621 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
+  - L5647 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
+  - L5667 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
+  - L5691 `TransportMixin._probe_video_height` `[private]` — ffprobe the pixel height of the primary video stream (``"v:0"``).
+  - L5716 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
+  - L5733 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
+  - L5750 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
+- L5765 `_ManifestConsumers` `[private]`
+  - L5766 `_ManifestConsumers.__init__` `[dunder]`
+  - L5769 `_ManifestConsumers.join`
+- L5776 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
+- L5824 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
+  - L5834 `HTTP3Transport.__init__` `[dunder]`
+  - L5842 `HTTP3Transport.allocate_stream_id`
+  - L5847 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
+- L5870 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
+- L5883 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
 ```
 
 
@@ -1168,4 +1183,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 992 across 22 files._
+_Total entries: 1007 across 22 files._

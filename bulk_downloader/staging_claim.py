@@ -85,6 +85,7 @@ cannot be.
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -231,6 +232,21 @@ class StagingClaimedByAnotherJob(RuntimeError):
     This is a determinate answer, not an UNKNOWN: the claim was read and it
     names an identity that is not ours. ``reserve`` handles it by moving to the
     next candidate name; a caller that has no alternative name refuses.
+    """
+
+
+class FinalPathOccupied(StagingClaimedByAnotherJob):
+    """The staging claim was HELD, and the final name it guards is already a file.
+
+    staging-toctou-f1. ``reserve`` probed the final name and then claimed its
+    ``.part``, and those were two operations: a job that promoted that name and
+    released its claim between them left a finished file under a free claim, so
+    the next job was handed the very name it had just skipped over and promoted
+    on top of it. The answer is measured once the claim is held, when no other
+    job that honours claims can be inside its own promote. A SUBCLASS of
+    ``StagingClaimedByAnotherJob`` on purpose: ``reserve`` already moves to the
+    next candidate on that type, and every caller that claims one fixed name
+    already refuses on it.
     """
 
 
@@ -1216,8 +1232,19 @@ def claim(final_path, identity: str, *, resource_url: str | None = None) -> Path
     resource = (resource_identity(resource_url)
                 if resource_url is not None else None)
     minted = _create_owner(owner, identity)
-    return _settle_claim(
+    held = _settle_claim(
         staging, owner, identity, minted=minted, resource=resource)
+    # staging-toctou-f1. Only now, with the claim HELD, is "is the final name
+    # free" a question with a stable answer: a job that honours claims creates
+    # that file only while it holds this claim, so a file here was promoted by
+    # a job that has since let go of it, and promoting over it destroys that
+    # job's finished download.
+    if os.path.lexists(Path(final_path)):
+        release(held, identity)
+        raise FinalPathOccupied(
+            f"{final_path} already holds a finished file, observed after the "
+            "staging claim was taken; this job is not handed that name")
+    return held
 
 
 def release(staging_path, identity: str | None = None, *, force: bool = False) -> bool:
@@ -1359,3 +1386,107 @@ def reserve(final_path, identity: str):
         f"no free staging path for {final_path}: every candidate name is "
         "claimed by another download, so this transfer refuses rather than "
         "share a staging file")
+
+
+# staging-toctou-f1. The no-clobber promote. ``os.replace`` and ``rename`` both
+# overwrite an existing destination, so the final step of every download could
+# destroy a finished file; ``link`` refuses an existing target atomically.
+_NO_HARDLINK_ERRNOS = frozenset(
+    code for code in (getattr(errno, name, None) for name in (
+        "EPERM", "ENOTSUP", "EOPNOTSUPP", "EXDEV", "ENOSYS")) if code)
+
+
+def _hardlink(src: str, dst: str) -> None:
+    """``os.link``, by a name the promote's no-hardlink fallback can be tested on."""
+    os.link(src, dst)
+
+
+def _publish_no_clobber(staging: Path, final: Path) -> None:
+    """Move ``staging`` to ``final``, or raise FileExistsError if ``final`` exists.
+
+    Primary path: ``link`` then unlink the staging name, which never replaces
+    a file. Where the filesystem has no hardlinks (FAT, plain CIFS, some FUSE)
+    the final name is taken by an ``O_CREAT|O_EXCL`` placeholder first and the
+    bytes are ``os.replace``d onto that placeholder: exclusive against any
+    writer that also creates exclusively or honours the claim, which every
+    writer in this package does. A writer that replaces blindly inside that
+    window is not excluded; there is no portable no-replace rename to close it.
+    """
+    try:
+        _hardlink(str(staging), str(final))
+    except FileExistsError:
+        raise
+    except OSError as exc:
+        if exc.errno not in _NO_HARDLINK_ERRNOS:
+            raise
+        fd = os.open(str(final), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(fd)
+        try:
+            os.replace(str(staging), str(final))
+        except OSError:
+            try:
+                os.unlink(str(final))      # our own zero-byte placeholder
+            except OSError:
+                pass
+            raise
+        return
+    try:
+        os.unlink(str(staging))
+    except OSError:
+        # The final file is complete. The staging name still links the same
+        # bytes, so the caller's release() keeps the claim over them and says so.
+        pass
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samestat(os.stat(str(a)), os.stat(str(b)))
+    except OSError:
+        return False
+
+
+def promote(staging_path, final_path, identity: str) -> Path:
+    """Publish this job's staged bytes WITHOUT overwriting any file. Returns where.
+
+    staging-toctou-f1. The transport promoted with ``os.replace``, which
+    silently destroys a file already at the final name. When that name is
+    taken, the bytes go to the next free name ``reserve`` hands this job
+    (``X_1`` ..), and THAT path is returned, because it is the path the
+    history row must name. A crash between ``link`` and the staging unlink
+    leaves both names on one inode; the next promote recognises that and
+    finishes the unlink instead of landing a duplicate.
+    """
+    staging = Path(staging_path)
+    final_path = Path(final_path)
+    target, diverted = final_path, None
+    try:
+        for _ in range(MAX_NUMBERED_CANDIDATES + 1):
+            try:
+                _publish_no_clobber(staging, target)
+                return target
+            except FileExistsError:
+                if _same_file(staging, target):
+                    try:
+                        os.unlink(str(staging))
+                    except OSError:
+                        pass
+                    return target
+            if diverted is not None:
+                release(diverted, identity)
+                diverted = None
+            target, diverted = reserve(final_path, identity)
+        raise StagingUnavailable(
+            f"no free final name for {final_path}: every candidate appeared "
+            "while this download was promoting, so it refuses rather than "
+            "overwrite one")
+    finally:
+        if diverted is not None:
+            release(diverted, identity)
+
+
+def holds(staging_path, identity: str) -> bool:
+    """True only when the claim on ``staging_path`` is measured to be ``identity``'s."""
+    try:
+        return _read_owner_identity(owner_path_for(staging_path)) == identity
+    except (OSError, StagingUnavailable):
+        return False

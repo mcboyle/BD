@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import ipaddress
 import re
+import socket
 from urllib.parse import urlsplit
 
 from .resolution import (classify_resolution)
@@ -127,15 +128,29 @@ def hls_has_encryption(text: str) -> bool:
     return False
 
 
+# 1-4 dot-separated hex / octal / decimal parts: the inet_aton grammar, so a
+# hostname never reaches inet_aton (and glibc's trailing-junk leniency).
+_INET_ATON_RE = re.compile(
+    r"(?:0x[0-9a-f]+|0[0-7]*|[1-9][0-9]*)(?:\.(?:0x[0-9a-f]+|0[0-7]*|[1-9][0-9]*)){0,3}")
+
+
 def _local_host(host: str) -> bool:
     """``localhost`` or an IP literal that is not a public unicast address
-    (loopback, private, link-local, ...).  No DNS: a name is judged as text."""
+    (loopback, private, link-local, ...).  No DNS: a name is judged as text.
+    The legacy inet_aton spellings a resolver accepts (2130706433, 0x7f.1,
+    127.1, 0177.0.0.1, 0) are normalised to their IPv4 address first."""
     host = (host or "").rstrip(".").lower()
     if host == "localhost" or host.endswith(".localhost"):
         return True
     try:
         return not ipaddress.ip_address(host).is_global
     except ValueError:
+        pass
+    if not _INET_ATON_RE.fullmatch(host):
+        return False
+    try:
+        return not ipaddress.IPv4Address(socket.inet_aton(host)).is_global
+    except OSError:
         return False
 
 
@@ -269,8 +284,14 @@ def parse_hls_master(text: str, *, base_url: str = "") -> dict:
         # carry a URI of their own — skip those for output purposes.
         if track_type == "CLOSED-CAPTIONS":
             continue
+        url = decode_url(uri, base_url=base_url) if uri else None
+        refused = _refused_variant_url(url, base_url) if url else None
+        if refused:
+            out["warnings"].append(
+                f"EXT-X-MEDIA URI refused ({refused}) — skipped")
+            continue
         entry = {
-            "url": decode_url(uri, base_url=base_url) if uri else None,
+            "url": url,
             "name": attrs.get("NAME"),
             "lang": attrs.get("LANGUAGE"),
             "default": attrs.get("DEFAULT", "").upper() == "YES",

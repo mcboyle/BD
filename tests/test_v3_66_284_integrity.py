@@ -113,8 +113,8 @@ def test_truncated_run_does_not_clobber_existing_final():
     # later truncated attempt — abort must not touch the destination.
     d = Path(tempfile.mkdtemp())
     final = d / "video.mp4"
-    final.write_bytes(b"GOODFILE")
     tmp, owner, identity = _claim(final, "https://example.test/existing-final")
+    final.write_bytes(b"GOODFILE")
     tmp.write_bytes(b"q" * 100)
     try:
         SiteRunner._promote_or_abort(
@@ -123,4 +123,14 @@ def test_truncated_run_does_not_clobber_existing_final():
         pass
     assert final.read_bytes() == b"GOODFILE"
     assert not tmp.exists()
+    assert not owner.exists()
+    # STAGING-TOCTOU-F1: a claim over a name that already holds a finished
+    # file is refused outright and leaves no claim behind.
+    try:
+        staging_claim.claim(final, identity)
+    except staging_claim.FinalPathOccupied:
+        pass
+    else:
+        raise AssertionError("claim() over an occupied final was not refused")
+    assert final.read_bytes() == b"GOODFILE"
     assert not owner.exists()

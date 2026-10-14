@@ -74,6 +74,8 @@ def api_macros_validate():
     or a full macro bundle. Returns {ok, error?}. Useful when the UI
     wants to lint a hand-authored macro before persisting it."""
     body = request.json or {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
     try:
         from . import macro_recorder as _mr
         macro = body if "actions" in body else {"actions": []}

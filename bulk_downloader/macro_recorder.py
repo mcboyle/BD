@@ -47,6 +47,7 @@ from typing import Optional
 
 
 _NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_SITE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 _VALID_KINDS = {"click", "wait", "scroll", "type", "sleep", "press", "await_url"}
 
 # NEW-1: a recorded "type" action that targets a password field stores
@@ -203,7 +204,10 @@ def _normalize_name(name: str) -> str:
 def _path_for(site_id: str, name: str) -> Optional[Path]:
     sid = (site_id or "").strip().lower()
     n = _normalize_name(name)
-    if not sid or not n:
+    # plugins-fix F1: site_id is joined into the file name, so it gets the
+    # same shape check as name (dots allowed for host-style ids); "../x"
+    # wrote outside macros/ and could replace sites_config.json.
+    if not _SITE_ID_PATTERN.match(sid) or not n:
         return None
     return _macro_dir() / f"{sid}_{n}.json"
 

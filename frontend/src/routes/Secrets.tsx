@@ -256,6 +256,12 @@ export function Secrets() {
         return;
       }
       const errs = r.errors?.length ? ` (${r.errors.length} error${r.errors.length === 1 ? "" : "s"})` : "";
+      // settings-fe-fix F16: nothing saved is a failure; keep the parsed rows and
+      // site_id mappings so the operator can fix them and apply again.
+      if (!r.saved && r.errors?.length) {
+        toast.error(`Nothing saved${errs}: ${r.errors[0]}`);
+        return;
+      }
       toast.success(`Saved ${r.saved ?? 0}, skipped ${r.skipped ?? 0}${errs}`);
       setImportText("");
       setImportRecords([]);
