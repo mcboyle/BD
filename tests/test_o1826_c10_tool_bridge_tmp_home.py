@@ -75,7 +75,7 @@ def test_missing_app_dir_falls_back_to_tmpdir_not_bare_tmp(monkeypatch, tmp_path
 
 def test_private_home_is_0700_owned_by_us_and_removed(monkeypatch, app_home):
     seen = {}
-    real_run = tb.subprocess.run
+    real_run = tb.subprocess.Popen
 
     def spy(argv, **kw):
         st = os.stat(kw["cwd"])
@@ -84,7 +84,7 @@ def test_private_home_is_0700_owned_by_us_and_removed(monkeypatch, app_home):
         return real_run(argv, **kw)
 
     monkeypatch.setitem(tb.ALLOWLIST, "o1826-env", _entry("env"))
-    monkeypatch.setattr(tb.subprocess, "run", spy)
+    monkeypatch.setattr(tb.subprocess, "Popen", spy)
     tb.run("o1826-env", {})
     assert seen["home"] == seen["cwd"], seen
     assert seen["mode"] == 0o700, "O1826-C10: scratch HOME mode %o, want 700" % seen["mode"]
