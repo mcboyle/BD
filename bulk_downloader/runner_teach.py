@@ -117,7 +117,10 @@ class TeachMixin:
         except Exception as e:
             self.log.debug("post-takeover cookie persist failed: %s", e)
 
-        # Persist picks
+        # Persist picks. ab-fix F3 (bughunt adapters-browser): the reply names what
+        # happened -- "Selectors saved" only when a selector reached the config,
+        # ok=False when the merge or the save raised (it was logged and reported ok).
+        saved, failed = 0, ""
         try:
             from .learn import merge_learned, classify_download
             sels = {}
@@ -135,26 +138,51 @@ class TeachMixin:
                     if self.site_id in _app.s_cfg:
                         _app.s_cfg[self.site_id] = self.config
                         _app.s_meta[self.site_id] = _app._build_meta(self.config)
-                        _app._save_sites_config()
+                        # ab-fix r2 (cx157 F3): the writer reports failure by returning False (it
+                        # catches its own OSError) -- a False write is not a saved selector.
+                        if _app._save_sites_config() is False:
+                            raise OSError("sites config write failed (see stderr)")
                     self._persist_learned_to_draft()  # B2: persist toggle ON -> draft
                 except Exception as e:
                     self.log.error("teach commit persist failed: %s", e)
-            sys.stderr.write(f"  teach commit: saved {n_roles} role(s); picks={picks}\n")
+                    failed = f"persist failed: {e}"
+                else:
+                    saved = n_roles
+            sys.stderr.write(f"  teach commit: saved {saved} of {n_roles} role(s); picks={picks}\n")
         except Exception as e:
             self.log.error("teach commit classify failed: %s", e)
+            failed = f"classify/merge failed: {e}"
 
-        # Mark target URL done
-        try:
-            self._update_job(target_url, "done",
-                             "Teach Mode commit — selectors saved",
-                             filename="(teach)")
-        except Exception: pass
+        # Mark target URL done. ab-fix r3 (cx171 F3): only when the commit did not FAIL --
+        # a pick that never reached the config is not a finished target. A failed commit
+        # leaves the job states the way teach_cancel does (below).
+        if not failed:
+            try:
+                self._update_job(target_url, "done",
+                                 "Teach Mode commit — selectors saved" if saved
+                                 else "Teach Mode commit — no selectors saved",
+                                 filename="(teach)")
+            except Exception: pass
 
         # Phase 41.2: re-enqueue URLs blocked on auto_teach
         self._auto_teach_logged = False
         with self._job_status_writer() as mark_status_changed:
             changed = False
             for u, j in self.jobs.items():
+                if failed:
+                    # Nothing was learned durably: the other blocked URLs stay blocked, and the
+                    # target goes back to the queue (auto-teach) or keeps its status (manual
+                    # teach), with a message that says so -- never "done".
+                    if u != target_url:
+                        continue
+                    j["message"] = "Teach Mode commit failed — selectors NOT saved; retry to resume teach flow"
+                    if j.get("auto_teach_seen"):
+                        j["auto_teach_seen"] = False
+                        j["status"] = "pending"
+                        try: self._url_queue.put_nowait(u)
+                        except Exception: pass
+                    changed = True
+                    continue
                 if j.get("auto_teach_seen") and j.get("status") == "needs_review":
                     j["auto_teach_seen"] = False
                     j["status"] = "pending"
@@ -172,6 +200,10 @@ class TeachMixin:
             self.log.warning("post-teach_commit start() failed: %s", e)
 
         self._login_status = "✓ Teach Mode commit"
+        if failed:
+            return False, f"Selectors NOT saved -- {failed}"
+        if not saved:
+            return True, "No selectors saved -- nothing was picked or persisting is suppressed"
         return True, "Selectors saved"
     def teach_cancel(self):
         """Same as cancel_manual_download but uses a cleaner status

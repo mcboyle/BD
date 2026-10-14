@@ -14,6 +14,7 @@ count of contexts bound to other threads) instead of leaking silently.
 """
 from contextlib import contextmanager
 import threading
+import weakref
 
 
 def _close(context) -> bool:
@@ -157,6 +158,7 @@ class BrowserContextPool:
     def __init__(self, factory):
         self._factory, self._lock = factory, threading.Lock()
         self._idle = {}          # thread ident -> [context, ...]
+        self._idle_thread = {}   # thread ident -> weakref to the Thread that owns _idle[ident] (ab-fix F6)
         self._owner = {}         # id(context) -> thread ident
         self._busy = set()
         self._tainted = set()    # id(context): close on release, never re-idle
@@ -192,11 +194,15 @@ class BrowserContextPool:
 
     def _reap_dead_threads_locked(self) -> list:
         """Idle contexts whose owner thread is gone (caller holds the lock)."""
-        alive = {t.ident for t in threading.enumerate()}
-        dead = [ident for ident in self._idle if ident not in alive]
+        # ab-fix F6 (bughunt adapters-browser): CPython reuses a dead thread's ident for a new thread, so an
+        # ident that is alive again is NOT proof the owner lives: the owner is the Thread object recorded with it.
+        alive = {t.ident: t for t in threading.enumerate()}
+        dead = [ident for ident in self._idle
+                if ident not in alive or self._idle_thread.get(ident, lambda: None)() is not alive[ident]]
         reaped = []
         for ident in dead:
             reaped.extend(self._idle.pop(ident))
+            self._idle_thread.pop(ident, None)
         for context in reaped:
             self._owner.pop(id(context), None)
         return reaped
@@ -206,6 +212,7 @@ class BrowserContextPool:
         worker thread before it exits)."""
         with self._lock:
             mine = self._idle.pop(threading.get_ident(), [])
+            self._idle_thread.pop(threading.get_ident(), None)
             for context in mine:
                 self._owner.pop(id(context), None)
         self._drop(mine)
@@ -246,6 +253,7 @@ class BrowserContextPool:
                 reusable = clean and not tainted and not self._closed
                 if reusable:
                     self._idle.setdefault(me, []).append(context)
+                    self._idle_thread[me] = weakref.ref(threading.current_thread())
                 else:
                     self._owner.pop(id(context), None)
                     self._tainted.discard(id(context))
@@ -265,4 +273,5 @@ class BrowserContextPool:
             self._closed = True
             contexts = [c for lst in self._idle.values() for c in lst] + list(self._busy)
             self._idle, self._busy, self._owner, self._tainted = {}, set(), {}, set()
+            self._idle_thread = {}
         return self._drop(contexts)

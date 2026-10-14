@@ -81,6 +81,12 @@ def _module_name_for_sid(sid: str) -> str:
     return f"_data_{slug or 'site'}_auto"
 
 
+def _docstring_safe(text: str) -> str:
+    """ab-fix F5 (bughunt adapters-browser): text placed inside the triple-quoted module docstring of
+    generated source. A sid holding three double quotes closed that docstring early; escaped quotes cannot."""
+    return text.replace('"', '\\"')
+
+
 def synthesize_template_source(sid, picks=None, raw_events=None):
     """Build the Python source for a typed, executable extraction template
     class synthesized from one recorded teach session.
@@ -106,7 +112,7 @@ def synthesize_template_source(sid, picks=None, raw_events=None):
                    f"session ({generated_at}).")
 
     source = f'''"""{module_name} -- auto-synthesized by bd-teach-auto (row917) from a
-recorded teach session for site {sid!r}. Generated {generated_at}.
+recorded teach session for site {_docstring_safe(repr(str(sid)))}. Generated {generated_at}.
 Regenerate by re-running the capture; do not hand-edit blindly -- a fresh
 capture overwrites this file.
 """
@@ -176,9 +182,11 @@ def write_synthesized_template(sid, picks=None, raw_events=None, *, dest_dir=Non
     """Synthesize + AST-validate + write the template module to disk.
 
     A template that fails to parse must never land as a file bd-teach-auto
-    claims succeeded -- `ast.parse` runs before the write, not after."""
+    claims succeeded -- `ast.parse` runs before the write, not after. ab-fix F5: and so must a full
+    compile(): ast.parse accepts a `from __future__` import that is not first, which can never import."""
     class_name, module_name, source = synthesize_template_source(sid, picks, raw_events)
     ast.parse(source)
+    compile(source, f"{module_name}.py", "exec", dont_inherit=True)
     target_dir = Path(dest_dir) if dest_dir is not None else _SITE_TEMPLATES_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / f"{module_name}.py"
