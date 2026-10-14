@@ -327,15 +327,28 @@ _VIRTUAL_SCROLL_MEDIA_JS = """
 
 _VIRTUAL_SCROLL_BY_JS = """
 ([selector, step]) => {
+    // A scroll moves the offset at once, but the page's scroll listeners run with
+    // the NEXT rendering frame. A renderer that is busy (cold start, a loaded
+    // host, heavy script on the page) can deliver that frame later than any fixed
+    // settle, and the next snapshot then reads the OLD rows at the NEW offset.
+    // So wait for the frames themselves: the first one dispatches the scroll
+    // event, the second shows what the listener rendered. A page that gets no
+    // frames at all (hidden tab) is released after FRAME_WAIT_MS.
+    const FRAME_WAIT_MS = 5000;
+    const rendered = () => new Promise((resolve) => {
+        const timer = setTimeout(resolve, FRAME_WAIT_MS);
+        requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve(); }));
+    });
     const first = document.querySelector(selector);
     for (let el = first ? first.parentElement : null; el; el = el.parentElement) {
         const style = getComputedStyle(el);
         if (/(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) {
             el.scrollBy(0, step);
-            return;
+            return rendered();
         }
     }
     window.scrollBy(0, step);
+    return rendered();
 }
 """
 
