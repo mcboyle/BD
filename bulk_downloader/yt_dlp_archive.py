@@ -183,7 +183,7 @@ def read_archive(path: str) -> set:
     Returns empty set on any failure (file missing, permission denied,
     decode error).
     """
-    if not path:
+    if not isinstance(path, str) or not path:
         return set()
     canon = _archive_path_canonical(path)
     try:
@@ -217,7 +217,7 @@ def is_in_archive(
     path: str, extractor: str, video_id: str,
 ) -> bool:
     """True if this (extractor, id) is already in the archive."""
-    if not path or not extractor or not video_id:
+    if not isinstance(path, str) or not path or not extractor or not video_id:
         return False
     entries = read_archive(path)
     return f"{extractor} {video_id}" in entries
@@ -236,7 +236,7 @@ def append_entry(
     Skips appending if the entry is already present (no duplicate
     lines).
     """
-    if not path or not extractor or not video_id:
+    if not isinstance(path, str) or not path or not extractor or not video_id:
         return False
     canon = _archive_path_canonical(path)
     line = f"{extractor} {video_id}"
@@ -276,7 +276,7 @@ def try_skip_for_url(path: str, url: str) -> bool:
 
     Fail-open: any error returns False (don't skip).
     """
-    if not path or not url:
+    if not isinstance(path, str) or not path or not url:
         return False
     derived = derive_id(url)
     if derived is None:
@@ -287,7 +287,7 @@ def try_skip_for_url(path: str, url: str) -> bool:
 
 def stats_for_archive(path: str) -> dict:
     """Return a stats summary for the UI. Counts entries by extractor."""
-    if not path:
+    if not isinstance(path, str) or not path:
         return {"total": 0, "by_extractor": {}}
     entries = read_archive(path)
     by_ext: dict = {}

@@ -23,9 +23,18 @@ def api_ytdlp_update():
     'is it stale?' check; force=False respects the 30-day threshold.
     24h rate limit applies regardless of force."""
     _check_csrf()
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    elif not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    raw_force = body.get("force", False)
+    if isinstance(raw_force, str):
+        force = raw_force.strip().lower() not in ("", "0", "false", "no", "off")
+    else:
+        force = bool(raw_force)
     try:
         from . import ytdlp_updater
-        force = bool((request.json or {}).get("force", False))
         ran, msg = ytdlp_updater.maybe_update(force=force)
         return jsonify({"ok": True, "ran": ran, "message": msg,
                         "status": ytdlp_updater.status_dict()})

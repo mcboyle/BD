@@ -45,8 +45,9 @@ def api_ytdlp_archive_stats():
         return jsonify({"ok": False, "error": "yt_dlp_archive module unavailable"})
     archive_path = ""
     for sid, cfg in s_cfg.items():
-        if cfg.get("ytdlp_archive_path"):
-            archive_path = cfg["ytdlp_archive_path"]
+        raw_path = cfg.get("ytdlp_archive_path") if isinstance(cfg, dict) else None
+        if isinstance(raw_path, str) and raw_path.strip():
+            archive_path = raw_path.strip()
             break
     if not archive_path:
         return jsonify({"ok": True, "configured": False,
@@ -68,8 +69,13 @@ def api_ytdlp_archive_derive():
     _check_csrf()
     if not _YTDLP_ARCH_AVAILABLE:
         return jsonify({"ok": False, "error": "yt_dlp_archive module unavailable"})
-    body = request.get_json(silent=True) or {}
-    url = (body.get("url") or "").strip()
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    elif not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    raw_url = body.get("url")
+    url = raw_url.strip() if isinstance(raw_url, str) else ""
     if not url:
         return jsonify({"ok": False, "error": "missing 'url'"})
     derived = _ytdlp_archive_module.derive_id(url)
