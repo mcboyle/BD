@@ -75,6 +75,13 @@ def _values(cookies):
     return [c["value"] for c in cookies or []]
 
 
+def _heartbeat_jar(k):
+    """name -> value of what the httpx heartbeat reader loaded. O1789 SAC-F1
+    (cookie-egress-fix) made _load_cookies return a domain-scoped CookieJar,
+    not a flat dict; {} when it read no jar."""
+    return {c.name: c.value for c in k._load_cookies()}
+
+
 # --- F2: per-account jar + vault ------------------------------------------
 
 
@@ -101,8 +108,8 @@ def test_s20_account1_persist_keeps_account0_session(monkeypatch, tmp_path, with
         assert _values(v.store[("siteA", "1")]["cookies"]) == ["ACCOUNT-ONE"]
         assert sorted(v.store) == [("siteA", "0"), ("siteA", "1")], sorted(v.store)
     # the httpx-heartbeat reader is per account too
-    assert k0._load_cookies() == {"sess": "ACCOUNT-ZERO"}
-    assert k1._load_cookies() == {"sess": "ACCOUNT-ONE"}
+    assert _heartbeat_jar(k0) == {"sess": "ACCOUNT-ZERO"}, "O1789-SJ-F2-HEARTBEAT-ACC0-JAR"
+    assert _heartbeat_jar(k1) == {"sess": "ACCOUNT-ONE"}, "O1789-SJ-F2-HEARTBEAT-ACC1-JAR"
     assert _values(json.loads((tmp_path / "cookies" / "siteA.json").read_text())) == [
         "ACCOUNT-ZERO"
     ]
@@ -120,7 +127,7 @@ def test_s20_control_single_account_roundtrip(monkeypatch, tmp_path):
     assert _values(k0._load_cookies_as_playwright()) == ["ACCOUNT-ZERO"]
     # account 0 keeps the pre-fix path: existing installs need no migration
     assert (tmp_path / "cookies" / "siteA.json").is_file()
-    assert k0._load_cookies() == {"sess": "ACCOUNT-ZERO"}
+    assert _heartbeat_jar(k0) == {"sess": "ACCOUNT-ZERO"}, "O1789-SJ-F2-CTL-HEARTBEAT-JAR"
 
 
 def test_s20_jar_paths_per_account(monkeypatch, tmp_path):
@@ -244,7 +251,7 @@ def test_f14_keeper_jar_under_bd_home_not_cwd(monkeypatch, tmp_path, cwd_at):
     assert got == ["ACCOUNT-ZERO"], (
         f"F14: {jar} holds the session; keeper (cwd={cwd_at}) loads {got}"
     )
-    assert k._load_cookies() == {"sess": "ACCOUNT-ZERO"}
+    assert _heartbeat_jar(k) == {"sess": "ACCOUNT-ZERO"}, "O1789-SJ-F14-HEARTBEAT-BD-HOME-JAR"
     k._ctx = _Ctx(ACC1)
     k._persist_cookies()
     assert _values(json.loads(jar.read_text())) == ["ACCOUNT-ONE"], (
@@ -289,8 +296,8 @@ def test_f14_keeper_uses_site_cookie_file(monkeypatch, tmp_path):
     assert got == ["ACCOUNT-ZERO"], (
         f"F14: site cookie_file holds the session; keeper loads {got}"
     )
-    assert k0._load_cookies() == {"sess": "ACCOUNT-ZERO"}, (
-        "F14: httpx heartbeat reader ignores the site cookie_file"
+    assert _heartbeat_jar(k0) == {"sess": "ACCOUNT-ZERO"}, (
+        "O1789-SJ-F14-HEARTBEAT-COOKIE-FILE: httpx heartbeat reader ignores the site cookie_file"
     )
     k1._ctx = _Ctx(ACC1)
     k1._persist_cookies()
