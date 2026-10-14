@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1877**
+- internal import edges: **1899**
 - tools: 235 · with internal edge: 135 · with tool→package edge: 75
 - blueprints: 163 · config stores: 5
 
@@ -23,19 +23,19 @@ Graph version: 1
 - `bulk_downloader/app.py`: 26
 - `bulk_downloader/plugins.py`: 23
 - `bulk_downloader/cookies.py`: 22
+- `bulk_downloader/egress_withhold.py`: 21
 - `bulk_downloader/secrets_store.py`: 20
 - `bulk_downloader/registrable_domain.py`: 18
 - `bulk_downloader/capture_artifact_redact.py`: 17
 - `bulk_downloader/capture_ingest.py`: 17
 - `bulk_downloader/cloak.py`: 17
 - `bulk_downloader/runner.py`: 17
+- `bulk_downloader/site_editor.py`: 17
 - `bulk_downloader/aiassist.py`: 16
 - `bulk_downloader/capture_redact.py`: 16
-- `bulk_downloader/site_editor.py`: 16
 - `bulk_downloader/ffmpeg_bin.py`: 15
 - `bulk_downloader/log.py`: 14
 - `bulk_downloader/session_keeper.py`: 14
-- `tools/report_core.py`: 13
 
 ## Blueprints → providers
 
@@ -70,7 +70,7 @@ Graph version: 1
 - **cockpit_home** (`app_cockpit_home.py`) — routes 1, providers 0
 - **community_scrapers** (`app_community_scrapers.py`) — routes 5, providers 0
 - **concurrent** (`app_concurrent.py`) — routes 1, providers 0
-- **config** (`app_config.py`) — routes 2, providers 6
+- **config** (`app_config.py`) — routes 2, providers 7
 - **cookie_clipboard** (`app_cookie_clipboard.py`) — routes 2, providers 2
 - **cookie_quality** (`app_cookie_quality.py`) — routes 2, providers 1
 - **cookie_relogin** (`app_cookie_relogin.py`) — routes 2, providers 1
@@ -91,17 +91,17 @@ Graph version: 1
 - **edge_deploy** (`app_edge_deploy.py`) — routes 2, providers 1
 - **envfile_editor** (`app_envfile_editor.py`) — routes 2, providers 2
 - **eol** (`app_eol.py`) — routes 2, providers 1
-- **events_all** (`app_events_all.py`) — routes 1, providers 0
+- **events_all** (`app_events_all.py`) — routes 1, providers 1
 - **export** (`app_export.py`) — routes 3, providers 1
 - **extension** (`app_extension.py`) — routes 1, providers 2
 - **fed** (`app_fed.py`) — routes 12, providers 2
 - **file** (`app_file.py`) — routes 1, providers 0
 - **fixtures** (`app_fixtures.py`) — routes 2, providers 1
-- **flaresolverr** (`app_flaresolverr.py`) — routes 3, providers 0
+- **flaresolverr** (`app_flaresolverr.py`) — routes 3, providers 1
 - **gallerydl_status** (`app_gallerydl_status.py`) — routes 1, providers 1
 - **gallerydl_update** (`app_gallerydl_update.py`) — routes 1, providers 1
 - **gamification** (`app_gamification.py`) — routes 1, providers 1
-- **global_config** (`app_global_config.py`) — routes 3, providers 7
+- **global_config** (`app_global_config.py`) — routes 3, providers 8
 - **health** (`app_health.py`) — routes 3, providers 5
 - **history** (`app_history.py`) — routes 3, providers 1
 - **hourly_stats** (`app_hourly_stats.py`) — routes 1, providers 1
@@ -115,7 +115,7 @@ Graph version: 1
 - **library** (`app_library.py`) — routes 17, providers 3
 - **live_recorder** (`app_live_recorder.py`) — routes 6, providers 1
 - **login_templates** (`app_login_templates.py`) — routes 1, providers 1
-- **logs** (`app_logs.py`) — routes 2, providers 1
+- **logs** (`app_logs.py`) — routes 2, providers 2
 - **macros** (`app_macros.py`) — routes 7, providers 2
 - **marketplace** (`app_marketplace.py`) — routes 3, providers 1
 - **multi_conn** (`app_multi_conn.py`) — routes 2, providers 0
@@ -162,7 +162,7 @@ Graph version: 1
 - **service_mesh** (`service_mesh.py`) — routes 1, providers 1
 - **session_history** (`app_session_history.py`) — routes 1, providers 1
 - **session_status** (`app_session_status.py`) — routes 1, providers 1
-- **settings_center** (`app_settings_center.py`) — routes 12, providers 5
+- **settings_center** (`app_settings_center.py`) — routes 12, providers 6
 - **shares** (`app_shares.py`) — routes 3, providers 1
 - **shortcuts** (`app_shortcuts.py`) — routes 1, providers 1
 - **sites** (`app_sites.py`) — routes 0, providers 11
@@ -170,7 +170,7 @@ Graph version: 1
 - **sse_status** (`app_sse_status.py`) — routes 1, providers 1
 - **start_all** (`app_start_all.py`) — routes 1, providers 0
 - **stats** (`app_stats.py`) — routes 3, providers 2
-- **status** (`app_status.py`) — routes 1, providers 0
+- **status** (`app_status.py`) — routes 1, providers 1
 - **storage** (`app_storage.py`) — routes 1, providers 0
 - **storage_rebalance** (`app_storage_rebalance.py`) — routes 3, providers 1
 - **store_raw_editor** (`app_store_raw_editor.py`) — routes 2, providers 3
@@ -197,7 +197,7 @@ Graph version: 1
 - **wakeup** (`app_wakeup.py`) — routes 2, providers 2
 - **wayback** (`app_wayback.py`) — routes 2, providers 1
 - **weather** (`app_weather.py`) — routes 3, providers 1
-- **webhooks** (`app_webhooks.py`) — routes 4, providers 1
+- **webhooks** (`app_webhooks.py`) — routes 4, providers 2
 - **widgets_api** (`app_widgets_api.py`) — routes 3, providers 9
 - **ytdlp_archive** (`app_ytdlp_archive.py`) — routes 2, providers 0
 - **ytdlp_status** (`app_ytdlp_status.py`) — routes 2, providers 1
@@ -206,7 +206,7 @@ Graph version: 1
 ## Config stores → reader / writer modules
 
 - **app_settings_center** — readers 8, writers 0
-- **global_config** — readers 82, writers 4
-- **site_editor** — readers 24, writers 0
+- **global_config** — readers 83, writers 4
+- **site_editor** — readers 25, writers 0
 - **vpn_config** — readers 17, writers 2
 - **widgets_config** — readers 4, writers 1
