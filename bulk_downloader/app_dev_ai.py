@@ -114,6 +114,13 @@ def api_dev_model_pull_check():
         from . import dev_suite as _ds
         # No URL params — the function derives requested models from
         # OllamaProvider.default_models + _app_cfg.ai_models.
-        return jsonify(_ds.model_pull_check())
+        # BD-SEC-2 ROW 2: the configured ai_endpoint is served as its URL view.
+        from .egress_withhold import url_value
+        out = _ds.model_pull_check()
+        ep = out.get("endpoint")
+        out["endpoint"] = shown = url_value(ep)
+        if isinstance(ep, str) and ep and shown != ep and isinstance(out.get("verdict"), str):
+            out["verdict"] = out["verdict"].replace(ep, shown)
+        return jsonify(out)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500

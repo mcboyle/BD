@@ -44,9 +44,11 @@ def api_logs_tail():
         text = data.decode("utf-8", errors="replace")
         lines = text.splitlines()
         from . import log as _log
+        # BD-SEC-2 ROW 2: log lines shown in the UI carry no URL tokens.
+        from .egress_withhold import withhold_text
         return jsonify({
             "ok": True,
-            "lines": lines[-n:],
+            "lines": withhold_text(lines[-n:]),
             "total_lines_returned": min(len(lines), n),
             "file_size": size,
             "current_level": _log.get_level(),

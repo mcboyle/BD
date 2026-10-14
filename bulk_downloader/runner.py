@@ -115,13 +115,14 @@ def captcha_egress_disclosure_error(updates: dict, current: dict | None = None) 
         new_provider,
         "the selected provider's terms and current pricing",
     )
-    return (
+    from .egress_withhold import app_message  # row700 x SEC-2: served verbatim, by origin
+    return app_message("captcha-egress-disclosure", (
         "Paid captcha solver enablement requires "
         f"{CAPTCHA_EGRESS_ACK_FIELD}=true after reviewing that the provider "
         "receives the target page URL, captcha sitekey, challenge type/action, "
         "and API credential; charges accrue per solve. Review "
         f"{provider_terms}."
-    )
+    ))
 
 # A0 / BEH-1 + BEH-2 (v3.66.322): canonical creation-time defaults. These are the
 # values the legacy Add-Site form stored at create time; the SPA wizard stores no
