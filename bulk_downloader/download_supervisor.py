@@ -162,7 +162,11 @@ class TokenBucket:
                     # A transfer chunk can exceed one burst's capacity. Pay it
                     # incrementally; waiting for the whole chunk to fit would
                     # never finish because refill is clamped to capacity.
-                    taken = min(self._tokens, remaining)
+                    # try_acquire can leave the bucket in debt (negative
+                    # tokens). The debt stays IN the bucket for refill to pay:
+                    # taking it into this caller's private count would zero the
+                    # shared balance and let the next oversized request in early.
+                    taken = max(0.0, min(self._tokens, remaining))
                     self._tokens -= taken
                     remaining -= taken
                 if remaining <= 0:
@@ -191,6 +195,11 @@ class TokenBucket:
         If max_wait_s is set, waits up to that many seconds before
         giving up.
 
+        A request larger than the bucket's capacity is granted once the
+        bucket is FULL and leaves it in debt (negative tokens) that refill
+        pays off, so the long-run rate is unchanged. Waiting for the whole
+        request to fit could never succeed: refill is clamped to capacity.
+
         Returns (acquired: bool, waited_s: float).
         """
         if n_bytes <= 0:
@@ -201,14 +210,15 @@ class TokenBucket:
                 self._bytes_passed += n_bytes
                 return (True, 0.0)
             self._refill_locked()
-            if self._tokens >= n_bytes:
+            need = min(float(n_bytes), self._capacity)
+            if self._tokens >= need:
                 self._tokens -= n_bytes
                 self._acquires += 1
                 self._bytes_passed += n_bytes
                 return (True, 0.0)
             if max_wait_s is None or max_wait_s <= 0:
                 return (False, 0.0)
-            deficit = n_bytes - self._tokens
+            deficit = need - self._tokens
             rate = self._rate_bps
             wait_for = deficit / rate if rate > 0 else 1.0
 
@@ -219,7 +229,7 @@ class TokenBucket:
         time.sleep(wait_for)
         with self._lock:
             self._refill_locked()
-            if self._tokens >= n_bytes:
+            if self._tokens >= min(float(n_bytes), self._capacity):
                 self._tokens -= n_bytes
                 self._acquires += 1
                 self._bytes_passed += n_bytes
@@ -234,7 +244,7 @@ class TokenBucket:
                 "name": self.name,
                 "rate_bps": int(self._rate_bps),
                 "capacity": int(self._capacity),
-                "tokens_available": int(self._tokens),
+                "tokens_available": max(0, int(self._tokens)),
                 "acquires": self._acquires,
                 "bytes_passed": self._bytes_passed,
                 "total_wait_s": round(self._total_wait_s, 3),

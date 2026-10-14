@@ -135,8 +135,17 @@ def bytes_already_downloaded(checkpoint: dict) -> int:
     if not isinstance(checkpoint, dict):
         return 0
     chunks = checkpoint.get("chunks") or []
-    return sum(int(c.get("done_bytes", 0)) for c in chunks
-                if isinstance(c, dict))
+    total = 0
+    for c in chunks:
+        if not isinstance(c, dict):
+            continue
+        # A corrupt sidecar (done_bytes null / text) counts as no progress
+        # for that chunk instead of raising out of a progress readout.
+        try:
+            total += max(0, int(c.get("done_bytes", 0)))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return total
 
 
 def incomplete_chunks(checkpoint: dict) -> list[dict]:
