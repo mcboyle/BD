@@ -9,7 +9,7 @@
 // or removed. Every input is rendered FROM the server's per-flag spec (bool -> switch,
 // enum -> select, path/str -> text), so the UI cannot offer a flag the bridge would
 // reject -- the validation contract and the control are the same source of truth.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -52,17 +52,23 @@ export function Tools() {
   });
 
   const [selected, setSelected] = useState<string>("");
+  // F1: the tool on screen when a run resolves (pick() may switch mid-flight).
+  const selectedRef = useRef("");
   // per-flag input values, keyed by flag name
   const [values, setValues] = useState<Record<string, string | boolean>>({});
   const [result, setResult] = useState<RunResp | null>(null);
 
   const runMut = useMutation<RunResp, Error, { tool: string; flags: Record<string, unknown> }>({
     mutationFn: (body) => apiPost<RunResp>("/api/tools/run", body),
-    onSuccess: (r) => {
-      setResult(r);
-      if (r.returncode === 0) toast.success(`${selected} exited 0`);
-      else if (r.timed_out) toast.error(`${selected} timed out`);
-      else toast.error(`${selected} exited ${r.returncode}`);
+    onSuccess: (r, vars) => {
+      // F1: name the tool that ran (vars.tool), and never paint its output under
+      // a tool the operator switched to while it was in flight.
+      const tool = vars.tool;
+      if (tool === selectedRef.current) setResult(r);
+      if (r.ok === false) toast.error(`${tool} did not run: ${r.error || "refused"}`);
+      else if (r.returncode === 0) toast.success(`${tool} exited 0`);
+      else if (r.timed_out) toast.error(`${tool} timed out`);
+      else toast.error(`${tool} exited ${r.returncode}`);
     },
     onError: (e) => toast.error(`Refused: ${e.message}`),
   });
@@ -71,6 +77,7 @@ export function Tools() {
   const current = tools.find((t) => t.name === selected);
 
   function pick(name: string) {
+    selectedRef.current = name;
     setSelected(name);
     setValues({});
     setResult(null);

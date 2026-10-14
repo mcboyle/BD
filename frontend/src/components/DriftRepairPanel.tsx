@@ -31,6 +31,7 @@ interface DriftStatus {
 }
 interface RunResult {
   ok: boolean;
+  error?: string;
   summary: { ran: boolean; considered?: number; repaired?: number; skipped?: number; reason?: string };
 }
 
@@ -68,7 +69,8 @@ export function DriftRepairPanel() {
       apiPost<RunResult>("/api/automation/drift_repair/run", { force: true }),
     onSuccess: (r) => {
       const s = r.summary || {};
-      if (s.ran) {
+      if (r.ok === false) toast.error(`Run failed: ${r.error || "refused"}`);
+      else if (s.ran) {
         toast.success(
           `Sweep ran — considered ${s.considered ?? 0}, repaired ${s.repaired ?? 0}, skipped ${s.skipped ?? 0}`,
         );

@@ -11,6 +11,20 @@ from flask import Blueprint, jsonify, request
 ai_bp = Blueprint("ai", __name__)
 
 
+@ai_bp.before_request
+def _json_object_guard():
+    """F5: every POST here reads ``request.json or {}`` as an object. A JSON
+    array/scalar body is refused before the view with the host app's VR-P09
+    400 body, so the answer does not depend on how the view fails on it."""
+    if request.method == "POST" and request.is_json:
+        body = request.get_json(silent=True)
+        if body is not None and not isinstance(body, dict):
+            return jsonify({"ok": False,
+                            "error": "request body must be a JSON object",
+                            "hint": "check Content-Type and body shape"}), 400
+    return None
+
+
 @ai_bp.route("/api/ai/status")
 def api_ai_status():
     """Reachability + model-installed check. Used by the global config

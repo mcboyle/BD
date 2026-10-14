@@ -46,6 +46,9 @@ def chat(payload: Dict[str, Any], *, config: Optional[Dict[str, Any]] = None,
 
     if not cfg.get("enabled"):
         return _resp(False, provider=provider, error="AI disabled")
+    if not isinstance(payload, dict):
+        return _resp(False, provider=provider,
+                     error="request body must be a JSON object")
 
     # CAP-1: warm the provider on first use (one-shot). ai_chat.chat routes
     # through llm_exec.execute, not aiassist._call_model, so warm here too.
@@ -55,7 +58,12 @@ def chat(payload: Dict[str, Any], *, config: Optional[Dict[str, Any]] = None,
     except Exception:
         pass
 
-    prompt = (payload.get("prompt") or "").strip()
+    prompt = payload.get("prompt") or ""
+    if not isinstance(prompt, str):
+        # F5: a non-string prompt raised AttributeError out of a "never
+        # raises" contract.
+        return _resp(False, provider=provider, error="prompt must be a string")
+    prompt = prompt.strip()
     if not prompt:
         return _resp(False, provider=provider, error="empty prompt")
     if len(prompt) > MAX_PROMPT_CHARS:

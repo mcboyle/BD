@@ -1075,7 +1075,7 @@ def diff_repair(broken_selectors: List[str],
 
 
 # ── Public API: classify_role ─────────────────────────────────────────
-def classify_role(element_desc: Dict[str, Any]) -> Dict[str, Any]:
+def classify_role(element_desc: str) -> Dict[str, Any]:
     """Given a textual description of an element, classify its role.
     element_desc is a short string like:
         '<input type="password" name="pw" placeholder="Password">'
@@ -1083,6 +1083,10 @@ def classify_role(element_desc: Dict[str, Any]) -> Dict[str, Any]:
     """
     if not _config["enabled"]:
         return {"ok": False, "error": "AI assist is disabled"}
+    if not isinstance(element_desc, str):
+        # F5: a dict/int/null body field raised KeyError/TypeError (HTTP 500)
+        # and a list was formatted into the prompt as its repr.
+        return {"ok": False, "error": "element_desc must be a string"}
     prompt = CLASSIFY_PROMPT.format(element_desc=element_desc[:1000])
     # v3.43.43: provider-aware. No image — uses text model.
     result = _call_model(prompt, image_b64=None,

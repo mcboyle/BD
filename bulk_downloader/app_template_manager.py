@@ -176,10 +176,15 @@ def api_drift_repair_toggle():
     sweep is review-only/safe -- it only ever lands review-required drafts."""
     _check_csrf()
     body = request.get_json(silent=True) or {}
-    enabled = bool(body.get("enabled", False))
+    enabled = body.get("enabled")
+    if not isinstance(enabled, bool):
+        # F6: bool("false") is True -- a string/number/null flag is refused.
+        return jsonify({"ok": False, "error": "enabled must be true or false"}), 400
     from . import drift_repair as _dr
     from . import global_config as _gc
-    _gc.set_config({_dr.ENABLE_KEY: enabled})
+    if not _gc.set_config({_dr.ENABLE_KEY: enabled}):
+        return jsonify({"ok": False, "error": "the toggle was not saved: "
+                        "app_config.json could not be read or written"}), 500
     return jsonify({"ok": True, "enabled": enabled})
 
 

@@ -215,11 +215,13 @@ export function CaptureBrowser() {
     mutationFn: (token: string) =>
       apiPost<{
         ok: boolean;
+        error?: string;
         result?: { ran?: boolean; reason?: string; status?: string; redaction_total?: number };
       }>("/api/captures/scrub", { token }),
     onSuccess: (r) => {
       const res = r.result || {};
-      if (res.ran)
+      if (r.ok === false) toast.error(`Scrub failed: ${r.error || "refused"}`);
+      else if (res.ran)
         toast.success(
           `Scrubbed → redacted twin (${res.status || "done"}` +
             (res.redaction_total ? `, ${res.redaction_total} redactions)` : ")"),
