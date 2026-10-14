@@ -53,8 +53,9 @@ def _fresh_db():
     return d
 
 
-def test_add_schedule_persists_source_saved_search():
+def test_add_schedule_persists_source_saved_search(monkeypatch):
     _fresh_db()
+    monkeypatch.setattr(_se, "_allowlist_text", lambda: "/tmp")   # sc-f9: /tmp is an allowed folder here
     rid = _se.add_schedule(label="linked", format="json", destination="/tmp",
                            cadence_hours=24, source_saved_search=7)
     assert rid is not None
@@ -63,8 +64,9 @@ def test_add_schedule_persists_source_saved_search():
     assert got and got[0].get("source_saved_search") == 7, got
 
 
-def test_add_schedule_source_defaults_null():
+def test_add_schedule_source_defaults_null(monkeypatch):
     _fresh_db()
+    monkeypatch.setattr(_se, "_allowlist_text", lambda: "/tmp")   # sc-f9: /tmp is an allowed folder here
     rid = _se.add_schedule(label="plain", format="csv", destination="/tmp",
                            cadence_hours=24)
     rows = _se.list_schedules()

@@ -7,7 +7,13 @@ from bulk_downloader import exports, scheduled_exports
 BD_GATE_SCOPE = "module"
 
 
+def _allow(tmp_path, monkeypatch):
+    # sc-f9: an export writes only under the export root or an allowlisted folder
+    monkeypatch.setattr(scheduled_exports, "_allowlist_text", lambda: str(tmp_path))
+
+
 def test_same_second_schedules_keep_both_outputs(tmp_path, monkeypatch):
+    _allow(tmp_path, monkeypatch)
     monkeypatch.setattr(scheduled_exports.time, "strftime", lambda _fmt: "20260925-120000")
     monkeypatch.setattr(
         exports, "to_csv", lambda filter_dict, **_kwargs: filter_dict["site_id"].encode()
@@ -30,6 +36,7 @@ def test_same_second_schedules_keep_both_outputs(tmp_path, monkeypatch):
 
 
 def test_retention_keeps_other_schedule_in_shared_folder(tmp_path, monkeypatch):
+    _allow(tmp_path, monkeypatch)
     timestamps = iter(("20260925-120000", "20260925-120001"))
     monkeypatch.setattr(scheduled_exports.time, "strftime", lambda _fmt: next(timestamps))
     monkeypatch.setattr(

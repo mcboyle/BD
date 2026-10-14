@@ -297,6 +297,11 @@ GLOBAL_CONFIG_SCHEMA: dict = {
     # the matching queue-housekeeping env vars so a Settings write takes effect on
     # the next run. Non-safety (operational, reversible via the apply harness); the
     # getters in tools/autonomy_queue_hk.py clamp to sane ranges (>=0 / >=1).
+    # sc-f9: extra directories (one absolute path per line) a scheduled export
+    # may write under, beside <app home>/exports. Read by
+    # scheduled_exports.export_roots(). Safety-bearing: a wrong-typed value
+    # fails closed to "" (root only), never open.
+    "scheduled_export_allowed_dirs": {"type": str, "safety": True, "safe_default": ""},
     "queue_hk_gc_age_days": {"type": int,  "safety": False, "safe_default": 7},
     "queue_hk_abandon":     {"type": bool, "safety": False, "safe_default": False},
     "queue_hk_max_retries": {"type": int,  "safety": False, "safe_default": 10},

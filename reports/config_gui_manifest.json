@@ -379,6 +379,7 @@
     "sched_enabled": "full",
     "sched_repeat": "full",
     "sched_time": "full",
+    "scheduled_export_allowed_dirs": "full",
     "scheduled_exports": "full",
     "scrapling_recovery_min_score": "full",
     "search_result_selector": "full",
