@@ -55,6 +55,11 @@ export function AiScratchpad({
 }: AiScratchpadProps) {
   const [prompt, setPrompt] = React.useState("");
   const [model, setModel] = React.useState(defaultModel);
+  // F8: a defaultModel that arrives after mount fills an unpicked model; a
+  // manual pick is never overwritten.
+  React.useEffect(() => {
+    if (defaultModel) setModel((m) => m || defaultModel);
+  }, [defaultModel]);
   const [imageB64, setImageB64] = React.useState("");
   const chat = useAiChat();
 

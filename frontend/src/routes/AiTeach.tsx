@@ -66,6 +66,7 @@ interface ApplyResult {
   rejected: { reason: string; old_selector?: string; role?: string }[];
   dry_run: boolean;
   count: number;
+  error?: string;
 }
 
 // One selector per line → trimmed non-empty list.
@@ -142,7 +143,18 @@ export function AiTeach() {
         dry_run: dryRun,
       }),
     onSuccess: (res, dryRun) => {
+      if (res.ok === false) {
+        toast.error(`Commit failed: ${res.error || "refused"}`);
+        return;
+      }
       const verb = dryRun ? "Would apply" : "Applied";
+      // F2: nothing applied or removed -- report the rejection and keep the plan.
+      if (res.count === 0 && !res.removed.length && res.rejected.length) {
+        toast.error(
+          `${verb} 0 repairs · ${res.rejected.length} rejected: ${res.rejected[0].reason}`,
+        );
+        return;
+      }
       toast.success(
         `${verb} ${res.count} repair${res.count === 1 ? "" : "s"}` +
           (res.removed.length ? ` · ${res.removed.length} removed` : "") +
@@ -185,7 +197,13 @@ export function AiTeach() {
             <span className="text-[12px] font-medium text-ink">Site</span>
             <select
               value={siteId}
-              onChange={(e) => setSiteId(e.target.value)}
+              onChange={(e) => {
+                // F2: a plan reviewed for one site is never committed to another.
+                setSiteId(e.target.value);
+                setRepairs([]);
+                setRemoved([]);
+                setAccepted({});
+              }}
               className="mt-1 w-full rounded border border-line bg-surface-2 p-2 text-sm text-ink"
             >
               <option value="">Select a site…</option>
@@ -253,7 +271,7 @@ export function AiTeach() {
           </Button>
         </Card>
           }
-          plan={repairs.length > 0 ? (
+          plan={repairs.length > 0 || removed.length > 0 ? (
           <Card className="space-y-3 p-4">
             <div className="text-[12px] font-medium text-ink">
               Proposed repairs — tick the ones to commit

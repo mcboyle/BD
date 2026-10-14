@@ -233,6 +233,9 @@ export function DomAnalyzer() {
   function doLoad(name: string) {
     setCapture(name);
     setPicked(null);
+    // F3: the limited tree and selector results belong to the previous capture.
+    treeM.reset();
+    testM.reset();
     if (name) loadM.mutate(name);
   }
 

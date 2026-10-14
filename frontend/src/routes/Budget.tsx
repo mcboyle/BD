@@ -13,9 +13,11 @@ import { Input } from "@/components/ui/input";
 import { useBudgetHistory } from "@/hooks/useBudgetHistory";
 
 function fmtBytes(n: number): string {
+  // F8: NaN slipped past `n <= 0` and rendered "NaN undefined".
+  if (!Number.isFinite(n)) return "—";
   if (n <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  const i = Math.max(0, Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024))));
   return `${(n / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
@@ -25,7 +27,8 @@ export default function Budget() {
   const q = useBudgetHistory(siteId, 30);
 
   const history = q.data?.history ?? [];
-  const max = history.reduce((m, h) => Math.max(m, h.bytes), 0) || 1;
+  const max =
+    history.reduce((m, h) => (Number.isFinite(h.bytes) ? Math.max(m, h.bytes) : m), 0) || 1;
 
   return (
     <AppShell title="Daily byte usage" subtitle="Recent daily bytes for a site. Set the global cross-site cap and per-site caps in Settings → global config.">
@@ -38,6 +41,10 @@ export default function Budget() {
               aria-label="site id"
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                // F8: Enter loads, like the button.
+                if (e.key === "Enter" && input.trim()) setSiteId(input.trim());
+              }}
               placeholder="e.g. example.com"
             />
           </label>
