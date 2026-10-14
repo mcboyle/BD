@@ -768,6 +768,9 @@ _DEPLOY_ONLY = {
     #   BD_CLUSTER_RATE_MODE cluster_rate.py:266,419 -- which coordination backend the
     #                        DEPLOYMENT runs; changing it per-user would desynchronise peers.
     "BD_VAULT_KEY", "BD_REDIS_HOST", "BD_REDIS_PORT", "BD_CLUSTER_RATE_MODE",
+    # O1671 a07: BD_SECRET_KEY (app_oidc.install_secret_key) is the Flask session
+    # signing key, read once at boot -- a secret, not a setting.
+    "BD_SECRET_KEY",
 }
 # v3.66.319 (Phase 4.3a): legacy back-compat ALIASES of an env var whose canonical
 # control is ALREADY gui_exposure=full. resolve_backend()'s _ENV_KEYS triple is
@@ -905,6 +908,10 @@ def _danger_for(it):
                       "the deployment that provisions the broker — editing them on ONE running "
                       "process repoints only that reader, orphaning in-flight work while the rest "
                       "of the cluster keeps the old value. Change them at deploy time, then restart.")
+    if kind == "env_var" and key in _O1671_DEPLOY_ONLY:
+        return True, ("The Flask session signing key: a secret, not a setting. A settings "
+                      "control would put it on the wire, and a new value signs every live "
+                      "session out. Set it at deploy time, then restart.")
     if (kind == "env_var" and key in _DEPLOY_ONLY) or key in _PATH_EXTRA:
         return True, ("Path / storage root. Repointing it at runtime can orphan or "
                       "overwrite existing data and the process may not relocate cleanly. "
@@ -954,6 +961,8 @@ _HARNESS_ONLY = {"BD_GATE_SCOPE", "BD_WHEELHOUSE_DIR"}
 # what they actually are; the generic _DEPLOY_ONLY note below is about PATH / storage roots and
 # would have told an operator the wrong thing about a vault key.
 _O1186_DEPLOY_ONLY = {"BD_VAULT_KEY", "BD_REDIS_HOST", "BD_REDIS_PORT", "BD_CLUSTER_RATE_MODE"}
+# O1671 a07: named apart for the same reason -- neither the O1186 note nor the path note fits it.
+_O1671_DEPLOY_ONLY = {"BD_SECRET_KEY"}
 
 
 def _is_runtime_tunable(it):

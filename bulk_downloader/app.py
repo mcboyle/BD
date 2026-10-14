@@ -129,6 +129,12 @@ _SITE_RUNTIME_ROLLBACK_PENDING = False
 _SITE_RUNTIME_RETIRING = False
 
 
+def _install_secret_key() -> None:
+    """O1671 a07: give the Flask session its key (app_oidc.install_secret_key)."""
+    from . import app_oidc
+    app_oidc.install_secret_key(app)
+
+
 def boot_once(*, force: bool = False) -> bool:
     """Run the one-time startup DB work. Returns True iff this call did it.
 
@@ -170,6 +176,9 @@ def boot_once(*, force: bool = False) -> bool:
         # path self-heals already: the key is only added after every step
         # succeeds, so a raise leaves it absent.)
         _BOOTED_PATHS.discard(key)
+        # O1671 a07: the session key comes before any other boot work. It may
+        # raise (OIDC on, no key), which leaves the path un-booted.
+        _install_secret_key()
         # v3.43.24: the self-test runs FIRST, before db_init(), so
         # auto_recover_sqlite() gets a chance to move a corrupt database aside
         # before db_init() tries to use it. That ordering is the whole reason
@@ -3296,16 +3305,126 @@ except Exception as _ss_wire_err:  # pragma: no cover
     sys.stderr.write(f"[saved_searches] enqueue handler wire failed: {_ss_wire_err}\n")
 
 
+_ROUTE_MAX_HOST = 253   # the longest DNS name
+_ROUTE_MAX_PATH = 4096  # regex input bound for a url_patterns path part
+
+
+def _route_target(url):
+    """(scheme, host, path, port) of an http(s) URL, or None -- what routing reads.
+
+    ext-route-anchor r2 (R268-B F1): the WHOLE url is parsed -- the host routing
+    reads is the host the queued url is fetched from.  Parsing a truncated copy
+    let "http://siteb.example.com" + "."*4200 + "@evil.test/x" lose its '@' and
+    route to siteb.  The regex inputs are bounded here instead: a host longer
+    than a DNS name is unroutable, the path is cut to _ROUTE_MAX_PATH."""
+    from urllib.parse import urlsplit
+    try:
+        p = urlsplit(url)
+        host = (p.hostname or "").lower().rstrip(".")
+        port = p.port
+    except ValueError:
+        return None
+    scheme = (p.scheme or "").lower()
+    if scheme not in ("http", "https") or not host or len(host) > _ROUTE_MAX_HOST:
+        return None
+    return scheme, host, (p.path or "/")[:_ROUTE_MAX_PATH], port
+
+
+def _split_url_pattern(pat):
+    """(scheme, host, path) parts of one url_patterns regex: split at the first
+    unescaped '/' ("://" first ends a scheme part).  scheme is None when the
+    pattern names none; path is None for a host-only pattern, else it keeps
+    its leading '/'."""
+    def first_slash(text):
+        i = 0
+        while i < len(text):
+            if text[i] == "\\":
+                i += 2
+                continue
+            if text[i] == "/":
+                return i
+            i += 1
+        return -1
+
+    scheme = None
+    i = first_slash(pat)
+    if i > 0 and pat[i - 1] == ":" and pat[i + 1:i + 2] == "/":
+        scheme, pat = pat[:i - 1], pat[i + 2:]
+        i = first_slash(pat)
+    if i < 0:
+        return scheme, pat, None
+    return scheme, pat[:i], pat[i:]
+
+
+def _url_pattern_matches(pat, target):
+    """ext-route-anchor r1 (R233-C A1): a url_patterns regex is matched against
+    the PARSED URL, host and path separately, never the raw string, so a site's
+    host named in a query or a path ("http://evil.test/?q=siteb.example.com",
+    "http://evil.test/siteb.example.com/") routes nowhere -- also for a pattern
+    written with a leading wildcard (".*siteb\\.example\\.com").
+
+    The host part must re.fullmatch the hostname (lower-cased, port stripped;
+    host:port also accepted) or one of its dot-bounded parents; a public-suffix
+    parent ("com", "co.uk") is never tried, an IP literal only whole.  The path
+    part, if any, must re.match the path; a scheme part must fullmatch the
+    scheme.  Query and fragment are never read.  Raises re.error for a pattern
+    a part of which does not compile."""
+    import ipaddress
+    from .registrable_domain import is_public_suffix
+    scheme, host, path, port = target
+    scheme_rx, host_rx, path_rx = _split_url_pattern(pat)
+    flags = re.IGNORECASE
+    if scheme_rx is not None and not re.fullmatch(scheme_rx, scheme, flags):
+        return False
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        hosts = [host]
+    except ValueError:
+        labels = host.split(".")
+        hosts = []
+        for i in range(len(labels)):
+            parent = ".".join(labels[i:])
+            if is_public_suffix(parent):
+                break
+            hosts.append(parent)
+    if port is not None:
+        hosts.append(f"{host}:{port}")
+    if not any(re.fullmatch(host_rx, h, flags) for h in hosts):
+        return False
+    return path_rx is None or re.match(path_rx, path, flags) is not None
+
+
+def _host_match_score(site_host, target_host):
+    """ext-route-anchor r1 (R233-C A2): 100 for the same host, 50 for a host
+    under the site's host or a parent of it down to its registrable domain,
+    else 0.  A public suffix ("com", "co.uk") is never a parent of anything."""
+    from .registrable_domain import is_public_suffix, registrable_domain
+    if not site_host or not target_host:
+        return 0
+    if site_host == target_host:
+        return 100
+    if is_public_suffix(site_host) or is_public_suffix(target_host):
+        return 0
+    if target_host.endswith("." + site_host):
+        return 50
+    if (site_host.endswith("." + target_host)
+            and registrable_domain(target_host) == registrable_domain(site_host)):
+        return 50
+    return 0
+
+
 def _score_url_against_sites(url: str, cfg_snapshot=None):
     """v3.43.40: extracted scoring helper used by both routing
     (just picks the best) and preview (also exposes why a given
     site won). Returns (best_sid, best_score, reason_text).
 
-    The scoring algorithm is shared with quick_add and route_urls:
-      - url_patterns regex match → 200
+    The scoring algorithm is shared with route_urls, route_preview and the
+    extension's lookup_url (ext-route-anchor r1: one matcher):
+      - url_patterns regex match on the parsed host/path → 200
+        (_url_pattern_matches; never the raw URL string)
       - exact hostname match against login_url / success_url → 100
-      - subdomain / apex match → 50
-      - Tie-breaker: site with more existing URLs (small bonus)
+      - subdomain / apex match, no public-suffix parent → 50
+      - Tie-breaker among matched sites: more existing URLs (small bonus)
 
     The reason_text describes WHY the winning site won, in a form
     suitable for showing to the user in the extension preview UI
@@ -3328,10 +3447,11 @@ def _score_url_against_sites(url: str, cfg_snapshot=None):
             url = str(url) if url is not None else ""
         except Exception:
             url = ""
-    try:
-        target_host = (urlparse(url).hostname or "").lower()
-    except Exception:
-        target_host = ""
+    # ext-route-anchor r1: every site is scored against the parsed URL; a
+    # string that is not an http(s) URL with a host matches no site.  The
+    # full url, never a truncated copy (r2 F1; _route_target bounds the parts).
+    target = _route_target(url)
+    target_host = target[1] if target else ""
     best_sid = None
     best_score = -1
     best_reason = ""
@@ -3341,7 +3461,7 @@ def _score_url_against_sites(url: str, cfg_snapshot=None):
         score = 0
         reason = ""
         patterns_raw = cfg.get("url_patterns") or ""
-        if isinstance(patterns_raw, str):
+        if isinstance(patterns_raw, str) and target:
             patterns = patterns_raw.strip()
             if patterns:
                 for line in patterns.replace(",", "\n").splitlines():
@@ -3353,12 +3473,13 @@ def _score_url_against_sites(url: str, cfg_snapshot=None):
                     if len(pat) > 512:
                         continue
                     try:
-                        if re.search(pat, url[:4096], re.IGNORECASE):
-                            score = max(score, 200)
-                            reason = f"matched url_patterns: {pat}"
-                            break
+                        matched = _url_pattern_matches(pat, target)
                     except re.error:
                         continue
+                    if matched:
+                        score = max(score, 200)
+                        reason = f"matched url_patterns: {pat}"
+                        break
         for fld in ("login_url", "success_url"):
             v_raw = cfg.get(fld) or ""
             if not isinstance(v_raw, str):
@@ -3370,17 +3491,14 @@ def _score_url_against_sites(url: str, cfg_snapshot=None):
                 h = (urlparse(v).hostname or "").lower()
             except Exception:
                 continue
-            if h and target_host:
-                if h == target_host:
-                    if score < 100:
-                        score = 100
-                        reason = f"hostname match on {fld}: {h}"
-                elif h.endswith("." + target_host) or target_host.endswith("." + h):
-                    if score < 50:
-                        score = 50
-                        reason = f"subdomain match on {fld}: {h}"
-        # Tie-breaker: site with more URLs
-        if sid in runners:
+            host_score = _host_match_score(h, target_host)
+            if host_score > score:
+                score = host_score
+                kind = "hostname" if host_score == 100 else "subdomain"
+                reason = f"{kind} match on {fld}: {h}"
+        # Tie-breaker between sites that MATCHED: one with more URLs.  A
+        # queue size alone is not a match (ext-route-anchor r1).
+        if score > 0 and sid in runners:
             score += min(len(runners[sid].urls), 99) * 0.01
         if score > best_score:
             best_sid = sid

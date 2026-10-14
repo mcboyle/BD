@@ -9,7 +9,6 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
-import re
 from flask import Blueprint, jsonify, request
 
 route_urls_bp = Blueprint("route_urls", __name__)
@@ -35,18 +34,19 @@ def _is_http_url(u):
     return p.scheme in ("http", "https") and bool(p.netloc)
 
 
-def _subdomain_of(host, parent):
-    """ext-routing r1 (F7): host sits under parent, and parent is a dotted name --
-    a bare label ("com") is a suffix of every host beneath it, not a site."""
-    return "." in parent and host.endswith("." + parent)
+def _score_url_against_sites(*_a, **_k):
+    """ext-route-anchor r1: the one routing matcher, app._score_url_against_sites
+    (lazy, as route_preview reaches it; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_score_url_against_sites")(*_a, **_k)
 
 
 @route_urls_bp.route("/api/route_urls",methods=["POST"])
 def api_route_urls():
     """POST {"text": "url1\\nurl2\\n..."}  â†’  distributes to matching sites.
 
-    Routing logic mirrors quick_add: per-site url_patterns regex first,
-    then hostname match. URLs that don't match any site go into the
+    Routing is the shared scorer (app._score_url_against_sites): per-site
+    url_patterns on the parsed host/path first, then hostname match. URLs that don't match any site go into the
     response under `unrouted` so the user can decide what to do with them
     (typically: pick a default site and re-import them manually)."""
     runners = _app_runners()
@@ -86,42 +86,16 @@ def api_route_urls():
             keep.append(url)
         urls = keep
 
-    from urllib.parse import urlparse
     by_site = {}  # sid -> list of urls
     unrouted = []
     results = []
+    # ext-route-anchor r1: score with the shared matcher (parsed host/path,
+    # no public-suffix parent) that lookup_url and route_preview use.  It
+    # skips malformed entries (ext-routing r1 F4) and adds no queue-size
+    # tie-break to a site that did not match.
+    cfg_snapshot = list(s_cfg.items())
     for url in urls:
-        try: target_host = (urlparse(url).hostname or "").lower()
-        except Exception: target_host = ""
-        best_sid = None; best_score = -1
-        for sid, cfg in s_cfg.items():
-            # ext-routing r1 (F4): the shared scorer's type checks -- a
-            # corrupt entry is skipped, the rest of the batch still routes.
-            if not isinstance(cfg, dict): continue
-            score = 0
-            patterns = cfg.get("url_patterns") or ""
-            patterns = patterns.strip() if isinstance(patterns, str) else ""
-            if patterns:
-                for line in patterns.replace(",", "\n").splitlines():
-                    pat = line.strip()
-                    if not pat: continue
-                    # v3.46.4 F9: bound regex eval time
-                    if len(pat) > 512: continue
-                    try:
-                        if re.search(pat, url[:4096], re.IGNORECASE):
-                            score = max(score, 200); break
-                    except re.error: continue
-            for fld in ("login_url", "success_url"):
-                v = cfg.get(fld) or ""
-                if not isinstance(v, str) or not v: continue
-                v = v.lower()
-                try: h = (urlparse(v).hostname or "").lower()
-                except Exception: continue
-                if h and target_host:
-                    if h == target_host: score = max(score, 100)
-                    elif _subdomain_of(h, target_host) or _subdomain_of(target_host, h):
-                        score = max(score, 50)
-            if score > best_score: best_score = score; best_sid = sid
+        best_sid, best_score, _reason = _score_url_against_sites(url, cfg_snapshot)
         if best_score > 0 and best_sid:
             by_site.setdefault(best_sid, []).append(url)
             results.append({"url": url, "site_id": best_sid,

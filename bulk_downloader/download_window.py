@@ -79,6 +79,10 @@ def parse_hm(s: str, default_min: int = 0) -> int:
         mi = int(m)
         if 0 <= hi < 24 and 0 <= mi < 60:
             return hi * 60 + mi
+        # '24:00' is end-of-day (ISO 8601). Rejecting it dropped the whole
+        # window, and a site whose only window was dropped runs unrestricted.
+        if hi == 24 and mi == 0:
+            return 24 * 60
     except (ValueError, TypeError):
         pass
     return default_min
@@ -114,6 +118,12 @@ def parse_windows(spec: str) -> list:
             continue
         # Reject same-minute windows (zero-duration); they're almost
         # certainly user error.
+        if start_min == end_min:
+            continue
+        # '24:00' as a START is midnight. Left at 1440 it would start a
+        # window no clock minute (0..1439) can ever reach.
+        if start_min == 24 * 60:
+            start_min = 0
         if start_min == end_min:
             continue
         out.append((start_min, end_min))
