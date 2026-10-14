@@ -91,15 +91,20 @@ def test_a_redeem_with_no_minted_code_admits_nothing(no_token):
     assert phone.get(DEV, environ_base=REMOTE).status_code == 403
 
 
-def test_control_loopback_mint_pairs_a_remote_phone_that_reaches_dev(no_token):
-    """The QR flow: the operator mints on the box, the phone redeems over the LAN and is signed in."""
+def test_control_loopback_mint_pairs_a_remote_phone_that_is_signed_in(no_token):
+    """The QR flow: the operator mints on the box, the phone redeems over the LAN and is
+    signed in. dev-paired-session-scope (main 4ccdf4ca) keeps that session off /api/dev/*,
+    so "signed in" is the paired-specific refusal, distinct from the stranger's generic one."""
     r, code = _mint(_client())                    # test client peer = 127.0.0.1
     assert r.status_code == 200 and code, f"loopback mint refused: {r.status_code}"
     phone = _client()
-    assert phone.get(DEV, environ_base=REMOTE).status_code == 403
+    before = phone.get(DEV, environ_base=REMOTE)
+    assert before.status_code == 403 and bd_app._DEV_PAIRED_REFUSAL not in before.get_json()["error"]
     redeem = phone.post("/api/pair/redeem", json={"token": code}, environ_base=REMOTE)
     assert redeem.status_code == 200
-    assert phone.get(DEV, environ_base=REMOTE).status_code == 200
+    after = phone.get(DEV, environ_base=REMOTE)
+    assert (after.status_code, after.get_json()["error"]) == (403, bd_app._DEV_PAIRED_REFUSAL), (
+        f"{DIAG}: paired phone GET {DEV} -> {after.status_code} {after.get_json()!r}")
 
 
 def test_control_a_paired_session_can_mint_again(no_token):

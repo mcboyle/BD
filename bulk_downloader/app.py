@@ -4053,8 +4053,8 @@ def _dev_request_authorized() -> bool:
     (BD-SEC-6). A remote SPA on a token-less box now has to log in or set a
     token. Scoped bdapi_ tokens already cannot reach /api/dev/*
     (_API_TOKEN_ROUTE_POLICY)."""
-    ra = (request.remote_addr or "")
-    if ra in ("127.0.0.1", "::1", "localhost"):
+    from . import request_peer as _rp  # proxied loopback is remote (pair-admission-proxy)
+    if _rp.client_is_loopback(request, _rp.trusted_proxies()):
         return True
     sess = request.cookies.get("bd_session", "")
     if sess and _session_authenticated(sess) and not _dev_session_is_paired(sess):

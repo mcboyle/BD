@@ -12,6 +12,8 @@ from __future__ import annotations
 import time
 from flask import Blueprint, jsonify, request
 
+from bulk_downloader import request_peer
+
 pair_bp = Blueprint("pair", __name__)
 
 def _csrf_token_for(*_a, **_k):
@@ -108,13 +110,16 @@ def _pair_mint_authorized() -> bool:
     with no token configured _check_token allows every /api call, which left
     GET /api/pair -> POST /api/pair/redeem as a two-request login for anyone on
     the network. A code is minted only for:
-      * a loopback peer (the operator on the box itself);
+      * the operator on the box itself: a loopback peer (127.0.0.0/8, ::1,
+        ::ffff:127.0.0.1) with no Forwarded / X-Forwarded-For / X-Real-IP
+        header, or a trusted_proxies peer forwarding a loopback client
+        (request_peer.client_is_loopback). The shipped Caddyfile proxies from
+        localhost, so a proxied LAN/WAN caller is not the box;
       * a valid master token (Authorization: Bearer / X-BD-Token);
       * a caller that already holds a login session (_session_authenticated).
     Everything else is refused, so a redeem can only ever complete a pairing
     one of those callers started."""
-    ra = request.remote_addr or ""
-    if ra in ("127.0.0.1", "::1", "localhost"):
+    if request_peer.client_is_loopback(request, request_peer.trusted_proxies()):
         return True
     sess = request.cookies.get("bd_session", "")
     if sess and _session_authenticated(sess):
