@@ -127,6 +127,15 @@ _EXPECTED_RUNTIME_CONSUMERS = {
     # names alone, so these two sites were never judged at all. Its only use of
     # the reason text is an f-string in a MESSAGE (:457), not a decision.
     "bulk_downloader/template_selector_verifier.py": {"_via:_host_public": 2},
+    # T281i (ssrf-public-literal r1, S74-D): _refuse_non_public_literal judges an
+    # IP-literal host on the BOOLEAN (`ok, why = _classify_ip(...)`; `if not ok:`
+    # raise); `why` is carried into the refusal message and its structured `code`
+    # into reason=, never compared as text.
+    "bulk_downloader/ssrf_transport.py": {"_classify_ip": 1},
+    # T281i (pes-scrapers-fix r2, S74-D): _url_host_refusal decides on the BOOLEAN
+    # (`ok, reason = _is_safe_public_host(host)`; "" if ok); str(reason) is only
+    # the text of the BridgeError its two callers raise, never parsed.
+    "bulk_downloader/tool_bridge.py": {"_is_safe_public_host": 1},
 }
 
 # This tool has an unrelated local classifier with the same private name. Its
