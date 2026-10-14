@@ -256,6 +256,12 @@ def save_user_template(
         "learned": learned,
         "source": source,
     }
+    # cookie-file-roots r2 (lens R58-B F1, PM 00:08Z b): a template that names
+    # a site's cookie_file or accounts is refused here, not saved cut down --
+    # the caller is told (400) instead of finding the keys silently gone.
+    if isinstance(config_defaults, dict) and (
+            "cookie_file" in config_defaults or "accounts" in config_defaults):
+        return False, "config_defaults may not carry cookie_file or accounts"
     if config_defaults:
         template["config_defaults"] = config_defaults
     template = _safe_config(template)  # BD-SEC-5 H1: allowlisted keys only

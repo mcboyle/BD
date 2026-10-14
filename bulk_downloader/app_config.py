@@ -29,6 +29,16 @@ def _build_meta(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_build_meta")(*_a, **_k)
 
+def _validate_cookie_files(*_a, **_k):
+    """Delegate to app._validate_cookie_files at call time (lazy; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_validate_cookie_files")(*_a, **_k)
+
+def _validate_config_paths(*_a, **_k):
+    """Delegate to app._validate_config_paths at call time (lazy; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_validate_config_paths")(*_a, **_k)
+
 def _app_CFG_FIELDS():
     """The live shared CFG_FIELDS from app.py (fetched fresh per call, by reference)."""
     import importlib
@@ -391,6 +401,22 @@ def api_config_import():
                 else str(_n) if _n is not None else "").strip()
         cfg = {k: raw.get(k, "") for k in CFG_FIELDS}
         cfg["name"] = name or f"Imported {len(normalized) + 1}"
+        # cookie-file-roots: the cookie_file check of every site write route
+        # (site's and accounts[]), on the values this request sends and before
+        # the all-site transaction; one refused site refuses the whole import,
+        # so nothing of it is stored.  Values a merge restores from the stored
+        # config below are not re-judged (same rule as PUT).
+        _cf_ok, _cf_err = _validate_cookie_files(cfg)
+        if not _cf_ok:
+            return jsonify({"error": f"site {len(normalized) + 1}: {_cf_err}"}), 400
+        # r2 (lens R58-B F3): a wrongly typed accounts reached the runner
+        # constructor and came back as a 503 rollback; it is a bad request.
+        _accts = cfg.get("accounts")
+        if _accts not in (None, "") and (
+                not isinstance(_accts, list)
+                or not all(isinstance(_a, dict) for _a in _accts)):
+            return jsonify({"error": f"site {len(normalized) + 1}: accounts "
+                                     "must be a list of objects"}), 400
         for key, default in DEFAULTS.items():
             if cfg.get(key) in ("", None):
                 cfg[key] = default
@@ -413,7 +439,7 @@ def api_config_import():
         update_plan = []
         create_plan = []
 
-        for cfg in normalized:
+        for _site_n, cfg in enumerate(normalized, 1):
             existing_sid = (name_to_sid.get(cfg["name"].lower())
                             if mode == "merge" else None)
             # Preserve the historical orphan behavior: a config without a
@@ -421,6 +447,24 @@ def api_config_import():
             # rather than pretending the orphan's runtime changed.
             if existing_sid and existing_sid not in runners:
                 existing_sid = None
+            # cookie-file-roots r3 (lens R26-C): download_dir / spillover_dirs
+            # are judged here, before anything is constructed, retired or
+            # published -- the writer's refusal after the publish left a new
+            # site live (stored later with download_dir blanked).  A value
+            # the merged site already holds is not re-judged (the writer's
+            # own rule for rows stored before the roots narrowed).
+            _held = s_cfg.get(existing_sid) if existing_sid else None
+            for _pf in ("download_dir", "spillover_dirs"):
+                _pv = cfg.get(_pf)
+                if (isinstance(_held, dict) and _pf in _held
+                        and type(_held[_pf]) is type(_pv)
+                        and _held[_pf] == _pv):
+                    continue
+                _p_ok, _p_err = _validate_config_paths({_pf: _pv}) if (
+                    _pv is None or isinstance(_pv, str)) else (
+                        False, f"{_pf} must be a string")
+                if not _p_ok:
+                    return jsonify({"error": f"site {_site_n}: {_p_err}"}), 400
             if existing_sid:
                 from .site_editor import SECRET_FIELDS, is_secret_config_key
                 old_cfg = s_cfg[existing_sid]

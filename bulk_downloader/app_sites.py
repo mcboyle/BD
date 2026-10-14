@@ -172,6 +172,11 @@ def _validate_config_paths(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_validate_config_paths")(*_a, **_k)
 
+def _validate_cookie_files(*_a, **_k):
+    """Delegate to app._validate_cookie_files at call time (lazy; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_validate_cookie_files")(*_a, **_k)
+
 def _vault_guard_for_password(*_a, **_k):
     """Delegate to app._vault_guard_for_password at call time (lazy; avoids an import cycle)."""
     import importlib

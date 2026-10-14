@@ -245,8 +245,10 @@ def test_sites_config_saves_serialize_snapshot_through_atomic_replace(
         return original_dumps(*args, **kwargs)
 
     configs = {
-        "site-a": {"name": "Site A", "cookie_file": "cookie-a.json"},
-        "site-b": {"name": "Site B", "cookie_file": "cookie-b.json"},
+        # cookie-file-roots r2: the writer refuses a NEW relative cookie_file;
+        # blank is the value it fills with its own default path.
+        "site-a": {"name": "Site A", "cookie_file": ""},
+        "site-b": {"name": "Site B", "cookie_file": ""},
     }
     monkeypatch.setattr(_app, "s_cfg", configs)
     monkeypatch.setattr(_app, "SITES_FILE", tmp_path / "sites_config.json")

@@ -761,6 +761,10 @@ def api_template_apply(sid):
     cfg = s_cfg.get(sid, {})
     defaults = dict(tpl.get("config_defaults") or {})
     defaults.pop(CAPTCHA_EGRESS_ACK_FIELD, None)
+    # cookie-file-roots r2 (lens R58-B F1, PM 00:08Z b): a template never fills
+    # a site's cookie_file or accounts, whatever its source.
+    defaults = {_k: _v for _k, _v in defaults.items()
+                if _k not in ("cookie_file", "accounts")}
     refusal = captcha_egress_disclosure_error(defaults, cfg)
     if refusal:
         return jsonify({"ok": False, "error": refusal}), 400
