@@ -134,6 +134,21 @@ AUTH_BODY_RE = re.compile(
     r"|sign\s*in\s+to\s+your\s+account"
     r"|<input[^>]+type=[\"']password[\"']", re.I)
 
+# The login-URL / sign-in-word vocabulary shared by session_keeper (session
+# liveness: redirect targets, _LOGIN_FORM_JS, _SIGNIN_TEXT_RE) and
+# runner_transport (_is_login_wall_href). ONE source: when the keeper carried
+# it and the transport imported it from there, that was a runner -> core edge
+# (t154-coupling-residual); a second literal in the transport could drift.
+#
+# WORD BOUNDARIES, NOT SUBSTRINGS. \b(log|sign)[\s_-]?in\b matches "sign in" /
+# "sign-in" / "sign_in" / "login" and rejects "signed in" (the "ed" breaks it)
+# and "design intent" (no boundary before "sign"). session_keeper.py documents
+# the conjunction this word is used under.
+SIGNIN_WORD = r"\b(?:log|sign)[\s_-]?in\b"
+
+LOGIN_URL_RE = re.compile(
+    SIGNIN_WORD + r"|/auth(?:/|$)|/sessions?/new\b", re.I)
+
 # dl95-kink-1: the logged-out SHAPE of a page, for a page that yielded no
 # download control. A login is offered (a password input, or the words
 # log in / sign in anywhere in the document) and NO logout control exists
@@ -150,17 +165,10 @@ LOGGED_OUT_SHAPE_JS = r"""() => {
     /\b(?:log|sign)[\s_-]?in\b/i.test(text);
 }"""
 
-# dl95-naughtyamerica-3: the logged-IN half of the same test -- a logout
-# control is on the page (the selectors and words LOGGED_OUT_SHAPE_JS takes
-# as proof of a member page). A verdict that would tell the operator to log
-# in asks this first: a page with a logout control is already logged in.
-LOGOUT_CONTROL_JS = r"""() => {
-  const text = (document.body ? document.body.textContent : '') || '';
-  return !!(document.querySelector(
-    'a[href*="logout" i],a[href*="log-out" i],a[href*="signout" i],' +
-    'a[href*="sign-out" i],form[action*="logout" i]') ||
-    /\b(?:log|sign)[\s-]?out\b/i.test(text));
-}"""
+# dl95-naughtyamerica-3: the logged-IN half of the same test (a logout control
+# on the page, the same selectors and words as above) is LOGOUT_CONTROL_JS in
+# runner_extractors.py, its only consumer (t154-coupling-residual: a runner
+# module importing it from here was a runner -> core edge).
 
 
 class _HTTPDownloadFailed(Exception):
