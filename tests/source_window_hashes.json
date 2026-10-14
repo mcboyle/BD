@@ -147,12 +147,12 @@
     {
       "bytes": 5004,
       "key": "tests/test_v3_43_34_sse_broker.py::test_stream_endpoint_handles_generator_exit::src[pos:pos + 5000]::1",
-      "sha256": "6e281498a72486ad831a7a5d777aada31fcad2f32a065f124879d413e1595dd3"
+      "sha256": "81f30346caa88a976442129ba54e481e01ebc53a778a98bc1365045973287604"
     },
     {
       "bytes": 5004,
       "key": "tests/test_v3_43_34_sse_broker.py::test_stream_endpoint_uses_broker::src[pos:pos + 5000]::1",
-      "sha256": "6e281498a72486ad831a7a5d777aada31fcad2f32a065f124879d413e1595dd3"
+      "sha256": "81f30346caa88a976442129ba54e481e01ebc53a778a98bc1365045973287604"
     },
     {
       "bytes": 888,
@@ -297,22 +297,22 @@
     {
       "bytes": 4004,
       "key": "tests/test_v3_43_46_audit.py::test_sse_generator_uses_finally_for_cleanup::src[pos:pos + 4000]::1",
-      "sha256": "4a42569ab398524d9647a2b59fe5d2423e691c26172850ec7895dcb1393f5a96"
+      "sha256": "7d170555084183a29a8f560cc7a3b5f7a712cffc7d2f4bb794aba15df8778d1e"
     },
     {
       "bytes": 4004,
       "key": "tests/test_v3_43_46_audit.py::test_sse_handler_no_separate_unsubscribe_in_except::src[pos:pos + 4000]::1",
-      "sha256": "4a42569ab398524d9647a2b59fe5d2423e691c26172850ec7895dcb1393f5a96"
+      "sha256": "7d170555084183a29a8f560cc7a3b5f7a712cffc7d2f4bb794aba15df8778d1e"
     },
     {
       "bytes": 6012,
       "key": "tests/test_v3_43_46_audit.py::test_x_bd_token_header_accepted_as_bearer::src[pos:pos + 6000]::1",
-      "sha256": "638854454e1a947ce7811514262de6436faa1d6ee74ebfc378768d52498dbc86"
+      "sha256": "80d75c89aade18d274a2842fce1bf7dc143200e43938934fb8694cdf0477a122"
     },
     {
       "bytes": 6012,
       "key": "tests/test_v3_43_46_audit.py::test_x_bd_token_matches_authorization_bearer_semantics::src[pos:pos + 6000]::1",
-      "sha256": "638854454e1a947ce7811514262de6436faa1d6ee74ebfc378768d52498dbc86"
+      "sha256": "80d75c89aade18d274a2842fce1bf7dc143200e43938934fb8694cdf0477a122"
     },
     {
       "bytes": 400,
