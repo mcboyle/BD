@@ -169,7 +169,11 @@ def _restore_db(tmp: Path, dest: Path) -> str | None:
 # POS-1 (v3.66.663): members that carry secrets/session data. In encrypt_scope=
 # "sensitive" these are encrypted in-place (ciphertext under the same arcname);
 # everything else stays plaintext + directly inspectable.
-_SENSITIVE_EXACT = {"secrets.json", "secrets_meta.json", "vault_tokens.json"}
+# queue-headers-redact r1: the app DB holds each queued URL's custom header
+# values (Authorization, Cookie) in queue + queue_templates rows, so it is a
+# sensitive member too. A backup with no passphrase still carries it in clear.
+_SENSITIVE_EXACT = {"secrets.json", "secrets_meta.json", "vault_tokens.json",
+                    "downloader_history.db"}
 _SENSITIVE_PREFIXES = ("cookies/", "state/")
 _KDF_ITERATIONS = 600_000
 
@@ -302,9 +306,24 @@ def create_backup(out_path: str | Path, base_dir: str | Path = ".",
                                     f"{arc_dir}: {_size} bytes > restore cap "
                                     f"{_RESTORE_MEMBER_CAP}")
                                 continue
-                            zf.write(snap, arc_dir)
-                            checksums[arc_dir] = hashlib.sha256(
-                                snap.read_bytes()).hexdigest()
+                            if do_sensitive and _is_sensitive_arc(arc_dir):
+                                # ciphertext under the same arcname, checksum over
+                                # the plaintext (as the sensitive files below)
+                                from cryptography.fernet import Fernet
+                                _plain = snap.read_bytes()
+                                _ct = Fernet(enc_key).encrypt(_plain)
+                                if len(_ct) > _RESTORE_MEMBER_CAP:
+                                    skipped.append(
+                                        f"{arc_dir}: {len(_ct)} encrypted bytes "
+                                        f"> restore cap {_RESTORE_MEMBER_CAP}")
+                                    continue
+                                zf.writestr(arc_dir, _ct)
+                                enc_members.append(arc_dir)
+                                checksums[arc_dir] = hashlib.sha256(_plain).hexdigest()
+                            else:
+                                zf.write(snap, arc_dir)
+                                checksums[arc_dir] = hashlib.sha256(
+                                    snap.read_bytes()).hexdigest()
                         files_written += 1
                     except (OSError, sqlite3.Error) as e:
                         skipped.append(f"{arc_dir}: {type(e).__name__}")
