@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1850 - train281h: row
+
+T281h-D on main 88ea4929 (T281g-B merged) (13 members; product train; legs BOARD per O1672/BOARDED-for-integration.md; O3122 auto promote+deploy on green). No path overlap between members or with T281g-A members.
+FIX: dsq-batch-ops r3 -- deep-settings-queue batch ops (member of record since T281g intake 06:49Z).
+FIX: dsq-spa-errors r2 -- deep-settings-queue SPA error paths.
+FIX: ssqh-f3 r1 -- app_search.py (R122-A).
+TEST: stale-gate fix-r1/A -- dl95 badge test fixture only (R128-D).
+FIX: stale-gate fix-r1/B r2 -- wal_inspector.py vectorised checksum + deterministic in-flight handshake test (R168-C).
+FIX: dat-egress-xport r3 -- adapters/transport egress export (R-leg per INTAKE).
+FIX: qt-m4 r1 -- app_user_templates.py refuses non-string template id, 400 before store write (R139-A).
+FIX: settings-cockpit-fix r1 -- tools/cockpit_core.py + cockpit_console.py F02/F03/F18 (R138-C).
+FIX: reports-fix r1 -- tools report_core.py + 10 *_report.py, 9 findings (R150-C).
+FIX: spa-tools-fix r1 -- SPA tools/ai-teach/dom-analyzer/budget + ai_bp guards F1 F2 F3 F5 F6 F8 (R164-C).
+FIX: bench-fix r1 -- multi_site/temporal benchmark F1 F3 F6-F9 + F2 doc (R156-D).
+FIX: library-fix r2 -- SPA Library/TemplateManager/dialog F1-F11 + F6b (R167-D).
+FIX: embed-viewport-fix r1 -- embeddings/semantic_search/viewport F4 F10-F13 + TOKENIZER_VERSION=2 (R155-C).
+
+
 ## v3.66.1849 - train281g: row
 
 T281g-B on main 7927017d (11 members; session-jar r1 and reserve-toctou r1 bounced after the T281g-A band; product train after T281f; legs BOARD per O1672/BOARDED-for-integration.md; O3122 overnight product trains auto promote+deploy on green). Members in apply order; the app.py chain and the runner_transport.py chain are kept in one train (sequential merge-tree 0 CONFLICT; dat-retry's _TRANSIENT_DOWNLOAD_ERROR_RE hunk is the UNION of ddt-fix + dat-retry, resolved in place, O1319).
