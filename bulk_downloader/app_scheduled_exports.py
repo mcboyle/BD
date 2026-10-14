@@ -50,14 +50,14 @@ def api_sched_exports_add():
             destination=body.get("destination", ""),
             cadence_hours=int(body.get("cadence_hours", 24) or 24),
             filter_dict=body.get("filter_dict") or None,
-            retention_count=int(body.get("retention_count", 10) or 10),
+            retention_count=body.get("retention_count", 10),
             source_saved_search=int(_src) if _src else None,
         )
         if rid is None:
             return jsonify({"ok": False,
                             "error": "invalid params (format must be one of "
-                                     "eol/csv/json/ndjson/m3u; destination "
-                                     "must be writable; cadence_hours > 0)"}), 400
+                                     "eol/csv/json/ndjson/m3u; destination under "
+                                     f"{_se.export_roots()[0]} or an allowed folder; cadence_hours > 0; retention_count >= 1)"}), 400
         return jsonify({"ok": True, "id": rid})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
@@ -79,7 +79,7 @@ def api_sched_exports_run_now():
     _check_csrf()
     try:
         from . import scheduled_exports as _se
-        return jsonify(_se.run_due_exports(s_cfg=s_cfg))
+        return jsonify(_se.run_due_exports(s_cfg=s_cfg, force=True))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 

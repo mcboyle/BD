@@ -873,13 +873,18 @@ class TestScheduledExports:
         _seed_history()
         from bulk_downloader import scheduled_exports as se
         dest = tempfile.mkdtemp(prefix="bdtest-sched-")
-        sid = se.add_schedule(label="x", format="csv",
-                              destination=dest, cadence_hours=168)
-        assert sid is not None
-        r = se.run_due_exports()
-        assert r["ran"] >= 1
-        files = os.listdir(dest)
-        assert any(f.startswith("bd-csv-") for f in files)
+        # sc-f9: a destination outside <home>/exports must be an allowed folder
+        _allowlist, se._allowlist_text = se._allowlist_text, lambda: dest
+        try:
+            sid = se.add_schedule(label="x", format="csv",
+                                  destination=dest, cadence_hours=168)
+            assert sid is not None
+            r = se.run_due_exports()
+            assert r["ran"] >= 1
+            files = os.listdir(dest)
+            assert any(f.startswith("bd-csv-") for f in files)
+        finally:
+            se._allowlist_text = _allowlist
 
 
 # ─── Alerts engine ────────────────────────────────────────────────────

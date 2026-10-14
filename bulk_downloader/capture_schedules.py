@@ -64,6 +64,13 @@ def add_schedule(*, site_id: str, cadence_hours: int,
         return None
     if cadence_hours <= 0:
         return None
+    if isinstance(urls, str):
+        urls = [urls]       # one URL, not one "URL" per character
+    if urls is not None:
+        if (not isinstance(urls, (list, tuple))
+                or not all(isinstance(u, str) for u in urls)):
+            return None     # refused, not silently dropped
+        urls = [u.strip() for u in urls if u.strip()]
     try:
         from . import db as _db
         with _db.db_conn() as cx:
@@ -180,13 +187,17 @@ def run_due(*, enqueue_fn: Callable,
     try:
         from . import db as _db
         with _db.db_conn() as cx:
-            rows = cx.execute(
+            rows = [dict(r) for r in cx.execute(
                 """SELECT * FROM capture_schedules
                    WHERE enabled = 1 AND next_run_ts <= ?
                    ORDER BY id ASC""",
-                (now,)).fetchall()
-            for r in rows:
-                results.append(_fire_one(cx, dict(r), enqueue_fn, now))
+                (now,)).fetchall()]
+        for r in rows:
+            # One transaction per schedule. Held across the loop, the first
+            # row's uncommitted UPDATE locked out the next row's record_change
+            # (its own handle): 10 s of busy_timeout each, change record lost.
+            with _db.db_conn() as cx:
+                results.append(_fire_one(cx, r, enqueue_fn, now))
     except Exception as e:
         return {"ran": len(results), "results": results,
                 "error": str(e)[:200]}
@@ -333,13 +344,17 @@ def _ics_fold(line: str) -> str:
     raw = line.encode("utf-8")
     if len(raw) <= 75:
         return line
-    out, i = [], 0
-    limit = 75
-    while i < len(raw):
-        chunk = raw[i:i + limit]
-        out.append(chunk.decode("utf-8", "ignore"))
-        i += limit
-        limit = 74  # continuation lines carry a leading space
+    # Fold between characters: a cut inside a multibyte sequence dropped it.
+    out, cur, size, limit = [], [], 0, 75
+    for ch in line:
+        n = len(ch.encode("utf-8"))
+        if size + n > limit:
+            out.append("".join(cur))
+            cur, size = [], 0
+            limit = 74  # continuation lines carry a leading space
+        cur.append(ch)
+        size += n
+    out.append("".join(cur))
     return "\r\n ".join(out)
 
 

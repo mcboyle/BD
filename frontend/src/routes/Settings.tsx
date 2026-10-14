@@ -601,6 +601,22 @@ export function Settings() {
               stacked
             />
             <SettingRow
+              modified={mod("scheduled_export_allowed_dirs")}
+              label="Scheduled export folders"
+              hint="Extra folders a scheduled export may write to, one absolute path per line. The app's own exports folder is always allowed; a schedule whose folder is removed here stays listed, and its runs are skipped until the folder is allowed again."
+              control={
+                <textarea
+                  aria-label="Scheduled export folders"
+                  value={draft.scheduled_export_allowed_dirs ?? ""}
+                  onChange={(e) => setField("scheduled_export_allowed_dirs", e.target.value)}
+                  placeholder="/mnt/nas/bd-exports"
+                  rows={3}
+                  className="hairline w-72 rounded-md bg-surface px-2 py-1.5 font-mono text-xs"
+                />
+              }
+              stacked
+            />
+            <SettingRow
               label="Watch interval"
               hint="Seconds between folder scans."
               control={

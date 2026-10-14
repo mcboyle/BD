@@ -67,6 +67,7 @@ export const SETTINGS_SCHEMA: Record<string, SettingFieldMeta> = {
   watch_interval_sec: { section: "Downloads", label: "Watch interval (sec)" },
   watch_archive: { section: "Downloads", label: "Archive watched files" },
   photo_sets: { section: "Downloads", label: "Photo sets" },
+  scheduled_export_allowed_dirs: { section: "Downloads", label: "Scheduled export folders" },
   // ── AI assist ──────────────────────────────────────────────────────────
   ai_enabled: { section: "AI assist", label: "AI assist enabled" },
   ai_provider: { section: "AI assist", label: "AI provider" },

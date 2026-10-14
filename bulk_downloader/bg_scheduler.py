@@ -226,6 +226,21 @@ def stop():
     _started = False
 
 
+def ensure_default_tasks() -> bool:
+    """Register the default tasks only when NOTHING is registered yet (the
+    lazy first-start of GET /api/bg/status). Returns True iff it registered.
+
+    register() replaces a task's fn, so an argument-less
+    register_default_tasks() on top of boot's wiring (site config, runners,
+    capture enqueue) swapped every wired task for a closure over None: each
+    kept reporting last_status "ok" while doing nothing."""
+    with _lock:
+        if _tasks:
+            return False
+    register_default_tasks()
+    return True
+
+
 def register_default_tasks(*, s_cfg_getter: Optional[Callable] = None,
                           runners_getter: Optional[Callable] = None,
                           capture_enqueue_fn: Optional[Callable] = None):

@@ -22,7 +22,7 @@ def api_bg_status():
         from . import bg_scheduler as _bg
         # Lazy first-start: register canonical tasks + spin up thread.
         if not getattr(api_bg_status, "_started", False):
-            _bg.register_default_tasks()
+            _bg.ensure_default_tasks()
             _bg.start()
             api_bg_status._started = True
         return jsonify(_bg.status())

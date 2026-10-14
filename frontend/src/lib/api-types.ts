@@ -403,6 +403,8 @@ export interface GlobalConfigSubset {
   cockpit_tasks?: string;
   framework_reports?: string;
   watch_folder?: string;
+  // sc-f9: extra folders a scheduled export may write under, one absolute path per line.
+  scheduled_export_allowed_dirs?: string;
   watch_interval_sec?: number;
   watch_archive?: boolean;
   log_level?: string;
