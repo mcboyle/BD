@@ -101,7 +101,7 @@ def _run_chain():
     proc = subprocess.run(
         [sys.executable, str(_REPO / "tools/promote_template.py"),
          str(cand_path), "--out-dir", str(reviewed), "--enable"],
-        cwd=str(_REPO), capture_output=True, text=True,
+        cwd=str(_REPO), capture_output=True, text=True, timeout=120,
     )
     assert proc.returncode == 0, f"promote failed: {proc.stderr or proc.stdout}"
     tpl = R.find_template_for_url("https://app.reptyle.com/movies/9", [str(reviewed)])

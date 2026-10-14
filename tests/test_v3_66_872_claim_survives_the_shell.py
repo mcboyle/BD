@@ -62,11 +62,11 @@ def _mkrepo(tmp_path: Path) -> Path:
               ["git", "config", "user.email", "a@b.c"],
               ["git", "config", "user.name", "t"],
               ["git", "config", "core.hooksPath", ".githooks"]):
-        subprocess.run(c, cwd=r, check=True)
+        subprocess.run(c, cwd=r, check=True, timeout=120)
     (r / "victim.py").write_text("orig\n")
-    subprocess.run(["git", "add", "-A"], cwd=r, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=r, check=True, timeout=120)
     subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=a@b.c", "commit", "-qm", "base"], cwd=r, check=True,
-                   env={**os.environ, "BD_SKIP_CLAIM_CHECK": "1"})
+                   env={**os.environ, "BD_SKIP_CLAIM_CHECK": "1"}, timeout=120)
     return r
 
 
@@ -119,7 +119,7 @@ def test_the_hook_refuses_a_sweep_of_a_shell_made_claim(tmp_path):
     assert _claim(r, "add", "victim.py", "--label", "agentA",
                   owner="agentA").returncode == 0
     (r / "victim.py").write_text("orig\nhalf-written work by agent A\n")
-    subprocess.run(["git", "add", "-A"], cwd=r, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=r, check=True, timeout=120)
     c = _commit(r, "agent B regen sweep", owner="agentB")
     assert c.returncode != 0, (
         "agent B swept agent A's claimed file onto the branch and the hook "
@@ -145,7 +145,7 @@ def test_the_claimant_may_commit_its_own_claimed_path(tmp_path):
     assert _claim(r, "add", "victim.py", "--label", "me",
                   owner="agentA").returncode == 0
     (r / "victim.py").write_text("orig\nmine\n")
-    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True)
+    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True, timeout=120)
     c = _commit(r, "claimant commits its own file", owner="agentA")
     assert c.returncode == 0, (
         "the hook refused the CLAIMANT's own commit. stderr=%r" % c.stderr)
@@ -167,7 +167,7 @@ def test_a_dead_claimant_never_wedges_the_repo(tmp_path):
         {"owner": "crashed", "owner_pid": dead, "owner_start": "1",
          "expires_at": None, "label": "crashed", "paths": ["victim.py"]}))
     (r / "victim.py").write_text("orig\nrecovery\n")
-    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True)
+    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True, timeout=120)
     c = _commit(r, "after a crash", owner="someone-else")
     assert c.returncode == 0, (
         "a CRASHED agent's claim wedged the repo. stderr=%r" % c.stderr)
@@ -187,7 +187,7 @@ def test_an_expired_claim_is_reaped_even_when_its_owner_is_alive(tmp_path):
          "expires_at": time.time() - 1, "label": "stale",
          "paths": ["victim.py"]}))
     (r / "victim.py").write_text("orig\nlater\n")
-    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True)
+    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True, timeout=120)
     c = _commit(r, "after the ttl", owner="someone-else")
     assert c.returncode == 0, (
         "an EXPIRED claim still blocked a commit while its owner was alive. "
@@ -200,7 +200,7 @@ def test_no_claims_means_no_opinion_and_no_output(tmp_path):
     it."""
     r = _mkrepo(tmp_path)
     (r / "victim.py").write_text("orig\nsolo\n")
-    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True)
+    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True, timeout=120)
     c = _commit(r, "solo operator")
     assert c.returncode == 0, c.stderr
     assert "REFUSING" not in c.stderr and "pre-commit" not in c.stderr, (
@@ -289,7 +289,7 @@ def test_the_skip_override_still_works(tmp_path):
     assert _claim(r, "add", "victim.py", "--label", "agentA",
                   owner="agentA").returncode == 0
     (r / "victim.py").write_text("orig\nforced\n")
-    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True)
+    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True, timeout=120)
     c = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=a@b.c", "commit", "-m", "forced"], cwd=r,
                        capture_output=True, text=True, timeout=120,
                        env={**os.environ, "BD_CLAIM_OWNER": "agentB",
@@ -338,7 +338,7 @@ def test_a_recycled_pid_is_not_mistaken_for_the_original_claimant(tmp_path):
          "owner_start": "definitely-not-the-real-start-time",
          "expires_at": None, "label": "recycled", "paths": ["victim.py"]}))
     (r / "victim.py").write_text("orig\nafter recycling\n")
-    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True)
+    subprocess.run(["git", "add", "victim.py"], cwd=r, check=True, timeout=120)
     c = _commit(r, "after the pid was recycled", owner="someone-else")
     assert c.returncode == 0, (
         "a claim held by a RECYCLED pid blocked the commit. Its owner_pid is "
