@@ -55,6 +55,34 @@ def _template_shape_error(t):
     return None
 
 
+def _masked(t):
+    """queue-headers-redact r1: a template as a client sees it -- header names
+    kept, every value masked, in its entries and in the entry-keyed maps."""
+    from . import queue_templates as _qt
+    out = dict(t)
+    for key in ("urls", "priority_map", "force_set"):
+        v = t.get(key)   # a map written before validation may be any shape
+        if isinstance(v, dict):
+            out[key] = {_qt.masked_entry(k): x for k, x in v.items()}
+        elif isinstance(v, list):
+            out[key] = [_qt.masked_entry(u) for u in v]
+    return out
+
+
+def _unmasked(body, held):
+    """(urls, priority_map, force_set) of a POST/PUT body with each masked
+    header value replaced by the ``held`` one or dropped; None stays None."""
+    from . import queue_templates as _qt
+    urls, pmap, fset = body.get("urls"), body.get("priority_map"), body.get("force_set")
+    if isinstance(urls, list):
+        urls = [_qt.unmasked_entry(u, held) for u in urls]
+    if isinstance(pmap, dict):
+        pmap = {_qt.unmasked_entry(k, held): v for k, v in pmap.items()}
+    if isinstance(fset, list):
+        fset = [_qt.unmasked_entry(u, held) for u in fset]
+    return urls, pmap, fset
+
+
 @queue_templates_bp.route("/api/queue_templates", methods=["GET", "POST"])
 def api_queue_templates():
     from . import queue_templates as _qt
@@ -70,11 +98,12 @@ def api_queue_templates():
     if not name:
         return jsonify({"ok": False, "error": "name required"}), 400
     origin = body.get("origin_site_id") or ""
-    urls = body.get("urls") or []
+    # queue-headers-redact r1: a masked header value handed back holds nothing
+    urls, pmap, fset = _unmasked(body, {})
     tid = _qt.create(
-        name=name, origin_site_id=origin, urls=urls,
-        priority_map=body.get("priority_map") or {},
-        force_set=body.get("force_set") or [],
+        name=name, origin_site_id=origin, urls=urls or [],
+        priority_map=pmap or {},
+        force_set=fset or [],
         note=body.get("note") or "")
     return jsonify({"ok": True, "id": tid})
 
@@ -87,7 +116,7 @@ def api_queue_template_one(tid):
         t = _qt.get(tid)
         if not t: return jsonify({"ok": False,
                                   "error": "not found"}), 404
-        return jsonify({"ok": True, "template": t})
+        return jsonify({"ok": True, "template": _masked(t)})
     if request.method == "DELETE":
         ok = _qt.delete(tid)
         return jsonify({"ok": ok}), (200 if ok else 404)
@@ -101,14 +130,17 @@ def api_queue_template_one(tid):
     if all(body.get(k) is None for k in _FIELD_TYPES if k != "origin_site_id"):
         return jsonify({"ok": False, "error": "nothing to update: give name, urls, priority_map, force_set "
                                              "or note"}), 400
-    if not _qt.get(tid):
+    stored = _qt.get(tid)
+    if not stored:
         return jsonify({"ok": False, "error": "not found"}), 404
+    # queue-headers-redact r1: a masked value handed back is the stored one
+    urls, pmap, fset = _unmasked(body, _qt.held_header_values(stored["urls"]))
     ok = _qt.update(
         tid,
         name=body.get("name"),
-        urls=body.get("urls"),
-        priority_map=body.get("priority_map"),
-        force_set=body.get("force_set"),
+        urls=urls,
+        priority_map=pmap,
+        force_set=fset,
         note=body.get("note"))
     return jsonify({"ok": ok})
 

@@ -310,6 +310,17 @@ def api_bulk_retry(sid):
 # test_v3_49_phase2) and removing it is a separate blast radius.
 
 
+def _client_row(row: dict) -> dict:
+    """queue-headers-redact r1: a queue DB row as a client sees it. Its
+    custom_headers text keeps the header names, every value masked: values
+    leave only on the job's own request."""
+    if not row.get("custom_headers"):
+        return row
+    from .db import queue_headers_decode, queue_headers_encode, queue_headers_masked
+    return {**row, "custom_headers": queue_headers_encode(
+        queue_headers_masked(queue_headers_decode(row["custom_headers"])))}
+
+
 @sites_bp.route("/api/sites/<sid>/queue/search")
 def api_queue_search(sid):
     # q-import-export L6: an unknown site is a 404, as on queue/export.
@@ -331,7 +342,7 @@ def api_queue_search(sid):
                             priority=priority, after_ord=after, limit=limit)
     return jsonify({
         "ok": True,
-        "rows": rows,
+        "rows": [_client_row(r) for r in rows],
         "count": len(rows),
         "next_cursor": next_cursor,
         "site_id": sid,
@@ -361,7 +372,8 @@ def api_queue_grouped(sid):
     groups = queue_group_by(sid, group_by=group_by, limit=limit)
     # Sort by group size, then by name for stable ordering.
     out = sorted(
-        ({"key": k, "count": len(v), "rows": v} for k, v in groups.items()),
+        ({"key": k, "count": len(v), "rows": [_client_row(r) for r in v]}
+         for k, v in groups.items()),
         key=lambda g: (-g["count"], g["key"])
     )
     return jsonify({
@@ -376,10 +388,13 @@ def api_queue_grouped(sid):
 @sites_bp.route("/api/sites/<sid>/queue/export")
 def api_queue_export(sid):
     """v3.49 (#62): dump the live queue to a JSON snapshot. Used by the
-    "Export queue" button + included automatically in any /api/backup."""
+    "Export queue" button. /api/backup carries no export of its own: the queue
+    rides in the downloader_history.db snapshot. Custom header values are
+    masked here (names kept); an import of this file restores them only from
+    the values the target site already holds (queue-headers-redact r1)."""
     runners = _app_runners()
     if sid not in runners: return jsonify({"error": "Not found"}), 404
-    from .db import queue_load, queue_headers_decode
+    from .db import queue_load, queue_headers_decode, queue_headers_masked
     rows = queue_load(sid)
     out = []
     for r in rows:
@@ -389,9 +404,10 @@ def api_queue_export(sid):
                "message": r.get("message", "")}
         # qti-queue-f6: per-URL headers ride along, only on rows that have
         # them (a row without headers is exported exactly as before).
+        # queue-headers-redact r1: the names only, every value masked.
         headers = queue_headers_decode(r.get("custom_headers"))
         if headers:
-            row["custom_headers"] = headers
+            row["custom_headers"] = queue_headers_masked(headers)
         out.append(row)
     return jsonify({
         "ok": True,
@@ -450,6 +466,15 @@ def api_queue_import(sid):
         if headers_err:
             return jsonify({"ok": False, "error": headers_err}), 400
     runner = runners[sid]
+    # queue-headers-redact r1: an export shows header values masked. A masked
+    # value handed back is the value this queue already holds for that URL and
+    # name (read before replace clears it), or no header at all.
+    from .queue_templates import held_header_values
+    with runner._lock:
+        held = held_header_values([queue_headers_entry(u, j.get("custom_headers"))
+                                   for u, j in runner.jobs.items()
+                                   if j.get("custom_headers")])
+    headers_dropped = 0
     if mode == "replace":
         with runner._lock:
             from .db import queue_delete_site
@@ -465,7 +490,7 @@ def api_queue_import(sid):
     entry_of = {}  # id(row) -> the entry handed to load_urls, when rebuilt
     # A row url may be "url<TAB>Header=value" (load_urls, Phase 68). The job is
     # keyed by the URL alone, so status / priority / force are keyed by job_url.
-    from .queue_templates import job_url
+    from .queue_templates import job_url, unmasked_entry
     for row in rows:
         url = (row.get("url") or "").strip()
         key = job_url(url)
@@ -476,6 +501,10 @@ def api_queue_import(sid):
             # the row's own "custom_headers" win over any written in the url
             url = queue_headers_entry(key, row["custom_headers"])
             entry_of[id(row)] = url
+        unmasked = unmasked_entry(url, held)
+        if unmasked != url:
+            headers_dropped += url.count("\t") - unmasked.count("\t")
+            url = entry_of[id(row)] = unmasked
         new_urls.append(url)
         status = row.get("status")
         if isinstance(status, str) and status in _IMPORT_RESTORED_STATUSES:
@@ -516,7 +545,8 @@ def api_queue_import(sid):
             except Exception as e:
                 sys.stderr.write(f"  queue import metadata persist failed: {e}\n")
     return jsonify({"ok": True, "added": added,
-                    "mode": mode, "site_id": sid})
+                    "mode": mode, "site_id": sid,
+                    "headers_dropped": headers_dropped})
 
 
 @sites_bp.route("/api/sites/<sid>/queue/save_template", methods=["POST"])
@@ -1027,6 +1057,10 @@ def api_jobs_detail(sid):
         # Defensive copy — we're about to drop the lock and the runner
         # may mutate j concurrently.
         job_snapshot = dict(j)
+    if "custom_headers" in job_snapshot:
+        # queue-headers-redact r1: names only; a new dict, the job's is untouched
+        from .db import queue_headers_masked
+        job_snapshot["custom_headers"] = queue_headers_masked(job_snapshot["custom_headers"])
     # Pull prior history from the history table. O1826 M021: the url filter
     # is in the SQL, before the LIMIT -- filtering the site's newest 20 rows
     # afterwards left any job older than them with an empty history. Exact
