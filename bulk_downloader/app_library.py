@@ -147,7 +147,11 @@ def api_library_get(lid):
 def api_library_delete(lid):
     from . import library as _lib
     body = request.get_json(silent=True) or {}
-    also = bool(body.get("delete_file", False))
+    also = body.get("delete_file", False)
+    # Unlinking the operator's file needs a JSON boolean: bool("false") is True.
+    if not isinstance(also, bool):
+        return jsonify({"ok": False,
+                        "error": "delete_file must be true or false"}), 400
     result = _lib.library_delete(lid, also_delete_file=also)
     code = 200 if result.get("ok") else 400
     if not result.get("ok") and "not found" in (result.get("error", "")):
@@ -182,6 +186,10 @@ def api_library_notes(lid):
     from . import library as _lib
     body = request.get_json(silent=True) or {}
     notes = body.get("notes", "")
+    if notes is None:
+        notes = ""
+    elif not isinstance(notes, str):
+        return jsonify({"ok": False, "error": "notes must be a string"}), 400
     ok = _lib.library_set_notes(lid, notes)
     if not ok:
         return jsonify({"ok": False, "error": "not found"}), 404
