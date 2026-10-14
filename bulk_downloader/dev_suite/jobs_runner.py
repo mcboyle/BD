@@ -157,8 +157,13 @@ def job_replay(history_id=None, dry_run=True):
     except (TypeError, ValueError):
         return {"tool": "job_replay", "ok": False,
                 "error": "history_id must be an integer"}
-    dry_run = bool(dry_run) if not isinstance(dry_run, str) \
-        else dry_run.lower() not in ("false", "0", "no", "")
+    # Fail closed: only an explicit False or the JSON-string spellings
+    # "false"/"0"/"no" replay for real; None, 0, [], {} and "" stay a
+    # dry run (bool() made each of them a real replay).
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() not in ("false", "0", "no")
+    else:
+        dry_run = dry_run is not False
     try:
         from bulk_downloader import batch_ops as _bo
     except Exception as e:

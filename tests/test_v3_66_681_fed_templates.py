@@ -84,6 +84,9 @@ def test_signed_bundle_roundtrip_verifies(tmp_path, monkeypatch):
     monkeypatch.setattr(tr, "DEFAULT_TEMPLATE_DIRS", [str(tmp_path)], raising=False)
     monkeypatch.setattr(tr, "load_templates", lambda *a, **k: [dict(_TEMPLATE)])
     monkeypatch.setattr(fed, "_fed_token", lambda: "shared-secret")
+    # fed-trust r1: with a shared token set, only a registered peer may push
+    fed.register_peer("peer-D", "http://peer-d.test")
+    fed.register_peer("peer-E", "http://peer-e.test")
     bundle = fed.build_template_bundle("example.test")
     assert bundle.get("signature")  # signed with the shared token
     assert fed.receive_template("peer-D", bundle)["ok"] is True

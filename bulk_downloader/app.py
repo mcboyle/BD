@@ -4037,7 +4037,9 @@ def _dev_request_authorized() -> bool:
     an untrusted network by an unauthenticated caller. Authorized requests:
       * loopback -- a LOCAL request (test-client, on-box curl, standalone),
         judged by the peer address, not the network;
-      * an AUTHENTICATED session (_session_authenticated, as _check_token);
+      * an AUTHENTICATED session (_session_authenticated, as _check_token)
+        that is NOT a paired device's (dev-paired-session-scope: a
+        pair_redeem session gets the app API, not dev tooling);
       * the master bearer / X-BD-Token.
     Anything else is refused (403). Two admissions were removed
     (raw-editors F1): Referer host == Host -- both headers are chosen by the
@@ -4050,7 +4052,7 @@ def _dev_request_authorized() -> bool:
     if ra in ("127.0.0.1", "::1", "localhost"):
         return True
     sess = request.cookies.get("bd_session", "")
-    if sess and _session_authenticated(sess):
+    if sess and _session_authenticated(sess) and not _dev_session_is_paired(sess):
         return True
     _toks = _accepted_tokens()
     if _toks:
@@ -4072,6 +4074,8 @@ def _dev_mode_guard():
         return jsonify({"error": "dev mode disabled "
                                   "(set BD_DEV_MODE=1 to enable)"}), 404
     if not _dev_request_authorized():
+        if _dev_session_is_paired(request.cookies.get("bd_session", "")):
+            return jsonify({"error": _DEV_PAIRED_REFUSAL}), 403
         return jsonify({"error": "dev endpoints require a logged-in session or a "
                                   "valid token: log in or set a token (not "
                                   "reachable unauthenticated from the network)"}), 403
@@ -7949,3 +7953,19 @@ def _serialize_search_result(r) -> dict:
 
 
 # api_search_sites_available -> app_search.py (Phase 4 multi-block extraction)
+
+
+# dev-paired-session-scope (O1789 HIGH-F1): a paired device gets the app API,
+# not /api/dev/* -- replay capture, feature flags and proc are master-token
+# tooling. Kept at the end of the module so the pinned source windows above
+# do not shift.
+_DEV_PAIRED_REFUSAL = "dev tools need the master token on a paired device"
+
+
+def _dev_session_is_paired(token: str) -> bool:
+    """True iff the cookie names a live login session minted by pair_redeem."""
+    if not (token and _session_authenticated(token)):
+        return False
+    with _session_lock:
+        rec = _sessions.get(token)
+        return bool(rec) and rec.get("source") == "pair_redeem"

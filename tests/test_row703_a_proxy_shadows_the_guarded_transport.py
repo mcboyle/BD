@@ -36,6 +36,7 @@ folded into a pass.  An empty population is COULD NOT LOOK, never OK.
 from __future__ import annotations
 
 import ast
+import hashlib
 import pathlib
 import subprocess
 import sys
@@ -82,11 +83,21 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # **kwargs construction is RED, which forces that judgement to be made once.
 # A proxy passed POSITIONALLY is not possible: httpx.Client takes no positional
 # parameters, and the scan asserts zero positional constructions below.
+#
+# KEYED BY SYMBOL, NOT LINE (symbol-pins r1, OD O3141): file::enclosing qualname
+# ::sha256 of the call's AST without line/col attributes [:12] #occurrence. A
+# change that only shifts lines leaves every key alone, so a train needs no
+# re-pin; moving the call to another function, or changing what it passes,
+# changes its key and is RED. Line-move history: git log -L on this block.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
-    "bulk_downloader/runner_telemetry.py:347",  # row 1076 moved it (+4: flight-recorder feed in log_event); was :343 after row 1056
-    "bulk_downloader/runner_transport.py:4637",  # T281g-B (ddt-fix r2 + dat-retry r1 above; reserve-toctou bounced): +57; was :4580 -- dah-vpn r2: +125/+125/+127 (egress helpers above, resume-HEAD proxy lines; call site unchanged: it splats a dict literal {timeout} whose only other key, proxy, is popped on the line before -- pinned by tests/test_dah_vpn_site_client_egress.py::test_star_kwargs_clients_cannot_carry_a_proxy); ah-fix r5: ah-fix F11 empty-body refusal in _open_stream +6 (call site unchanged); o1673-t154-edge1 -115 (route predicates moved to media_route.py, call site unchanged); dl95-ultrafilms-1 (O1654) photo-set hook +23; T177: sweep-T175 txxx page-body refusal + xnxx taller-variant check shift runner_transport (+154); T164 +3, T158 +18, T157 +92
-    "bulk_downloader/runner_transport.py:5079",  # T281g-B: +87; was :4992 -- dah-vpn r2: +125/+125/+127 (egress helpers above, resume-HEAD proxy lines; call site unchanged: it splats a dict literal {timeout} whose only other key, proxy, is popped on the line before -- pinned by tests/test_dah_vpn_site_client_egress.py::test_star_kwargs_clients_cannot_carry_a_proxy); ah-fix r5: ah-fix F11 empty-body refusal in _open_stream +6 (call site unchanged); o1673-t154-edge1 -115 (route predicates moved to media_route.py, call site unchanged); dl95-ultrafilms-1 (O1654) photo-set hook +23; T177: sweep-T175 txxx page-body refusal + xnxx taller-variant check shift runner_transport (+154); T164 +3, T158 +18, T157 +92
-    "bulk_downloader/runner_transport.py:5313",  # T281g-B: +87; was :5226 -- dah-vpn r2: +125/+125/+127 (egress helpers above, resume-HEAD proxy lines; call site unchanged: it splats a dict literal {timeout} whose only other key, proxy, is popped on the line before -- pinned by tests/test_dah_vpn_site_client_egress.py::test_star_kwargs_clients_cannot_carry_a_proxy); ah-fix r5: ah-fix F11 empty-body refusal in _open_stream +6 (call site unchanged); o1673-t154-edge1 -115 (route predicates moved to media_route.py, call site unchanged); dl95-ultrafilms-1 (O1654) photo-set hook +23; T177: sweep-T175 txxx page-body refusal + xnxx taller-variant check shift runner_transport (+154); T164 +3, T158 +18, T157 +92
+    # was runner_telemetry.py:347
+    "bulk_downloader/runner_telemetry.py::TelemetryMixin._pick_fastest_mirror.probe::57052cb3d436#0",
+    # was runner_transport.py:4637 -- splats a dict literal {timeout} whose only other key, proxy, is popped on the line before -- pinned by tests/test_dah_vpn_site_client_egress.py::test_star_kwargs_clients_cannot_carry_a_proxy
+    "bulk_downloader/runner_transport.py::TransportMixin._http_download_claimed::72f12820437d#0",
+    # was runner_transport.py:5079 -- same: splats a dict literal {timeout} whose only other key, proxy, is popped on the line before -- pinned by tests/test_dah_vpn_site_client_egress.py::test_star_kwargs_clients_cannot_carry_a_proxy
+    "bulk_downloader/runner_transport.py::TransportMixin._probe_size::6bf34330192a#0",
+    # was runner_transport.py:5313 -- same: splats a dict literal {timeout} whose only other key, proxy, is popped on the line before -- pinned by tests/test_dah_vpn_site_client_egress.py::test_star_kwargs_clients_cannot_carry_a_proxy
+    "bulk_downloader/runner_transport.py::TransportMixin._http_download_parallel.worker::6bf34330192a#0",
 }
 
 
@@ -100,6 +111,24 @@ class _Constructions(ast.NodeVisitor):
         self.module_aliases: Set[str] = set()      # names bound to the httpx module
         self.class_aliases: Dict[str, str] = {}    # local name -> Client / AsyncClient
         self.rows: List[dict] = []
+        self.scope: List[str] = []                 # enclosing class/def names
+        self.seen: Dict[str, int] = {}             # anchor stem -> occurrences
+
+    def _enter(self, node) -> None:
+        self.scope.append(node.name)
+        self.generic_visit(node)
+        self.scope.pop()
+
+    visit_ClassDef = visit_FunctionDef = visit_AsyncFunctionDef = _enter
+
+    def _anchor(self, node: ast.Call) -> str:
+        """file::qualname::AST hash -- line-free, so a shift is not a change."""
+        digest = hashlib.sha256(
+            ast.dump(node, include_attributes=False).encode()).hexdigest()[:12]
+        stem = f"{self.rel}::{'.'.join(self.scope) or '<module>'}::{digest}"
+        n = self.seen.get(stem, 0)
+        self.seen[stem] = n + 1
+        return f"{stem}#{n}"
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -141,6 +170,7 @@ class _Constructions(ast.NodeVisitor):
             keywords = {kw.arg for kw in node.keywords if kw.arg}
             self.rows.append({
                 "where": f"{self.rel}:{node.lineno}",
+                "anchor": self._anchor(node),
                 "kind": kind,
                 "keywords": keywords,
                 "positional": len(node.args),
@@ -360,7 +390,7 @@ def test_every_star_kwargs_construction_is_declared(scan):
     """FOUND NONE IS NOT THE SAME AS NONE EXIST.  A proxy inside **kwargs is
     invisible to this gate. The known set is pinned so a new one forces the
     judgement to be made rather than inherited."""
-    found = {row["where"] for row in scan if row["star_kwargs"]}
+    found = {row["anchor"] for row in scan if row["star_kwargs"]}
     assert found == STAR_KWARGS_CONSTRUCTIONS, (
         "the set of httpx constructions taking **kwargs changed. This gate CANNOT see "
         "a proxy passed through **kwargs, so each of these is an unmeasured site.\n"

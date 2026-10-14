@@ -718,18 +718,41 @@ def dependency_audit():
 
 
 
+_SECRET_LABEL_RE = _sec_re.compile(
+    r"""(?:export\s+)?['"]?[A-Za-z_][\w.\-]{0,39}['"]?""")
+_SECRET_LABEL_TOKEN_RE = _sec_re.compile(r"[A-Za-z0-9]{16,}")
+
+
+def _plain_secret_label(lhs):
+    """dev-exec-lows F8: True only for a left side that is a plain name
+    (identifier, dotted attr, quoted key) and not itself secret-shaped.
+    A dict key such as "xoxb-...": <value> matched a pattern ON the key,
+    so echoing the key echoed the credential."""
+    lhs = lhs.strip()
+    if not _SECRET_LABEL_RE.fullmatch(lhs):
+        return False
+    if any(pat.search(lhs) for _label, pat in _SECRET_PATTERNS):
+        return False
+    return not any(_sec_re.search(r"\d", run)
+                   for run in _SECRET_LABEL_TOKEN_RE.findall(lhs))
+
+
 def _redact_secret_context(line):
     """Redacted preview of a line that matched a secret pattern.
 
     F-COREBD02-01: secret_scan must never echo the credential it flagged.
     We keep only the assignment target / label (the LHS of the first `=` or
-    `:`) and mask the value; if there is no clear assignment we emit the
-    shape's length + a short hash instead of any raw text.
+    `:`) and mask the value -- and only when that LHS is a plain name, not
+    itself secret-shaped (_plain_secret_label); otherwise, or if there is no
+    clear assignment, we emit the shape's length + a short hash instead of
+    any raw text.
     """
     s = (line or "").strip()
     for sep in ("=", ":"):
         idx = s.find(sep)
         if 0 < idx <= 40:
+            if not _plain_secret_label(s[:idx]):
+                break  # the left side may itself be the secret
             return (s[:idx + 1] + " <redacted>")[:60]
     import hashlib as _hl
     digest = _hl.sha1(s.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()[:8]

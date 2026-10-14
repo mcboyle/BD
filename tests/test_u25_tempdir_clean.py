@@ -106,14 +106,16 @@ def test_sweep_string_dry_run_flag_is_coerced(tmp_path, monkeypatch):
     assert not os.path.exists(old_dir)
 
 
-def test_min_age_zero_makes_everything_a_candidate(tmp_path,
-                                                   monkeypatch):
+def test_min_age_zero_cannot_lower_the_floor(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     _make_artifacts(str(tmp_path))
-    # with min_age 0 even the fresh dir is sweepable
-    would = {os.path.basename(x["path"])
-             for x in ds.tempdir_clean(min_age_seconds=0)["would_remove"]}
-    assert "bdrestore_freshjob" in would
+    # min_age 0 asks for a younger cut-off than the 1h floor: refused,
+    # the fresh dir (an in-flight restore) is never a candidate
+    r = ds.tempdir_clean(min_age_seconds=0)
+    would = {os.path.basename(x["path"]) for x in r["would_remove"]}
+    assert r["min_age_seconds"] == 3600.0
+    assert "bdrestore_freshjob" not in would
+    assert "bdback_oldjob" in would
 
 
 # ── routes ─────────────────────────────────────────────────────────
