@@ -20,7 +20,9 @@ def _check_csrf(*_a, **_k):
 
 @shares_bp.route("/api/shares", methods=["POST"])
 def api_shares_create():
-    _check_csrf()
+    refused = _check_csrf()   # returns a 403 response to refuse; it does not abort
+    if refused is not None:
+        return refused
     body = request.json or {}
     ttl_hours = None
     if body.get("ttl_hours") is not None:
@@ -58,7 +60,9 @@ def api_shares_list():
 
 @shares_bp.route("/api/shares/<token_id>", methods=["DELETE"])
 def api_shares_revoke(token_id):
-    _check_csrf()
+    refused = _check_csrf()   # returns a 403 response to refuse; it does not abort
+    if refused is not None:
+        return refused
     try:
         from . import shares as _sh
         return jsonify({"ok": _sh.revoke_token(token_id)})

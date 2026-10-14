@@ -31,7 +31,9 @@ def api_dev_wal_checkpoint():
     PASSIVE | FULL | RESTART | TRUNCATE (default TRUNCATE)."""
     guard = _dev_mode_guard()
     if guard: return guard
-    _check_csrf()
+    refused = _check_csrf()   # returns a 403 response to refuse; it does not abort
+    if refused is not None:
+        return refused
     try:
         from . import dev_suite as _ds
         mode = (request.json or {}).get("mode", "TRUNCATE")
@@ -47,7 +49,9 @@ def api_dev_sql():
     though the query itself cannot mutate the DB."""
     guard = _dev_mode_guard()
     if guard: return guard
-    _check_csrf()
+    refused = _check_csrf()   # returns a 403 response to refuse; it does not abort
+    if refused is not None:
+        return refused
     try:
         from . import dev_suite as _ds
         body = request.json or {}
