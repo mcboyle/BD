@@ -35,10 +35,12 @@ cache hit costs a release.
 import hashlib
 import json
 import os
+import tempfile
 
 CACHE_DIR = os.environ.get("BDTOOLS_CACHE_DIR",
                            os.path.expanduser("~/.bd_analysis_cache"))
 SCHEMA = 2
+_MISS = object()   # a cached None is a hit; only an absent key is a miss
 
 
 def file_sha(path):
@@ -61,9 +63,12 @@ def logic_key(*sources):
     for s in sources:
         try:
             with open(s, "rb") as fh:
-                h.update(fh.read())
+                data = fh.read()
         except Exception:  # why: file unreadable; hash its path string instead so the key still varies per input
-            h.update(str(s).encode())
+            data = str(s).encode()
+        # length-prefix each source: ("ab","c") and ("a","bc") are different rules
+        h.update(b"%d:" % len(data))
+        h.update(data)
     return h.hexdigest()[:16]
 
 
@@ -88,7 +93,9 @@ class Cache(object):
                 d = json.load(open(self.path))
                 # a schema OR logic change invalidates the whole namespace
                 if d.get("schema") == SCHEMA and d.get("logic") == self.logic:
-                    self._data = d.get("entries", {})
+                    entries = d.get("entries", {})
+                    # a corrupt namespace (entries null / a list) is an empty cache
+                    self._data = entries if isinstance(entries, dict) else {}
             # why: read failed; degrade to the default and continue -- affects completeness, not correctness
             except Exception:
                 self._data = {}
@@ -97,15 +104,17 @@ class Cache(object):
         """Return the cached result for this content SHA (e.g. git blob SHA), else compute."""
         if not self.enabled or not sha:
             return compute()
-        hit = self._data.get(sha)
-        if hit is not None:
+        hit = self._data.get(sha, _MISS)
+        if hit is not _MISS:
             self.hits += 1
             return hit
         self.misses += 1
         val = compute()
         try:
-            json.dumps(val)          # only cache what round-trips honestly
-            self._data[sha] = val
+            # only cache what round-trips honestly: a tuple or an int-keyed dict
+            # would come back from the next run as a list / str-keyed dict
+            if json.loads(json.dumps(val)) == val:
+                self._data[sha] = val
         except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
             pass
         return val
@@ -123,15 +132,26 @@ class Cache(object):
     def save(self):
         if not self.enabled:
             return
+        tmp = None
         try:
-            os.makedirs(CACHE_DIR, exist_ok=True)
-            tmp = self.path + ".tmp"
-            with open(tmp, "w") as fh:
+            cdir = os.path.dirname(self.path)
+            os.makedirs(cdir, exist_ok=True)
+            # a private temp name per writer: two concurrent saves of one namespace
+            # never write through the same fixed "<ns>.json.tmp"
+            fd, tmp = tempfile.mkstemp(prefix=".%s." % self.ns, suffix=".tmp", dir=cdir)
+            with os.fdopen(fd, "w") as fh:
                 json.dump({"schema": SCHEMA, "logic": self.logic,
                            "entries": self._data}, fh)
             os.replace(tmp, self.path)   # atomic: never a half-written cache
+            tmp = None
         except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
             pass
+        finally:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
 
     def stats(self):
         return {"namespace": self.ns, "hits": self.hits, "misses": self.misses,

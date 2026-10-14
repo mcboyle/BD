@@ -352,7 +352,12 @@ def test_installed_public_tools_share_pointer_authority(tmp_path):
         [str(link_bin / "bd-status")], cwd=foreign, env=run_env,
         text=True, capture_output=True, timeout=20,
     )
-    assert status.returncode == 0, status.stdout + status.stderr
+    # This test pins pointer authority, not service health: bd-status exits 1
+    # when a probe is MISSING (this scratch box runs no services), but it must
+    # still resolve the checkout and never refuse as unrunnable/unevaluable.
+    out = status.stdout + status.stderr
+    assert status.returncode in (0, 1), out
+    assert "UNRUNNABLE" not in out and "UNEVALUABLE" not in out, out
     assert str(REPO / "bulk_downloader") in status.stdout
 
     venv = subprocess.run(

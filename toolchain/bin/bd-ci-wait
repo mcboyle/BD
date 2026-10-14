@@ -18,8 +18,19 @@
 #     as an absence.
 set -u
 
-PR="${1:?usage: bd-ci-wait <PR>}"
+_usage='usage: bd-ci-wait <PR> [MAX-CHECKS (positive integer, default 80; 30s apart)]'
+case "${1-}" in
+    -h|--help) echo "$_usage"; exit 0;;
+esac
+PR="${1:?$_usage}"  # early-exit-ok
 MAX="${2:-80}"
+# Validate before the first gh call: `--help` or a typo must never be pinned as
+# a PR, and MAX=0/bogus must not turn into an instant "TIMED OUT".
+case "$PR" in -*) echo "bd-ci-wait: not a PR: '$PR'" >&2; echo "$_usage" >&2; exit 2;; esac  # early-exit-ok
+case "$MAX" in  # early-exit-ok
+    *[!0-9]*) echo "bd-ci-wait: MAX must be a positive integer, got '$MAX'" >&2; echo "$_usage" >&2; exit 2;;  # early-exit-ok
+esac
+[ "$MAX" -gt 0 ] || { echo "bd-ci-wait: MAX must be a positive integer, got '$MAX'" >&2; echo "$_usage" >&2; exit 2; }  # early-exit-ok
 
 SHA="$(gh pr view "$PR" --json headRefOid -q .headRefOid 2>/dev/null)"
 if [ -z "$SHA" ]; then
@@ -60,6 +71,10 @@ for i in $(seq 1 "$MAX"); do
     # to report is about a commit that is no longer the PR's head -- the same
     # staleness this script exists to prevent, one level up.
     now="$(gh pr view "$PR" --json headRefOid -q .headRefOid 2>/dev/null)"
+    if [ -z "$now" ]; then  # early-exit-ok
+        echo "REFUSE: cannot re-read the head of PR $PR after the run completed -- cannot tell whether it moved. No verdict."  # early-exit-ok
+        exit 2  # early-exit-ok
+    fi
     if [ "$now" != "$SHA" ]; then
         echo "REFUSE: head moved $SHA -> $now during the wait. No verdict."
         exit 2

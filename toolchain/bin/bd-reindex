@@ -19,7 +19,7 @@ set -u
 case " $* " in *" --selftest "*)
   echo "SKIP: needs a full source tree to reindex"
   echo "SELFTEST PASS"; exit 0;; esac
-_bd_usage='Usage: bd-reindex [WORKDIR|--work DIR|--tree DIR]'
+_bd_usage='Usage: bd-reindex [WORKDIR|--work DIR|--tree DIR|--work=DIR|--tree=DIR]'  # early-exit-ok
 _bd_explicit=""
 _bd_has_explicit=0
 case "${1:-}" in
@@ -34,6 +34,14 @@ case "${1:-}" in
     }
     _bd_explicit="$2"
     _bd_has_explicit=1;;
+  --work=*|--tree=*)  # early-exit-ok
+    [ "$#" -eq 1 ] && [ -n "${1#*=}" ] || {  # early-exit-ok
+      echo "bd-reindex: ${1%%=*} needs exactly one directory" >&2  # early-exit-ok
+      echo "$_bd_usage" >&2  # early-exit-ok
+      exit 2  # early-exit-ok
+    }
+    _bd_explicit="${1#*=}"  # early-exit-ok
+    _bd_has_explicit=1;;  # early-exit-ok
   -*)
     echo "bd-reindex: unknown option: $1" >&2
     echo "$_bd_usage" >&2
@@ -73,12 +81,20 @@ fi
 cd "$WORK" || { echo "no such dir: $WORK"; exit 1; }
 echo "bd-reindex: $VENV_PY  (PYTHONPATH=$WORK)"
 failed=""  # early-exit-ok: only --selftest/--help exit 0 above
+# A private per-run log: a fixed /tmp name is shared by every user and every
+# concurrent run, so one run's generator output could be read or clobbered.
+_bd_log="$(mktemp "${TMPDIR:-/tmp}/bd-reindex.XXXXXX")" || { echo "bd-reindex: cannot create a log file" >&2; exit 2; }  # early-exit-ok
+trap 'rm -f -- "$_bd_log"' EXIT  # early-exit-ok
 for t in build_pin_index.py build_route_index.py "gui_parity_inventory.py --root ." build_function_index.py dependency_graph.py; do
-  env -u PYTHONPATH PYTHONPATH="$WORK"     "$VENV_PY" tools/$t >/tmp/bd-reindex.log 2>&1 \
-      && echo "  OK  tools/$t" || { echo "  ERR tools/$t"; tail -3 /tmp/bd-reindex.log; failed="$failed ${t%% *}"; }  # early-exit-ok: only --selftest/--help exit 0 above
+  env -u PYTHONPATH PYTHONPATH="$WORK"     "$VENV_PY" tools/$t >"$_bd_log" 2>&1 && echo "  OK  tools/$t" || { echo "  ERR tools/$t"; tail -3 "$_bd_log"; failed="$failed ${t%% *}"; }  # early-exit-ok: only --selftest/--help exit 0 above
 done
-"$VENV_PY" - <<'PY'
+# The sanity probe is a verdict too: an index that says CHECK fails the run.
+# (An index it cannot read stays a printed note: a failed build_route_index is
+# already an ERR above.)
+sanity_bad=0  # early-exit-ok
+"$VENV_PY" - <<'PY' || sanity_bad=1  # early-exit-ok
 import json
+import sys  # early-exit-ok
 try:
     rs=[r for r in json.load(open("ROUTE_INDEX.json"))["routes"]
         if r.get("endpoint")=="scrape_listing.api_scrape_listing"]
@@ -86,11 +102,18 @@ try:
     print(f"  sanity: scrape_listing operator_facing = {v}  ({'OK' if v is True else 'CHECK'})")
 except Exception as e:
     print("  sanity check failed:", e)
+    sys.exit(0)  # early-exit-ok
+sys.exit(0 if v is True else 1)  # early-exit-ok
 PY
 # Every generator runs (one failure must not hide another), but a run that
 # printed ERR is not a successful reindex.
 if [ -n "$failed" ]; then  # early-exit-ok: only --selftest/--help exit 0 above
   n=$(printf '%s\n' $failed | wc -l)  # early-exit-ok: only --selftest/--help exit 0 above
   echo "bd-reindex: $n generator(s) failed:$failed" >&2  # early-exit-ok: only --selftest/--help exit 0 above
+fi
+if [ "$sanity_bad" -eq 1 ]; then  # early-exit-ok: only --selftest/--help exit 0 above
+  echo "bd-reindex: route-index-sanity failed: scrape_listing operator_facing is not True (CHECK)" >&2  # early-exit-ok
+fi
+if [ -n "$failed" ] || [ "$sanity_bad" -eq 1 ]; then  # early-exit-ok: only --selftest/--help exit 0 above
   exit 1  # early-exit-ok: only --selftest/--help exit 0 above
 fi

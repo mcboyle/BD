@@ -561,6 +561,23 @@ def _selftest_corpus_guard():
     return ok
 
 
+def when_coverage(bindir):
+    """702: run bd-tools --check (the category authority) over BINDIR.
+    blocked = bd-tools said POLICY (rc 3); checked = bd-tools was found."""
+    wc = {"checked": False, "blocked": False, "summary": "?", "problems": []}
+    _bt = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-tools")
+    if os.path.isfile(_bt):
+        _cp = subprocess.run([sys.executable, _bt, "--check", "--bin", bindir],
+                             capture_output=True, text=True, timeout=900)
+        _last = [l for l in _cp.stdout.splitlines() if l.strip()]
+        wc.update(checked=True, blocked=(_cp.returncode == 3),
+                  summary=_last[-1] if _last else "?")
+        if wc["blocked"]:
+            wc["problems"] = [l for l in _cp.stdout.splitlines()
+                              if "NO 'WHEN'" in l or "STALE" in l]
+    return wc
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bin", default=DEFAULT_BIN)
@@ -614,10 +631,16 @@ def main():
                 else (1 if cd["new"] else 0))
     if a.json:
         import json
+        # Tier-1 (3 = policy blocked): lint errors block as in the text report,
+        # a critical-core regression under --ratchet, and a tool with no session
+        # trigger under --gate (the when-coverage gate the text mode runs).
+        wc = when_coverage(a.bin)
+        res["when_coverage"] = wc
         json.dump(res, sys.stdout, indent=1, sort_keys=True)
         sys.stdout.write("\n")
-        blocked = (a.gate and not res["clean"]) or (a.ratchet and cc["regressed"])
-        return sec.EXIT_CANNOT_EVALUATE if unreadable else (1 if blocked else 0)
+        blocked = ((not res["clean"]) or (a.ratchet and cc["regressed"]) or
+                   (a.gate and wc["blocked"]))
+        return sec.EXIT_CANNOT_EVALUATE if unreadable else (3 if blocked else 0)
     print("linted %d of %d discovered tools (%d unreadable: %s): %s%d error(s)%s, %s%d warning(s)%s" %
           (res["read_tools"], res["tools"], len(unreadable),
            ", ".join(r["tool"] for r in unreadable) or "-",
@@ -654,19 +677,13 @@ def main():
     # category (== a session trigger) in bd-tools; this enforces it so a NEW tool
     # cannot ship without a "when". Delegates to bd-tools --check (the authority),
     # never re-derives the category map.
-    when_bad = False
-    _bt = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-tools")
-    if os.path.isfile(_bt):
-        _cp = subprocess.run([sys.executable, _bt, "--check", "--bin", a.bin],
-                             capture_output=True, text=True, timeout=900)
-        when_bad = (_cp.returncode == 3)
-        _last = [l for l in _cp.stdout.splitlines() if l.strip()]
+    wc = when_coverage(a.bin)
+    when_bad = wc["blocked"]
+    if wc["checked"]:
         print("when-coverage (every tool has a session trigger): %s%s%s" %
-              (R if when_bad else G, _last[-1] if _last else "?", RST))
-        if when_bad:
-            for l in _cp.stdout.splitlines():
-                if "NO 'WHEN'" in l or "STALE" in l:
-                    print("  %s%s%s" % (R, l, RST))
+              (R if when_bad else G, wc["summary"], RST))
+        for l in wc["problems"]:
+            print("  %s%s%s" % (R, l, RST))
     if res["clean"] and not cc["regressed"] and not when_bad:
         print("%sno errors -- toolchain clean%s" % (G, RST))
     blocked = ((not res["clean"]) or cc["regressed"] or
