@@ -135,6 +135,7 @@
     "auth": {
       "module": "app_auth.py",
       "providers": [
+        "bulk_downloader/auth_throttle.py",
         "bulk_downloader/user_accounts.py"
       ],
       "route_count": 7,
@@ -2378,6 +2379,7 @@
         "bulk_downloader/dev_suite/config_tools.py",
         "bulk_downloader/diagnostics_bundle.py",
         "bulk_downloader/marketplace.py",
+        "bulk_downloader/request_replay.py",
         "bulk_downloader/user_templates.py",
         "bulk_downloader/vpn.py",
         "bulk_downloader/vpn_config.py",
@@ -2431,7 +2433,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1854,
+    "edge_count": 1861,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2540,6 +2542,7 @@
         "bulk_downloader/dev_suite/housekeeping.py",
         "bulk_downloader/dev_suite/integrations_diag.py",
         "bulk_downloader/dev_suite/jobs_runner.py",
+        "bulk_downloader/dev_suite/release_lint.py",
         "bulk_downloader/download_window.py",
         "bulk_downloader/runner_accounts.py",
         "bulk_downloader/runner_auth.py",
@@ -2753,6 +2756,7 @@
         "bulk_downloader/audit.py"
       ],
       "bulk_downloader/auth_throttle.py": [
+        "bulk_downloader/app_auth.py",
         "bulk_downloader/app_secrets.py"
       ],
       "bulk_downloader/auto_detect.py": [
@@ -2868,6 +2872,7 @@
         "bulk_downloader/dom_capture.py",
         "bulk_downloader/element_pick.py",
         "bulk_downloader/network_log_reducer.py",
+        "bulk_downloader/request_replay.py",
         "bulk_downloader/template_normalize.py",
         "bulk_downloader/wacz_export.py",
         "tools/audit/witnesses/cap01_witnesses.py",
@@ -2913,6 +2918,7 @@
         "bulk_downloader/dom_capture.py",
         "bulk_downloader/inspect_pick.py",
         "bulk_downloader/network_log_reducer.py",
+        "bulk_downloader/request_replay.py",
         "bulk_downloader/runner_telemetry.py",
         "bulk_downloader/site_editor.py",
         "bulk_downloader/temporal_harness.py",
@@ -4083,7 +4089,8 @@
         "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/plex_deep_plexapi.py": [
-        "bulk_downloader/app_plex.py"
+        "bulk_downloader/app_plex.py",
+        "bulk_downloader/plex_advanced.py"
       ],
       "bulk_downloader/plugin_exec.py": [
         "bulk_downloader/plugins.py"
@@ -4247,6 +4254,7 @@
       ],
       "bulk_downloader/request_replay.py": [
         "bulk_downloader/app.py",
+        "bulk_downloader/app_dev_config.py",
         "bulk_downloader/app_dev_testci.py",
         "bulk_downloader/dev_suite/capture_diag.py"
       ],
@@ -4527,6 +4535,7 @@
         "bulk_downloader/dev_suite/config_tools.py",
         "bulk_downloader/diagnostics_bundle.py",
         "bulk_downloader/marketplace.py",
+        "bulk_downloader/request_replay.py",
         "bulk_downloader/user_templates.py",
         "bulk_downloader/vpn.py",
         "bulk_downloader/vpn_config.py",
@@ -5520,6 +5529,7 @@
         "bulk_downloader/audit.py"
       ],
       "bulk_downloader/app_auth.py": [
+        "bulk_downloader/auth_throttle.py",
         "bulk_downloader/user_accounts.py"
       ],
       "bulk_downloader/app_auth_health.py": [
@@ -5655,7 +5665,8 @@
       "bulk_downloader/app_dev_config.py": [
         "bulk_downloader/app_dev.py",
         "bulk_downloader/dev_tools.py",
-        "bulk_downloader/feature_flags.py"
+        "bulk_downloader/feature_flags.py",
+        "bulk_downloader/request_replay.py"
       ],
       "bulk_downloader/app_dev_db.py": [
         "bulk_downloader/app_dev.py"
@@ -6590,7 +6601,8 @@
         "bulk_downloader/perf_lab.py"
       ],
       "bulk_downloader/dev_suite/release_lint.py": [
-        "bulk_downloader/_bat_lint.py"
+        "bulk_downloader/_bat_lint.py",
+        "bulk_downloader/app.py"
       ],
       "bulk_downloader/dev_suite/test_meta.py": [
         "bulk_downloader/dev_tools.py"
@@ -7067,6 +7079,9 @@
         "bulk_downloader/dataset_structural_classifier.py",
         "bulk_downloader/registrable_domain.py"
       ],
+      "bulk_downloader/plex_advanced.py": [
+        "bulk_downloader/plex_deep_plexapi.py"
+      ],
       "bulk_downloader/plex_deep.py": [
         "bulk_downloader/deep_http.py"
       ],
@@ -7159,7 +7174,10 @@
         "bulk_downloader/ffmpeg_bin.py"
       ],
       "bulk_downloader/request_replay.py": [
-        "bulk_downloader/feature_flags.py"
+        "bulk_downloader/capture_artifact_redact.py",
+        "bulk_downloader/capture_redact.py",
+        "bulk_downloader/feature_flags.py",
+        "bulk_downloader/site_editor.py"
       ],
       "bulk_downloader/retention.py": [
         "bulk_downloader/db.py",

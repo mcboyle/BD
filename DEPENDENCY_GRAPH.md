@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1854**
+- internal import edges: **1861**
 - tools: 235 · with internal edge: 135 · with tool→package edge: 75
 - blueprints: 163 · config stores: 5
 
@@ -20,19 +20,19 @@ Graph version: 1
 - `bulk_downloader/global_config.py`: 61
 - `bulk_downloader/constants.py`: 35
 - `bulk_downloader/ssrf_transport.py`: 30
-- `bulk_downloader/app.py`: 25
+- `bulk_downloader/app.py`: 26
 - `bulk_downloader/plugins.py`: 23
 - `bulk_downloader/cookies.py`: 22
 - `bulk_downloader/secrets_store.py`: 20
+- `bulk_downloader/capture_artifact_redact.py`: 17
 - `bulk_downloader/capture_ingest.py`: 17
 - `bulk_downloader/cloak.py`: 17
 - `bulk_downloader/registrable_domain.py`: 17
 - `bulk_downloader/runner.py`: 17
 - `bulk_downloader/aiassist.py`: 16
-- `bulk_downloader/capture_artifact_redact.py`: 16
-- `bulk_downloader/capture_redact.py`: 15
+- `bulk_downloader/capture_redact.py`: 16
+- `bulk_downloader/site_editor.py`: 16
 - `bulk_downloader/ffmpeg_bin.py`: 15
-- `bulk_downloader/site_editor.py`: 15
 - `bulk_downloader/log.py`: 14
 - `bulk_downloader/session_keeper.py`: 14
 - `tools/report_core.py`: 13
@@ -49,7 +49,7 @@ Graph version: 1
 - **api_tokens** (`app_api_tokens.py`) — routes 2, providers 1
 - **apple** (`app_apple.py`) — routes 1, providers 0
 - **audit** (`app_audit.py`) — routes 2, providers 1
-- **auth** (`app_auth.py`) — routes 7, providers 1
+- **auth** (`app_auth.py`) — routes 7, providers 2
 - **auth_health** (`app_auth_health.py`) — routes 3, providers 1
 - **automation_status** (`app_automation_status.py`) — routes 1, providers 1
 - **backup** (`app_backup.py`) — routes 7, providers 2
@@ -207,6 +207,6 @@ Graph version: 1
 
 - **app_settings_center** — readers 8, writers 0
 - **global_config** — readers 81, writers 4
-- **site_editor** — readers 23, writers 0
+- **site_editor** — readers 24, writers 0
 - **vpn_config** — readers 17, writers 2
 - **widgets_config** — readers 4, writers 1
