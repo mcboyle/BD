@@ -8,7 +8,7 @@ timestamped move-aside pattern into a *generational* backup:
 
     templates/.gold_backups/<host>/<ts>/
         <host>.template.json     # the backed-up bytes (copy2)
-        manifest.json            # {host, ts, sha256, version, reason, source}
+        manifest.json            # {host, ts, seq, sha256, version, reason, source}
 
 Every write to an enabled/gold template can first snapshot to a fresh ``<ts>/``,
 so the full history is restorable -- and ``restore_template`` is a one call that
@@ -76,11 +76,41 @@ def _sha256_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
-def _new_ts() -> str:
-    """A timestamp unique even within the same wall-clock second: second
-    granularity (human-readable, sorts lexically) + a monotonic-ns suffix so two
-    backups in the same second never collide on the same directory."""
-    return time.strftime("%Y%m%d-%H%M%S") + "-" + format(time.monotonic_ns() & 0xFFFFFF, "06x")
+def _new_ts(seq: int) -> str:
+    """Directory name of generation ``seq``: wall-clock second (human-readable)
+    + the host's generation sequence number, so two backups in the same second
+    never collide. The name is a label, NOT the order: the old suffix
+    (monotonic_ns & 0xFFFFFF) wrapped every 16.7 ms, so the name-sorted "latest"
+    could be the OLDER generation. Order is ``_generation_key``."""
+    return time.strftime("%Y%m%d-%H%M%S") + "-" + format(seq, "06d")
+
+
+def _generation_key(gen_dir: Path):
+    """Creation order of one generation, from its manifest: the per-host ``seq``
+    first (independent of the wall clock), then creation time, then the name.
+    Generations written before ``seq`` existed count as seq 0, so they sort
+    before every sequenced one and among themselves by ``created``."""
+    try:
+        man = json.loads((gen_dir / _MANIFEST).read_text("utf-8"))
+    except Exception:
+        man = None
+    if not isinstance(man, dict):
+        man = {}
+
+    def _n(key: str) -> int:
+        v = man.get(key)
+        return v if type(v) is int and v >= 0 else 0
+
+    return (_n("seq"), _n("created_ns") or _n("created") * 1_000_000_000, gen_dir.name)
+
+
+def _generations(host: str, reviewed_dir=None) -> List[Path]:
+    """Retained generation dirs of a (safe) host, oldest-first by creation."""
+    base = _host_backups(host, reviewed_dir)
+    if not base.is_dir():
+        return []
+    return sorted((d for d in base.iterdir() if d.is_dir() and (d / _MANIFEST).is_file()),
+                  key=_generation_key)
 
 
 # ── primitives ───────────────────────────────────────────────────────────────
@@ -112,18 +142,31 @@ def backup_template(host: str, *, reviewed_dir=None, reason: str = "") -> Dict[s
             tpl_version = (json.loads(raw.decode("utf-8")) or {}).get("version")
         except Exception:
             tpl_version = None
-        ts = _new_ts()
-        dest_dir = _host_backups(h, reviewed_dir) / ts
-        dest_dir.mkdir(parents=True, exist_ok=False)
+        gens = _generations(h, reviewed_dir)
+        seq = (_generation_key(gens[-1])[0] if gens else 0) + 1
+        for attempt in range(8):
+            # A name can already be taken (a concurrent backup, or a dir left
+            # without a manifest): take the next sequence number, never reuse.
+            ts = _new_ts(seq)
+            dest_dir = _host_backups(h, reviewed_dir) / ts
+            try:
+                dest_dir.mkdir(parents=True, exist_ok=False)
+                break
+            except FileExistsError:
+                if attempt == 7:
+                    raise
+                seq += 1
         (dest_dir / f"{h}{_SUFFIX}").write_bytes(raw)
         manifest = {
             "host": h,
             "ts": ts,
+            "seq": seq,
             "sha256": sha,
             "version": tpl_version or _bd_version,
             "reason": (reason or "")[:200],
             "source": str(live),
             "created": int(time.time()),
+            "created_ns": time.time_ns(),
         }
         (dest_dir / _MANIFEST).write_text(json.dumps(manifest, indent=2), "utf-8")
         return {"ok": True, "backed_up": True, "ts": ts,
@@ -137,11 +180,7 @@ def list_backups(host: str, *, reviewed_dir=None) -> List[str]:
     h = _safe_host(host)
     if not h:
         return []
-    base = _host_backups(h, reviewed_dir)
-    if not base.is_dir():
-        return []
-    return sorted(d.name for d in base.iterdir()
-                  if d.is_dir() and (d / _MANIFEST).is_file())
+    return [d.name for d in _generations(h, reviewed_dir)]
 
 
 def latest_backup(host: str, *, reviewed_dir=None) -> Optional[str]:
