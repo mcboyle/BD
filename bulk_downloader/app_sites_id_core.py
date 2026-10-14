@@ -947,6 +947,14 @@ def api_update(sid):
             elif isinstance(v, (list, dict)):
                 return jsonify({"error": f"{str_field} must be a string"}), 400
             elif not isinstance(v, str): data[str_field] = str(v)
+    # dss-site-secrets F5: a stored secret is a string or blank. A list, dict,
+    # number or bool used to be stored as-is (and str() of one is a junk key).
+    for secret_field in ("captcha_api_key", "qb_password", "plex_token",
+                         "stash_api_key", "jellyfin_api_key", "ha_token",
+                         "tpdb_api_key"):
+        if secret_field in data and not (data[secret_field] is None
+                                         or isinstance(data[secret_field], str)):
+            return jsonify({"error": f"{secret_field} must be a string"}), 400
     # dl95-xvideos-3: auth_required is a tri-state -- True / False, or unset
     # ("" / None) for "infer from the login fields". Discovery honours only a
     # real bool, so a form's "false" string is normalised here and anything
@@ -1086,8 +1094,13 @@ def api_update(sid):
             # The @cred ref landed on s_cfg AFTER the meta rebuild above, so
             # rebuild once more to refresh has_password (parity with api_add).
             s_meta[sid] = _build_meta(s_cfg[sid])
+            _cred_flags["cred_stored"] = True
         else:
             sys.stderr.write(f"  vault store on update {sid} failed: {_cred_err}\n")
+            # dss-site-secrets F2: the old password is still the live one, so
+            # say so in the reply (same fields as api_add), not on stderr only.
+            _cred_flags["cred_stored"] = False
+            _cred_flags["cred_error"] = str(_cred_err or "vault store failed")
     runners[sid].update_config(s_cfg[sid])
     _save_sites_config()
     # v3.43.16: sync session keeper to the updated config. If the user
