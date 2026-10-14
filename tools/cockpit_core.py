@@ -1435,15 +1435,34 @@ def _store_load() -> Dict[str, Any]:
         d = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return {"campaigns": {}, "queue": [], "notes": {}, "reviews": {}}
+    if not isinstance(d, dict):
+        return {"campaigns": {}, "queue": [], "notes": {}, "reviews": {}}
     for k in ("campaigns", "notes", "reviews"):
         d.setdefault(k, {})
     d.setdefault("queue", [])
     return d
 
 
+class StoreCorruptError(ValidationError):
+    """operator_state.json exists but is not a JSON object."""
+
+
 def _store_save(state: Dict[str, Any]) -> None:
-    """Atomic write per the project's .tmp + replace state-file invariant."""
+    """Atomic write per the project's .tmp + replace state-file invariant.
+
+    A corrupt store reads as empty (_store_load), so writing over it would
+    erase every campaign, queue item, note and review it still holds. Refuse
+    instead; the operator repairs or moves the file aside."""
     p = _store_path()
+    if p.is_file():
+        try:
+            ok = isinstance(json.loads(p.read_text(encoding="utf-8")), dict)
+        except Exception:
+            ok = False
+        if not ok:
+            raise StoreCorruptError(
+                f"{p.name} is corrupt (not a JSON object); refusing to overwrite it "
+                f"-- repair or move it aside")
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -1572,7 +1591,7 @@ def queue_list() -> Dict[str, Any]:
 
 def queue_reorder(order_ids: List[str]) -> Dict[str, Any]:
     """Set explicit ordering (drag-and-drop result). Pure data update."""
-    if not isinstance(order_ids, list):
+    if not isinstance(order_ids, list) or not all(isinstance(q, str) for q in order_ids):
         raise ValidationError("order must be a list of queue ids")
     with _STORE_LOCK:
         st = _store_load()
