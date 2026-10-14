@@ -449,15 +449,19 @@ def api_queue_import(sid):
     # "stopped", done, failed, ...) comes back in that status. It used to come
     # back "pending" and download again. running -> pending: no worker holds it.
     restore = {}
+    # A row url may be "url<TAB>Header=value" (load_urls, Phase 68). The job is
+    # keyed by the URL alone, so status / priority / force are keyed by job_url.
+    from .queue_templates import job_url
     for row in rows:
         url = (row.get("url") or "").strip()
-        if not url: continue
-        if url in runner.jobs: continue  # already queued — skip
+        key = job_url(url)
+        if not key: continue
+        if key in runner.jobs: continue  # already queued — skip
         new_urls.append(url)
         status = row.get("status")
         if isinstance(status, str) and status in _IMPORT_RESTORED_STATUSES:
             message = row.get("message")
-            restore[url] = (status, message if isinstance(message, str) and message
+            restore[key] = (status, message if isinstance(message, str) and message
                             else "Restored by queue import")
     if new_urls:
         # restore_status only when there is something to restore: a plain
@@ -473,8 +477,9 @@ def api_queue_import(sid):
         persist = []
         with runner._lock:
             for row in rows:
-                url = (row.get("url") or "").strip()
-                if url not in new_url_set or url not in runner.jobs: continue
+                entry = (row.get("url") or "").strip()
+                url = job_url(entry)
+                if entry not in new_url_set or url not in runner.jobs: continue
                 fields = {}
                 priority = row.get("priority")
                 if priority and isinstance(priority, str):
