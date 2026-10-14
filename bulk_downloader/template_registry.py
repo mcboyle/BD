@@ -186,12 +186,22 @@ def find_template_for_url(url: str, template_dirs=None, *, html=None):
     # a site-specific template can't be shadowed by a generic parent-domain one.
     best = None
     best_key = None
-    for template in templates:
+    for template in _operator_first(templates, host):
         key = _template_host_match_key(template, host)
         if key is not None and (best_key is None or key > best_key):
             best, best_key = template, key
 
     return copy.deepcopy(best)
+
+
+def _operator_first(templates, host):
+    """fed-trust F5: the operator's own template always wins for a host. An
+    approved peer template (federation writes _federated_from) is a candidate
+    only when no operator template matches the host at all."""
+    matching = [t for t in templates if _template_host_match_key(t, host) is not None]
+    if any("_federated_from" not in t for t in matching):
+        return [t for t in matching if "_federated_from" not in t]
+    return matching
 
 
 # ── CAP-3: runtime multi-variant template selection ──────────────────
@@ -208,7 +218,7 @@ def _template_variants(url: str, templates):
     except Exception:
         return []
     matches = []
-    for template in templates:
+    for template in _operator_first(templates, host):
         key = _template_host_match_key(template, host)
         if key is not None:
             matches.append((key, template))
