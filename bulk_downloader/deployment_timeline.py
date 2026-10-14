@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import enum
 import json
+import math
 import sys
 import time
 import uuid
@@ -357,6 +358,11 @@ def record_running_revision(install_dir: str) -> Optional[DeploymentRevision]:
         return None
 
 
+# fed-input-lows F11: one GET returns 1..1000 timeline entries / deployments.
+# limit=-1 is "no limit" to SQLite and returned every row.
+MAX_TIMELINE_LIMIT = 1000
+
+
 def create_blueprint(name: str = "deployment_timeline"):
     """Flask Blueprint exposing GET /api/deploy/timeline."""
     from flask import Blueprint, jsonify, request
@@ -370,6 +376,10 @@ def create_blueprint(name: str = "deployment_timeline"):
             limit = int(request.args.get("limit", 100))
         except ValueError:
             return jsonify({"error": "since_ts and limit must be numbers"}), 400
+        # nan compares false against every ts (silently empty), inf likewise
+        if not math.isfinite(since_ts):
+            return jsonify({"error": "since_ts must be a finite number"}), 400
+        limit = min(MAX_TIMELINE_LIMIT, max(1, limit))
         env = request.args.get("env")
         tracker = get_deployment_timeline()
         active = tracker.get_active_deployment(target_env=env or "production")

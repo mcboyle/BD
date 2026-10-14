@@ -76,6 +76,17 @@ def _fed_write_refusal():
                     "required": "X-BD-Fed-Sig or master token"}), 401
 
 
+def _int_field(value):
+    """fed-input-lows F10/F11: a numeric field from a request -> int, or None
+    when int() refuses it ("x", "1.5", 4301 digits, inf). The routes answer
+    None with a 400; before this the int() ran inside the blanket except and
+    a malformed request came back 500 with the exception text."""
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 @fed_bp.route("/api/fed/announce", methods=["POST"])
 def api_fed_announce():
     """A peer registers / refreshes. Requires HMAC signature in
@@ -86,10 +97,14 @@ def api_fed_announce():
         refused = _fed_write_refusal()
         if refused:
             return refused
+        last_history_id = _int_field(body.get("last_history_id", 0) or 0)
+        if last_history_id is None:
+            return jsonify({"ok": False,
+                            "error": "last_history_id must be an integer"}), 400
         ok = _fed.register_peer(
             instance_id=body.get("instance_id", ""),
             base_url=body.get("base_url", ""),
-            last_history_id=int(body.get("last_history_id", 0) or 0),
+            last_history_id=last_history_id,
             version=body.get("version", ""),
             hostname=body.get("hostname", ""),
         )
@@ -122,8 +137,12 @@ def api_fed_claim():
         if not url or not inst:
             return jsonify({"ok": False,
                             "error": "url and instance_id required"}), 400
-        ok = _fed.claim_url(url, inst,
-                           ttl_seconds=int(body.get("ttl_seconds", 1800)))
+        ttl = _int_field(body.get("ttl_seconds", 1800))
+        if ttl is None:
+            return jsonify({"ok": False,
+                            "error": "ttl_seconds must be an integer"}), 400
+        # claim_url clamps ttl to 1 s .. federation.MAX_CLAIM_TTL_S
+        ok = _fed.claim_url(url, inst, ttl_seconds=ttl)
         existing = _fed.is_claimed(url) if not ok else None
         return jsonify({"ok": ok, "existing_claim": existing})
     except Exception as e:
@@ -133,9 +152,12 @@ def api_fed_claim():
 def api_fed_sync():
     try:
         from . import federation as _fed
-        since_id = int(request.args.get("since_id", 0))
-        return jsonify({"rows": _fed.history_since(
-            since_id, limit=int(request.args.get("limit", 500)))})
+        since_id = _int_field(request.args.get("since_id", 0))
+        limit = _int_field(request.args.get("limit", 500))
+        if since_id is None or limit is None:
+            return jsonify({"error": "since_id and limit must be integers"}), 400
+        # history_since clamps limit to 1 .. federation.MAX_SYNC_PULL_ROWS
+        return jsonify({"rows": _fed.history_since(since_id, limit=limit)})
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -165,11 +187,14 @@ def api_fed_manual_register():
                         "error": "instance_id and base_url required"}), 400
     try:
         from . import federation as _fed
+        # fed-trust F3 / fed-input-lows: the operator may re-point an
+        # existing peer to a new base_url; a peer's own announce may not.
         ok = _fed.register_peer(
             instance_id=iid, base_url=burl,
             last_history_id=0,
             version=body.get("version", ""),
-            hostname=body.get("hostname", ""))
+            hostname=body.get("hostname", ""),
+            operator=True)
         return jsonify({"ok": ok})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500

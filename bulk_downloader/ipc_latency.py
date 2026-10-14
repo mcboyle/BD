@@ -10,6 +10,7 @@ from __future__ import annotations
 import collections
 import json
 import math
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -42,8 +43,13 @@ class IPCPingSample:
     timestamp: float = field(default_factory=time.time)
 
     def __post_init__(self) -> None:
-        if self.rtt_ms <= 0.0 and self.t3_ns >= self.t0_ns:
-            self.rtt_ms = max(0.0, (self.t3_ns - self.t0_ns) / 1_000_000.0)
+        if self.rtt_ms <= 0.0:
+            # fed-input-lows F13: t3 before t0 is a clock fault, not a 0 ms
+            # round trip; it was recorded as a real 0.0 sample (a fabricated
+            # zero, which this module prohibits).
+            if self.t3_ns < self.t0_ns:
+                raise ValueError(f"t3_ns {self.t3_ns} precedes t0_ns {self.t0_ns}: no latency sample")
+            self.rtt_ms = (self.t3_ns - self.t0_ns) / 1_000_000.0
 
     @property
     def total_duration_ms(self) -> float:
@@ -125,11 +131,19 @@ class IPCLatencyMatrix:
         self._max_history = max_history_per_pair
         self._max_pairs = max_pairs
         self._pairs: collections.OrderedDict[tuple[str, str], list[float]] = collections.OrderedDict()
+        # fed-input-lows F13: the gateway records from request threads while a
+        # reader iterates _pairs ("OrderedDict mutated during iteration").
+        # Readers copy under the lock and summarise outside it.
+        self._lock = threading.Lock()
 
     def record_sample(self, sample: IPCPingSample) -> None:
         self.record_rtt(sample.sender_seat, sample.receiver_seat, sample.rtt_ms)
 
     def record_rtt(self, sender_seat: str, receiver_seat: str, rtt_ms: float) -> None:
+        with self._lock:
+            self._record_rtt(sender_seat, receiver_seat, rtt_ms)
+
+    def _record_rtt(self, sender_seat: str, receiver_seat: str, rtt_ms: float) -> None:
         key = (sender_seat, receiver_seat)
         if key in self._pairs:
             self._pairs.move_to_end(key)
@@ -144,7 +158,8 @@ class IPCLatencyMatrix:
 
     def get_pair_summary(self, sender_seat: str, receiver_seat: str) -> LatencySummary | None:
         key = (sender_seat, receiver_seat)
-        samples = self._pairs.get(key)
+        with self._lock:
+            samples = list(self._pairs.get(key) or ())
         if not samples:
             return None
 
@@ -180,7 +195,7 @@ class IPCLatencyMatrix:
     def get_matrix(self) -> dict[str, dict[str, dict[str, Any]]]:
         """Returns 2D mapping: sender -> receiver -> LatencySummary dict."""
         res: dict[str, dict[str, dict[str, Any]]] = {}
-        for (src, dst) in self._pairs:
+        for (src, dst) in self._pair_keys():
             summary = self.get_pair_summary(src, dst)
             if summary:
                 if src not in res:
@@ -191,7 +206,7 @@ class IPCLatencyMatrix:
     def get_degraded_links(self, threshold_ms: float = 100.0) -> list[LatencySummary]:
         """Returns all pairs whose average latency exceeds the threshold."""
         degraded: list[LatencySummary] = []
-        for (src, dst) in self._pairs:
+        for (src, dst) in self._pair_keys():
             summary = self.get_pair_summary(src, dst)
             if summary and summary.mean_ms >= threshold_ms:
                 degraded.append(summary)
@@ -200,14 +215,19 @@ class IPCLatencyMatrix:
     def get_highest_latency_pairs(self, top_n: int = 5) -> list[LatencySummary]:
         """Returns top-N highest latency links by average latency."""
         all_summaries: list[LatencySummary] = []
-        for (src, dst) in self._pairs:
+        for (src, dst) in self._pair_keys():
             summary = self.get_pair_summary(src, dst)
             if summary:
                 all_summaries.append(summary)
         return sorted(all_summaries, key=lambda s: s.mean_ms, reverse=True)[:top_n]
 
+    def _pair_keys(self) -> list[tuple[str, str]]:
+        with self._lock:
+            return list(self._pairs)
+
     def reset(self) -> None:
-        self._pairs.clear()
+        with self._lock:
+            self._pairs.clear()
 
 
 class ClockSkewMonitor:

@@ -7,6 +7,7 @@ import re
 import time
 from collections.abc import Callable, Mapping
 from urllib.error import HTTPError
+from urllib.parse import unquote
 from urllib.request import Request, urlopen
 
 from flask import Blueprint, current_app, jsonify, request
@@ -72,6 +73,11 @@ def _path_from_request() -> str | None:
     path = body.pop("path", "/")
     if not isinstance(path, str) or not _PATH_RE.match(path):
         return None
+    # fed-input-lows F13: no "." / ".." segment, raw or percent-encoded. The
+    # path is appended to a traefik_url that may carry its own path
+    # ("http://traefik/svc"); "/../admin" climbed out of it.
+    if any(unquote(seg) in (".", "..") for seg in path.split("/")):
+        return None
     request.environ["service_mesh.payload"] = body
     return path
 
@@ -94,7 +100,9 @@ def route_service(service: str):
     candidates = [("traefik", traefik_url, {"Host": host})]
     candidates.extend((f"direct:{index}", url, {}) for index, url in enumerate(direct_urls))
     for route, base_url, headers in candidates:
-        if not isinstance(base_url, str) or not base_url.startswith("http://"):
+        # fed-input-lows F13: https bases were skipped, so an https-only
+        # service answered 503 "all routes unavailable" without a try
+        if not isinstance(base_url, str) or not base_url.startswith(("http://", "https://")):
             continue
         t0 = time.monotonic_ns()
         try:

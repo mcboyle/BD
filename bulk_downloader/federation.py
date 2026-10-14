@@ -350,14 +350,24 @@ def active_peers(*, since_seconds: int = 3600) -> list:
 
 # ─── URL claim coordination ───────────────────────────────────────────
 
+# fed-input-lows F10: a claim lives 1 s .. 1 day. ttl 1e12 held a URL
+# away from every other peer for ~31,700 years.
+MAX_CLAIM_TTL_S = 86400
+
+
 def claim_url(url: str, instance_id: str,
              *, ttl_seconds: int = 1800) -> bool:
     """A peer announces they're processing `url`. Returns False if
     another peer already has an unexpired claim on it.
 
     TTL prevents stuck claims: if a peer crashes mid-download, the
-    claim expires and another peer can pick it up."""
+    claim expires and another peer can pick it up. ttl_seconds is
+    clamped to 1..MAX_CLAIM_TTL_S."""
     if not url or not instance_id:
+        return False
+    try:
+        ttl_seconds = min(MAX_CLAIM_TTL_S, max(1, int(ttl_seconds)))
+    except (TypeError, ValueError, OverflowError):
         return False
     _ensure_tables()
     # C7 11.2: a blocked peer is refused download coordination.
@@ -433,11 +443,18 @@ def expire_old_claims():
 
 # ─── Sync pull ────────────────────────────────────────────────────────
 
+# fed-input-lows F11: one pull returns 1..500 rows (the default). limit=-1
+# is "no limit" to SQLite and returned the whole history; a caller pages
+# on the last id it got.
+MAX_SYNC_PULL_ROWS = 500
+
+
 def history_since(since_id: int, *, limit: int = 500) -> list:
     """Return history rows with id > since_id where status terminal.
     Used when a peer asks 'what's new on your end since I last
-    checked?'"""
+    checked?' limit is clamped to 1..MAX_SYNC_PULL_ROWS."""
     try:
+        limit = min(MAX_SYNC_PULL_ROWS, max(1, int(limit)))
         from . import db as _db
         with _db.db_conn() as cx:
             rows = cx.execute("""SELECT id, site_id, url, status,
