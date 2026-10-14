@@ -242,8 +242,15 @@ def api_dev_systemd_check():
     if guard: return guard
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.systemd_unit_check(
-            unit_path=request.args.get("path")))
+        from .dev_suite import release_lint as _rl
+        unit_path = request.args.get("path")
+        if unit_path:
+            ok, unit_path = _rl.confine_dev_input(
+                unit_path, extra=_rl._SYSTEMD_UNIT_CANDIDATES)
+            if not ok:
+                return jsonify({"tool": "systemd_unit_check", "ok": False,
+                                "error": unit_path})
+        return jsonify(_ds.systemd_unit_check(unit_path=unit_path))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
