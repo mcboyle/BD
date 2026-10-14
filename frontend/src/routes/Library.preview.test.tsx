@@ -86,3 +86,49 @@ describe("F019 Library item preview", () => {
     expect(within(dialog).getByText("/media/lib/other.mp4")).toBeInTheDocument();
   });
 });
+
+// BD's /api/library/browse rows (bulk_downloader/library.py library_browse)
+// carry the file as `file_path`, tags as {id, name, color} objects and
+// `watched` as 0/1; there is no `path` key. The preview must show those.
+describe("F019 Library item preview with BD's row shape", () => {
+  it("shows the file_path and tag names of a real browse row", async () => {
+    installApiFixtures(apiGetMock, apiPostMock, {
+      ...FIXTURES,
+      "/api/library/browse?limit=200": {
+        ok: true,
+        count: 1,
+        next_cursor: null,
+        rows: [
+          {
+            id: 163,
+            title: "Real-shape movie",
+            title_source: "filename",
+            file_path: "/srv/library/real-shape.mp4",
+            file_exists: 1,
+            file_size: 1048576,
+            history_id: 41,
+            site_id: "site-a",
+            rating: null,
+            watched: 1,
+            tags: [
+              { id: 2, name: "drama", color: null },
+              { id: 5, name: "4k", color: "#336699" },
+            ],
+          },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    renderWired(<Library />, "/library");
+
+    await user.click(await screen.findByRole("button", { name: "Real-shape movie" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("/srv/library/real-shape.mp4")).toBeInTheDocument();
+    expect(within(dialog).getByText("drama, 4k")).toBeInTheDocument();
+    expect(within(dialog).getByText("yes")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/object Object/)).toBeNull();
+    expect(apiPostMock).not.toHaveBeenCalled();
+    expect(apiDeleteMock).not.toHaveBeenCalled();
+  });
+});
