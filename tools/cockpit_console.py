@@ -34,6 +34,7 @@ from __future__ import annotations
 import os
 import sys
 import json
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -1978,6 +1979,20 @@ def _shell_origin_guard():
                              "request (not reachable from an untrusted network)"}), 403
 
 
+@bp.before_request
+def _json_object_guard():
+    """Every cockpit POST reads a JSON object (`get_json(silent=True) or {}` then
+    `.get`). Refuse any other JSON body with a 400 here, so the blueprint does not
+    lean on the host app's AttributeError handler (a standalone app has none)."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    b = request.get_json(silent=True)
+    if b is None or isinstance(b, dict):
+        return None
+    return jsonify({"ok": False, "error": "request body must be a JSON object",
+                    "hint": "check Content-Type and body shape"}), 400
+
+
 @bp.get("/api/shell/status")
 def api_shell_status():
     from tools import cockpit_shell as sh
@@ -2044,10 +2059,11 @@ def api_shell_close():
 # stays primary). Cockpit-only/deploy-excluded; not gated by G12. Values are
 # enum-validated; nothing free-form, no secrets. Persisted under BD_HOME/state.
 _UI_LAYOUTS = {"side", "top", "rail", "mode", "miller", "bottombar", "focus"}
-_UI_THEMES = {"live", "ocean", "forest", "tech", "galaxy", "sunset", "golden",
+_UI_THEMES = {"live", "auto", "ocean", "forest", "tech", "galaxy", "sunset", "golden",
               "arctic", "desert", "botanical", "minimalist"}
 _UI_TIERS = {"everyday", "advanced", "system"}
 _UI_VALID = {"layout": _UI_LAYOUTS, "theme": _UI_THEMES, "vtier": _UI_TIERS}
+_UI_PREFS_LOCK = threading.Lock()
 
 
 def _ui_prefs_file() -> Path:
@@ -2064,25 +2080,30 @@ def api_ui_prefs():
         except Exception:
             return jsonify({"prefs": {}})
     body = request.get_json(silent=True) or {}
-    try:
-        cur = json.loads(f.read_text(encoding="utf-8"))
-        if not isinstance(cur, dict):
-            cur = {}
-    except Exception:
-        cur = {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "request body must be a JSON object"}), 400
     for key, allowed in _UI_VALID.items():
-        if key in body:
-            val = body[key]
-            if val not in allowed:
-                return jsonify({"error": f"invalid {key}: {val!r}"}), 400
-            cur[key] = val
-    try:
-        f.parent.mkdir(parents=True, exist_ok=True)
-        tmp = f.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(cur), encoding="utf-8")
-        tmp.replace(f)
-    except Exception as e:  # pragma: no cover - disk failure
-        return jsonify({"error": f"persist failed: {e}"}), 500
+        if key in body and body[key] not in allowed:
+            return jsonify({"error": f"invalid {key}: {body[key]!r}"}), 400
+    # One read-modify-write at a time, each through its own tmp file: a shared
+    # tmp name let concurrent saves drop keys, 500 and leave a corrupt file.
+    with _UI_PREFS_LOCK:
+        try:
+            cur = json.loads(f.read_text(encoding="utf-8"))
+            if not isinstance(cur, dict):
+                cur = {}
+        except Exception:
+            cur = {}
+        for key in _UI_VALID:
+            if key in body:
+                cur[key] = body[key]
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            tmp = f.with_name(f"{f.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps(cur), encoding="utf-8")
+            tmp.replace(f)
+        except Exception as e:  # pragma: no cover - disk failure
+            return jsonify({"error": f"persist failed: {e}"}), 500
     return jsonify({"prefs": cur})
 
 
