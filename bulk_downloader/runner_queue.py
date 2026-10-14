@@ -533,12 +533,17 @@ class QueueMixin:
         return removed
     def bulk_approve(self,urls):
         """Approve needs_review URLs to bypass the min_resolution threshold.
-        Sets force_download=True on each job and re-queues as pending."""
+        Sets force_download=True on each job and re-queues as pending.
+
+        dl-runner #2: only needs_review jobs are approved, like the sibling
+        verbs (bulk_pause: pending, bulk_resume: stopped). A stale review list
+        must not reset a running or done job to pending with force_download."""
         urls=set(urls); n=0; approved=[]
         with self._job_status_writer() as mark_status_changed:
             for u in urls:
                 j=self.jobs.get(u)
                 if not j: continue
+                if j.get("status") != "needs_review": continue
                 j.update({"status":"pending","message":"Approved — will force-download below threshold",
                           "ts":_ts(),"force_download":True,"retries":0,"retry_after":0})
                 if u not in self.urls: self.urls.append(u)

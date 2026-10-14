@@ -60,14 +60,28 @@ def api_runners_pause_all():
 @runners_bp.route("/api/runners/resume_all", methods=["POST"])
 def api_runners_resume_all():
     """Inverse of pause_all — restart all paused runners. Idempotent
-    (already-running runners are skipped)."""
+    (already-running runners are skipped).
+
+    dl-runner #5: ``resumed`` counts EFFECTS, not attempts. start() returns
+    None both when it armed the pool and when a policy refused it (download
+    hold, window, low disk), so a runner counts only when it is running
+    afterwards; any other runner is named in ``not_started`` with its state."""
     resumed = 0
+    not_started = []
     failures = []
     for sid, runner in _runners_snapshot():
         try:
             if getattr(runner, "_state", "") != "running":
-                runner.start()
-                resumed += 1
+                outcome = runner.start()
+                state = getattr(runner, "_state", None)
+                if state == "running":
+                    resumed += 1
+                else:
+                    entry = {"site_id": sid,
+                             "state": None if state is None else str(state)}
+                    if outcome is not None:
+                        entry["blocked_by"] = str(getattr(outcome, "value", outcome))
+                    not_started.append(entry)
         except Exception as e:
             failures.append({"site_id": sid, "error": str(e)[:200]})
     try:
@@ -77,7 +91,8 @@ def api_runners_resume_all():
         })
     except Exception:
         pass
-    return jsonify({"ok": True, "resumed": resumed, "failures": failures})
+    return jsonify({"ok": True, "resumed": resumed, "not_started": not_started,
+                    "failures": failures})
 
 
 def register_routes(app) -> int:
