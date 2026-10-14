@@ -433,7 +433,9 @@ _SITE_TRANSACTION_BLUEPRINT_EXCLUSIONS = frozenset({
 })
 
 
-@app.before_request
+# app-core F3: registered AFTER _check_token/_check_csrf (below them), never
+# by a decorator here -- Flask runs before_request hooks in registration order,
+# and a refused unauthenticated request must not queue on the site stripe.
 def _enter_non_sites_site_lifecycle_transaction():
     """Serialize mutating non-sites routes with deletion of a live site."""
     if request.method not in _SITE_TRANSACTION_METHODS:
@@ -810,6 +812,20 @@ def _check_host():
                             "name under \"allowed_hosts\" in app_config.json"}), 403
 
 
+def _presents_operator_credential(toks) -> bool:
+    """app-core F1: a login session, the master Bearer or X-BD-Token -- the
+    credentials _check_token accepts for the whole API. Never touches the
+    session (a health poll does not slide its idle TTL)."""
+    sess_cookie = request.cookies.get("bd_session", "")
+    if sess_cookie and _session_authenticated(sess_cookie):
+        return True
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and any(_token_eq(auth[7:].strip(), t) for t in toks):
+        return True
+    bd_token = request.headers.get("X-BD-Token", "")
+    return bool(bd_token) and any(_token_eq(bd_token.strip(), t) for t in toks)
+
+
 @app.before_request
 def _check_token():
     _toks = _accepted_tokens()        # v3.66.317: primary + optional secondary
@@ -838,9 +854,14 @@ def _check_token():
         return None
     # v3.47.8 (#26): /api/health is the lightweight monitor probe — same
     # reasoning as /metrics. External monitors poll this without holding
-    # a session token. Response is public-information-only (version,
-    # uptime, queue depth) so the unauth surface is intentional.
+    # a session token, and scripts/deploy.sh / install_service.sh read its
+    # status, version, counts and the credentials / download_hold blocks
+    # unauthenticated to verify a restart, so the probe stays open.
+    # app-core F1: it is NOT public-information-only, so a caller that
+    # presents no operator credential gets the payload without filesystem
+    # paths (app_health reads g.bd_health_full).
     if path == "/api/health":
+        g.bd_health_full = _presents_operator_credential(_toks)
         return None
     # BD-SEC-6: the QR pairing redeem is the login itself -- the one-shot
     # pairing token in its body IS the credential (minted by an already
@@ -1215,6 +1236,10 @@ def _check_csrf():
         return jsonify({"error": "csrf token missing or invalid",
                         "hint": "send an X-CSRF-Token header; GET /api/csrf mints and returns the token for this session"}), 403
     return None
+
+
+# app-core F3: the site stripe is taken only once auth and CSRF have passed.
+app.before_request(_enter_non_sites_site_lifecycle_transaction)
 
 
 @app.after_request
