@@ -162,10 +162,11 @@ def _retain_import_rollback_survivors(survivors, runners, s_cfg, s_meta):
         s_meta.setdefault(site_id, _build_meta(cfg))
 
 
-def _canonical_delete_response(site_id: str):
+def _canonical_delete_response(site_id: str, keep_vault_refs_of=None):
     from .app_sites_id_core import _api_delete_transaction
 
-    return current_app.make_response(_api_delete_transaction(site_id))
+    return current_app.make_response(
+        _api_delete_transaction(site_id, keep_vault_refs_of))
 
 
 def _preflight_replace_owner_population(site_ids, runners):
@@ -500,6 +501,24 @@ def api_config_import():
                 return jsonify({"error": _captcha_egress_error}), 400
             create_plan.append((site_id, cfg))
 
+        # plaintext-secret-class: an imported password never reaches
+        # sites_config.json.  Hold each new plaintext value aside (a @cred:
+        # reference stays as-is) and route it through the secrets vault, as
+        # POST /api/sites does, once the import has persisted.  A merged site
+        # keeps its old value until the vault store succeeds.
+        vault_pending = {}
+        for site_id, cfg, old_cfg, _runner in update_plan:
+            pw = cfg.get("password")
+            if (isinstance(pw, str) and pw and not pw.startswith("@cred:")
+                    and pw != old_cfg.get("password")):
+                vault_pending[site_id] = pw
+                cfg["password"] = old_cfg.get("password", "")
+        for site_id, cfg in create_plan:
+            pw = cfg.get("password")
+            if isinstance(pw, str) and pw and not pw.startswith("@cred:"):
+                vault_pending[site_id] = pw
+                cfg["password"] = ""
+
         # Constructors start scheduler and auto-retry owners.  Stage every
         # runtime off-registry first; a later constructor failure can then
         # retire the complete staged population without exposing a half import
@@ -573,8 +592,13 @@ def api_config_import():
                     "rollback_complete": False,
                     "teardown_partial": True,
                 }), 503
+            # plaintext-secret-class F7: delete reaps each old site's vault
+            # entries, except keys a staged replacement still references (an
+            # include_passwords export carries the old @cred: names).
+            staged_cfgs = {site_id: cfg for site_id, cfg, _runner in staged}
             for site_id in sorted(old_site_ids):
-                delete_response = _canonical_delete_response(site_id)
+                delete_response = _canonical_delete_response(
+                    site_id, staged_cfgs)
                 if delete_response.status_code < 400:
                     continue
                 # A real watcher target removes its own thread/stop identities
@@ -670,6 +694,37 @@ def api_config_import():
                 "detail": "atomic sites-config writer did not confirm replace",
             }), 503
 
+        credentials = {}
+        if vault_pending:
+            import importlib
+            _app = importlib.import_module("bulk_downloader.app")
+            allowed, _status, errbody = _app._vault_guard_for_password()
+            for site_id, pw in vault_pending.items():
+                if allowed:
+                    stored, cred_err = _app._store_site_password_in_vault(
+                        site_id, pw)
+                else:
+                    stored, cred_err = False, (errbody or {}).get("error", "")
+                entry = {"cred_stored": stored}
+                if not stored:
+                    entry["cred_error"] = cred_err
+                    for flag in ("secrets_locked", "secrets_plaintext"):
+                        if (errbody or {}).get(flag):
+                            entry[flag] = True
+                credentials[site_id] = entry
+                s_meta[site_id] = _build_meta(s_cfg[site_id])
+            if any(e["cred_stored"] for e in credentials.values()):
+                try:
+                    persisted = _save_sites_config()
+                except Exception as exc:  # noqa: BLE001
+                    persisted = f"{type(exc).__name__}: {exc}"
+                if persisted is not True:
+                    return jsonify({
+                        "ok": False,
+                        "error": "site config persistence failed",
+                        "detail": f"vault references not saved: {persisted}",
+                    }), 503
+
         try:
             for site_id, cfg, _old_cfg, _runner in update_plan:
                 _sync_imported_runtime_dependencies(site_id, cfg)
@@ -692,6 +747,7 @@ def api_config_import():
             "imported": len(staged),
             "updated": len(update_plan),
             "mode": mode,
+            **({"credentials": credentials} if credentials else {}),
         })
 
 def register_routes(app) -> int:

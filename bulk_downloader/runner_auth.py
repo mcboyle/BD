@@ -1103,6 +1103,7 @@ class AuthMixin:
             captured_success_url = sels.pop("success_url_value", "") or ""
             cred_captured = []
             url_captured = []
+            vault_pass = ""
             # v3.43.49: always overwrite when captured. The common case
             # for re-teaching a site is "the saved credentials are wrong
             # / expired"; not overwriting forces the user to clear the
@@ -1128,8 +1129,11 @@ class AuthMixin:
                         f"Update the vault entry directly via "
                         f"Settings → Secrets.\n")
                 else:
-                    self.config["password"] = captured_pass
-                    cred_captured.append("password")
+                    # plaintext-secret-class S15: the captured password goes
+                    # to the secrets vault in the persist step below (as
+                    # POST /api/sites does); sites_config.json only ever
+                    # gets the @cred: reference.
+                    vault_pass = captured_pass
             # v3.43.50: persist URLs. Always overwrite when the wizard
             # captured them (same reasoning as credentials — re-teach
             # usually means the saved values are wrong). Skip when the
@@ -1145,7 +1149,7 @@ class AuthMixin:
                 if old != captured_success_url:
                     self.config["success_url"] = captured_success_url
                     url_captured.append("success_url")
-            if (learned_count or cred_captured or url_captured) and not self._override_suppresses_persist():
+            if (learned_count or cred_captured or url_captured or vault_pass) and not self._override_suppresses_persist():
                 if learned_count:
                     merge_learned(self.config, sels, kind="login")
                 # Save back to disk via app's config persistence helper
@@ -1153,6 +1157,17 @@ class AuthMixin:
                     from . import app as _app
                     if self.site_id in _app.s_cfg:
                         _app.s_cfg[self.site_id]=self.config
+                        if vault_pass:
+                            allowed, _st, errbody = _app._vault_guard_for_password()
+                            stored, why = ((_app._store_site_password_in_vault(
+                                self.site_id, vault_pass)) if allowed
+                                else (False, (errbody or {}).get("error", "")))
+                            if stored:
+                                cred_captured.append("password")
+                            else:
+                                self.log.warning(
+                                    "learn: captured password not stored: %s", why)
+                                msg += f" (password not stored: {why})"
                         _app.s_meta[self.site_id]=_app._build_meta(self.config)
                         _app._save_sites_config()
                 except Exception as e:

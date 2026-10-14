@@ -1217,7 +1217,52 @@ def api_delete(sid):
         return _api_delete_transaction(sid)
 
 
-def _api_delete_transaction(sid):
+def _reap_site_vault_entries(sid, old_cfg, remaining_cfg, keep_refs_of=None):
+    """plaintext-secret-class F7: remove the deleted site's vault ciphertext.
+
+    Candidates are the site's own keys (``bulkdl-site-<sid>`` and
+    ``bulkdl-site-<sid>-account-N`` in the vault inventory) plus every
+    ``@cred:bulkdl-site-*`` key the old config referenced. A key another
+    remaining site still references, or one a config in ``keep_refs_of``
+    references (config replace: the staged replacement), stays. Returns (removed, retained):
+    key names only, never a value; retained pairs each key with the reason.
+    """
+    from . import secrets_store as ss
+    own = ss.site_password_key(sid)
+    candidates = {k for k in ss.password_reference_keys({sid: old_cfg})
+                  if k.startswith("bulkdl-site-")}
+    removed, retained = [], []
+    unreachable = None
+    try:
+        backend = ss.get_backend()
+        if getattr(backend, "name", "") == "plaintext":
+            unreachable = "secrets backend is plaintext, not the vault"
+        else:
+            candidates.update(
+                k for k in backend.list_keys()
+                if k == own or k.startswith(own + "-account-"))
+    except Exception as e:  # noqa: BLE001
+        unreachable = f"vault inventory failed: {type(e).__name__}"
+        candidates.add(own)
+    in_use = (set(ss.password_reference_keys(remaining_cfg))
+              | set(ss.password_reference_keys(keep_refs_of)))
+    for key in sorted(candidates - in_use):
+        if unreachable is not None:
+            retained.append((key, unreachable))
+            continue
+        try:
+            if backend.delete(key):
+                removed.append(key)
+        except Exception as e:  # noqa: BLE001
+            retained.append((key, type(e).__name__))
+    for key, why in retained:
+        logging.getLogger(__name__).warning(
+            "site %s deleted but vault entry %s was not removed: %s",
+            sid, key, why)
+    return removed, retained
+
+
+def _api_delete_transaction(sid, keep_vault_refs_of=None):
     _watch_stops = _app__watch_stops()
     _watch_threads = _app__watch_threads()
     _watch_registry_lock = _app__watch_registry_lock()
@@ -1353,7 +1398,15 @@ def _api_delete_transaction(sid):
                    or request.remote_addr or "unknown"))
     except Exception:
         pass
-    return jsonify({"ok":True})
+    _vault_removed, _vault_retained = _reap_site_vault_entries(
+        sid, _audit_old, s_cfg, keep_vault_refs_of)
+    _vault = {}
+    if _vault_removed:
+        _vault["vault_removed"] = _vault_removed
+    if _vault_retained:
+        _vault["vault_retained"] = [
+            {"key": k, "error": why} for k, why in _vault_retained]
+    return jsonify({"ok":True, **_vault})
 
 
 @sites_bp.route("/api/sites/<sid>/ai/detect_login", methods=["POST"])
