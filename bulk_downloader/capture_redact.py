@@ -22,7 +22,7 @@ removes secrets; it never reconstructs, replays, or evades.
 from __future__ import annotations
 
 import re
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, unquote_plus, urlsplit, urlunsplit
 
 PLACEHOLDER = "<scrubbed>"
 
@@ -33,11 +33,26 @@ _MAX_NEST = 2
 
 # Header names whose VALUES are credentials — drop the value, keep the
 # name so structure ("this request sent a Cookie") stays visible.
+# request-capture-redact: this is THE secret-header class. Every header
+# redactor (capture, request_replay, HAR/WACZ export) asks it -- through
+# :func:`is_secret_header` or this pattern -- never a local name list. It names
+# authorization / proxy-authorization / cookie / set-cookie / x-bd-token /
+# x-bd-api-token / x-csrf-token / x-api-key, and ANY name containing "token",
+# "secret" or "key" (the bare substrings: x-refresh-token, x-client-secret,
+# x-signing-key). r2 (PM A2): also x-auth and every x-auth-* name, except
+# x-auth-user (a username, kept visible).
 SENSITIVE_HEADER = re.compile(
     r"(cookie|authorization|auth-token|x-.*-token|x-.*-key|csrf|"
-    r"x-xsrf|session|bearer|api[-_]?key|signature|x-amz-security-token)",
+    r"x-xsrf|session|bearer|api[-_]?key|signature|x-amz-security-token|"
+    r"token|secret|key|^x-auth$|^x-auth-(?!user$))",
     re.I,
 )
+
+
+def is_secret_header(name) -> bool:
+    """True iff header ``name`` carries a credential VALUE (mask the value,
+    keep the name). The one predicate for the secret-header class."""
+    return bool(SENSITIVE_HEADER.search(str(name or "").strip()))
 
 # Query-param keys whose values are secrets — redact the value.
 SENSITIVE_QS_KEY = re.compile(
@@ -85,7 +100,9 @@ def redact_query(url: str, _depth: int = 0) -> str:
     for pair in qs.split("&"):
         if "=" in pair:
             k, _, v = pair.partition("=")
-            if SENSITIVE_QS_KEY.search(k):
+            # r2: match the DECODED key too ('pass%77ord', 'api+key' name the
+            # same field to the server as 'password', 'api key').
+            if SENSITIVE_QS_KEY.search(k) or SENSITIVE_QS_KEY.search(unquote_plus(k)):
                 parts.append(f"{k}={PLACEHOLDER}")
             else:
                 parts.append(f"{k}={_redact_nested_value(v, _depth)}")
@@ -311,7 +328,7 @@ def _header_value(name, value, extra_headers=()):
     floor, never shrink it — the ``SENSITIVE_HEADER`` check runs regardless.
     """
     n = str(name)
-    if SENSITIVE_HEADER.search(n) or (extra_headers and n.lower() in extra_headers):
+    if is_secret_header(n) or (extra_headers and n.lower() in extra_headers):
         return PLACEHOLDER
     if isinstance(value, str) and value[:5].lower().startswith(("http:", "https")):
         return redact_query(value)

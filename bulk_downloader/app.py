@@ -1363,7 +1363,8 @@ def _dev_metrics_record(response):
                             request_headers=dict(request.headers),
                             request_body=req_body,
                             response_body=resp_body,
-                            duration_ms=duration_ms)
+                            duration_ms=duration_ms,
+                            rule=getattr(request.url_rule, "rule", None))
                 except Exception:
                     pass
     except Exception:
@@ -4067,6 +4068,38 @@ def _dev_request_authorized() -> bool:
         if xt and any(_token_eq(xt.strip(), t) for t in _toks):
             return True
     return False
+
+
+def _request_has_master_token() -> bool:
+    """True iff this request presents an accepted server token (Bearer or
+    X-BD-Token, _token_eq). False when auth is unconfigured (no token exists).
+    request-capture-redact r2: also the gate for a replay aimed at this box."""
+    _toks = _accepted_tokens()
+    if not _toks:
+        return False
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and any(_token_eq(auth[7:].strip(), t) for t in _toks):
+        return True
+    xt = request.headers.get("X-BD-Token", "")
+    return bool(xt) and any(_token_eq(xt.strip(), t) for t in _toks)
+
+
+def _request_actor_class() -> str:
+    """request-capture-redact: WHO is asking, by credential class -- for
+    privilege checks stricter than _dev_request_authorized and for audit lines.
+    "loopback" (an on-box caller), "master_token" (the master bearer /
+    X-BD-Token), "session" (a live bd_session cookie) or "none". Never carries
+    the credential itself. (r2: no "same_origin" class -- BASE dropped the
+    Referer admission and _request_is_same_origin with it.)"""
+    ra = (request.remote_addr or "")
+    if ra in ("127.0.0.1", "::1", "localhost"):
+        return "loopback"
+    if _request_has_master_token():
+        return "master_token"
+    sess = request.cookies.get("bd_session", "")
+    if sess and _session_valid(sess):
+        return "session"
+    return "none"
 
 
 def _dev_mode_guard():

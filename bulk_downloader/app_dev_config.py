@@ -229,6 +229,44 @@ def api_dev_feature_flags():
         return jsonify({"error": str(e)[:200]}), 500
 
 
+def _flag_actor() -> str:
+    """The caller's credential class (app._request_actor_class), resolved on
+    the LIVE app module at call time."""
+    try:
+        import importlib
+        return importlib.import_module(
+            "bulk_downloader.app")._request_actor_class()
+    except Exception:
+        return "none"
+
+
+def _log_flag_change(op, name, value, actor, result):
+    """Audit line for every feature-flag write: name, actor class, ts."""
+    import logging
+    import time as _time
+    logging.getLogger("bulk_downloader.feature_flags").warning(
+        "feature_flag_change op=%s name=%r value=%r actor=%s result=%s ts=%.3f",
+        op, str(name)[:64], value, actor, result, _time.time())
+
+
+def _is_replayed_request() -> bool:
+    """r2 (PM F2a): True iff this request bears the request_replay marker
+    header, i.e. it is a replay of a captured request."""
+    from .request_replay import REPLAY_MARKER_HEADER
+    return request.headers.get(REPLAY_MARKER_HEADER) is not None
+
+
+def _refuse_replayed_capture_change(op, name, value, actor):
+    """A replayed request never changes request_capture (it would arrive from
+    loopback and launder the gate below). 403 + audit line, else None."""
+    if name != "request_capture" or not _is_replayed_request():
+        return None
+    _log_flag_change(op, name, value, actor, "refused-replay")
+    return jsonify({"ok": False,
+                    "error": "request_capture cannot be changed by a "
+                             "replayed request"}), 403
+
+
 @dev_bp.route("/api/dev/feature_flag_set", methods=["POST"])
 def api_dev_feature_flag_set():
     """T40/D-121 mutating — set a feature flag. Body: {name, value}.
@@ -238,12 +276,28 @@ def api_dev_feature_flag_set():
     body = request.json or {}
     name = body.get("name")
     value = body.get("value")
+    actor = _flag_actor()
+    refused = _refuse_replayed_capture_change("set", name, value, actor)
+    if refused: return refused
+    # request-capture-redact: capture records every /api/ request, so turning
+    # it ON is a master-level act -- loopback or the master token only. A
+    # session (any source, pair_redeem included) or a same-origin Referer,
+    # which pass _dev_mode_guard, do not. Turning it OFF stays open.
+    if name == "request_capture" and value is True \
+            and actor not in ("loopback", "master_token"):
+        _log_flag_change("set", name, value, actor, "refused")
+        return jsonify({"ok": False,
+                        "error": "request_capture can only be turned on from "
+                                 "loopback or with the master token"}), 403
     # JSON booleans round-trip as Python bools. If the caller sent
     # something else (e.g. the string "true") reject — silent coercion
     # is what set_flag refuses too.
     try:
         from . import feature_flags as _ff
-        return jsonify(_ff.set_flag(name, value))
+        res = _ff.set_flag(name, value)
+        _log_flag_change("set", name, value, actor,
+                         "ok" if res.get("ok") else "failed")
+        return jsonify(res)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
@@ -256,8 +310,13 @@ def api_dev_feature_flag_delete():
     if guard: return guard
     body = request.json or {}
     name = body.get("name")
+    refused = _refuse_replayed_capture_change("delete", name, None, _flag_actor())
+    if refused: return refused
     try:
         from . import feature_flags as _ff
-        return jsonify(_ff.delete_flag(name))
+        res = _ff.delete_flag(name)
+        _log_flag_change("delete", name, None, _flag_actor(),
+                         "ok" if res.get("ok") else "failed")
+        return jsonify(res)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500

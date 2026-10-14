@@ -21,10 +21,18 @@ import json
 import os
 import re
 import threading
+import uuid
 from pathlib import Path
+from typing import Optional
 
 
 _LOCK = threading.Lock()
+# FINDINGS F2 (request-capture-redact r1): set_flag / delete_flag are a
+# load-modify-write of ONE file. They hold _WRITE_LOCK for the whole cycle so
+# two writers cannot both load the old set and the second os.replace drop the
+# first's flag. Separate from _LOCK (which _load takes): threading.Lock does
+# not re-enter.
+_WRITE_LOCK = threading.Lock()
 _CACHE: dict = {}
 _CACHE_MTIME: float = 0.0
 
@@ -86,6 +94,45 @@ def is_on(name: str) -> bool:
     return bool(_load().get(name, False))
 
 
+def _read_disk(p: Path) -> dict:
+    """The flag set as on disk now (no cache), cleaned like _load."""
+    try:
+        with open(p, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: bool(v) for k, v in data.items()
+            if isinstance(k, str) and _NAME_RE.match(k)}
+
+
+def _write_locked(p: Path, current: dict) -> Optional[str]:
+    """Atomically write ``current`` to ``p`` through a per-call tmp file (a
+    shared tmp name let one writer's os.replace consume another's tmp).
+    Caller holds _WRITE_LOCK. Returns an error string, or None on success."""
+    global _CACHE, _CACHE_MTIME
+    tmp = p.with_name(f"{p.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(current, fh, indent=2, ensure_ascii=False,
+                      sort_keys=True)
+        os.replace(tmp, p)
+    except Exception as e:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+        return f"atomic write failed: {e}"
+    with _LOCK:
+        _CACHE = dict(current)
+        try:
+            _CACHE_MTIME = p.stat().st_mtime
+        except Exception:
+            _CACHE_MTIME = 0.0
+    return None
+
+
 def set_flag(name: str, value: bool) -> dict:
     """Mutating: set `name` to `value`. Atomic .tmp + replace.
 
@@ -108,27 +155,12 @@ def set_flag(name: str, value: bool) -> dict:
     except Exception as e:
         return {"ok": False,
                 "error": f"cannot create state dir: {e}"}
-    current = _load()
-    current[name] = value
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    try:
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(current, fh, indent=2, ensure_ascii=False,
-                      sort_keys=True)
-        os.replace(tmp, p)
-    except Exception as e:
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
-        return {"ok": False, "error": f"atomic write failed: {e}"}
-    global _CACHE, _CACHE_MTIME
-    with _LOCK:
-        _CACHE = dict(current)
-        try:
-            _CACHE_MTIME = p.stat().st_mtime
-        except Exception:
-            _CACHE_MTIME = 0.0
+    with _WRITE_LOCK:
+        current = _read_disk(p)
+        current[name] = value
+        err = _write_locked(p, current)
+    if err:
+        return {"ok": False, "error": err}
     return {"ok": True, "name": name, "value": value}
 
 
@@ -139,31 +171,16 @@ def delete_flag(name: str) -> dict:
         return {"ok": False,
                 "error": "name must match ^[a-z][a-z0-9_]{1,63}$"}
     p = state_path()
-    current = _load()
-    if name not in current:
-        return {"ok": True, "name": name, "removed": False}
-    del current[name]
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        return {"ok": False, "error": f"cannot create state dir: {e}"}
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    try:
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(current, fh, indent=2, ensure_ascii=False,
-                      sort_keys=True)
-        os.replace(tmp, p)
-    except Exception as e:
+    with _WRITE_LOCK:
+        current = _read_disk(p)
+        if name not in current:
+            return {"ok": True, "name": name, "removed": False}
+        del current[name]
         try:
-            tmp.unlink()
-        except Exception:
-            pass
-        return {"ok": False, "error": f"atomic write failed: {e}"}
-    global _CACHE, _CACHE_MTIME
-    with _LOCK:
-        _CACHE = dict(current)
-        try:
-            _CACHE_MTIME = p.stat().st_mtime
-        except Exception:
-            _CACHE_MTIME = 0.0
+            p.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            return {"ok": False, "error": f"cannot create state dir: {e}"}
+        err = _write_locked(p, current)
+    if err:
+        return {"ok": False, "error": err}
     return {"ok": True, "name": name, "removed": True}
