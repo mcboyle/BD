@@ -128,6 +128,7 @@ EXPECTED_UNMIRRORED_READ_TABLES = [
     "history_fts",         # FTS5 virtual table over history
     "library",             # file library, SQLite-only
     "site_run_intent",     # dl95-evilangel-1 per-site run intent, SQLite-only
+    "site_window_park",    # ddr-fix-r3 per-site download-window park mark, SQLite-only
     "sqlite_master",       # schema introspection
 ]
 
