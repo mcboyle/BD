@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6095,
+  "edge_count": 6119,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2815,6 +2815,16 @@
       "bulk_downloader/exports.py",
       "bulk_downloader/provenance.py"
     ],
+    "tests/test_bughunt_qti_queue_f6.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_queue_templates.py",
+      "bulk_downloader/app_sites_queue.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/queue_templates.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/staging_ingest.py"
+    ],
     "tests/test_bughunt_qti_queue_meta.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/app_queue_templates.py",
@@ -3267,6 +3277,24 @@
     "tests/test_dah_hls_runtime_nonpositive.py": [
       "bulk_downloader/global_config.py",
       "bulk_downloader/hls_downloader.py"
+    ],
+    "tests/test_dah_probe_bounded_probes.py": [
+      "bulk_downloader/extractors_jsonapi.py",
+      "bulk_downloader/multi_conn.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/tier_probe.py"
+    ],
+    "tests/test_dah_vpn_site_client_egress.py": [
+      "bulk_downloader/extractors_dl8.py",
+      "bulk_downloader/extractors_jsonapi.py",
+      "bulk_downloader/mp4_metadata.py",
+      "bulk_downloader/proxy_pool.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_integrity.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/tier_probe.py",
+      "bulk_downloader/vpn_runtime.py"
     ],
     "tests/test_daily_digest.py": [
       "bulk_downloader/daily_digest.py"
@@ -3979,6 +4007,9 @@
     "tests/test_dss_site_secrets_put_reports_vault_failure.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_dss_token_rotate.py": [
+      "bulk_downloader/global_config.py"
     ],
     "tests/test_dsw_fix_tags_stream.py": [
       "bulk_downloader/app_stream.py",
@@ -10898,6 +10929,9 @@
     "tools/replay_validator.py": [
       "tools/capture_analytics.py",
       "tools/workflow_diagnostic.py"
+    ],
+    "tools/rotate_token.py": [
+      "bulk_downloader/global_config.py"
     ],
     "tools/runner_extract_unit.py": [
       "tools/runner_struct.py"

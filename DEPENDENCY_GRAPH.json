@@ -2349,6 +2349,7 @@
         "tools/fuzz_probe.py",
         "tools/gui_parity_inventory.py",
         "tools/precut_check.py",
+        "tools/rotate_token.py",
         "tools/security_probe.py",
         "tools/stress_probe.py",
         "tools/validate_global_config.py"
@@ -2426,7 +2427,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1848,
+    "edge_count": 1849,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3651,7 +3652,8 @@
         "tools/cockpit_core.py",
         "tools/cockpit_shell.py",
         "tools/config_surface_inventory.py",
-        "tools/framework_fleet.py"
+        "tools/framework_fleet.py",
+        "tools/rotate_token.py"
       ],
       "bulk_downloader/happy_eyeballs.py": [
         "bulk_downloader/ssrf_transport.py"
@@ -8302,6 +8304,9 @@
         "tools/capture_analytics.py",
         "tools/workflow_diagnostic.py"
       ],
+      "tools/rotate_token.py": [
+        "bulk_downloader/global_config.py"
+      ],
       "tools/runner_extract_unit.py": [
         "tools/runner_struct.py"
       ],
@@ -8467,6 +8472,7 @@
       "tools/promote_template.py",
       "tools/queue_intelligence.py",
       "tools/redaction_dial_report.py",
+      "tools/rotate_token.py",
       "tools/scrub_recon.py",
       "tools/security_probe.py",
       "tools/selector_learning.py",
@@ -8592,6 +8598,7 @@
       "tools/redaction_dial_report.py",
       "tools/release_diff_summary.py",
       "tools/replay_validator.py",
+      "tools/rotate_token.py",
       "tools/runner_extract_unit.py",
       "tools/scrub_recon.py",
       "tools/search_index_builder.py",
