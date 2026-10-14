@@ -36,11 +36,42 @@ jobs:
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
       selected_shards: ${{ steps.classify.outputs.selected_shards }}
+      runner: ${{ steps.pool.outputs.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      # O3143 A1 ci-fleet-runners: the ONE place that picks the pool for the heavy jobs (gate-suites,
+      # frontend-vitest). fleet = the 24 self-hosted bd-fleet runners; hosted = ubuntu-latest.
+      # fleet ONLY for per-cut CI: a pull request whose head repo IS this repo and whose branch is cut/*.
+      # Trains (train/*), pushes to main and every other same-repo PR stay hosted: the after run (PR #1234,
+      # 2026-10-14) measured the fleet 1.1-2x slower per job, so it only pays where the hosted queue would
+      # starve, and hosted capacity is kept for the trains (PM RULING ANSWER-pm-B2-B-A1-after-run-1822Z).
+      # A fork PR, the nightly schedule and the Gitea mirror (its server is not github.com and it has no
+      # bd-fleet runner, so a fleet job would queue forever) stay hosted. The event fields reach the script
+      # through env, never ${{ }} inside run: a fork names its own head repo and branch.
+      # postgres-integration stays hosted: its postgres service container needs Docker, which none of the
+      # five fleet hosts has (measured 2026-10-14). gate-suites keeps version-at-land hosted (see runs-on).
+      - name: Choose the runner pool for the heavy jobs
+        id: pool
+        env:
+          EVENT: ${{ github.event_name }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          runner=hosted
+          if [ "$SERVER_URL" = "https://github.com" ] && [ "$EVENT" = pull_request ] &&
+             [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" = "$REPO" ]; then
+            case "$HEAD_REF" in
+              cut/?*) runner=fleet ;;
+            esac
+          fi
+          echo "runner=$runner" >> "$GITHUB_OUTPUT"
+          echo "heavy-job pool: $runner (event=$EVENT head_repo=${HEAD_REPO:-none} head_ref=${HEAD_REF:-none} server=$SERVER_URL)"
 
       - uses: actions/setup-python@v5
         with:
@@ -367,7 +398,7 @@ jobs:
     # pull request has ever been judged by them. Measured 2026-08-24: the whole
     # suite is green in 14 seconds, so the only reason it was not here is that
     # nobody wired it.
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.ci_docs_only.outputs.runner == 'fleet' && fromJSON('["self-hosted", "bd-fleet"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -406,7 +437,9 @@ jobs:
 
   gate-suites:
     needs: ci_docs_only
-    runs-on: ubuntu-latest
+    # A1: version-at-land stays hosted even for a cut: its trio-stamp tests run >180 s each on every fleet
+    # host (PR #1234 run 38603911954 timed out on bd3 and on an idle cir2) and ~4 min for the whole file hosted.
+    runs-on: ${{ needs.ci_docs_only.outputs.runner == 'fleet' && matrix.name != 'version-at-land' && fromJSON('["self-hosted", "bd-fleet"]') || 'ubuntu-latest' }}
     # pytest-timeout runs inside pytest. This is the independent owner bound
     # for a dead interpreter/runner, kept well below Actions' six-hour default.
     timeout-minutes: 30
@@ -483,6 +516,15 @@ jobs:
             requirements.txt
             requirements-test.txt
 
+      # A1: a fleet runner keeps its tool-cache Python between jobs, so packages another branch installed
+      # would still be importable here and a gate could pass on a dependency this tree dropped. A venv in
+      # RUNNER_TEMP (emptied per job) gives each job the clean interpreter a hosted VM gives it.
+      - name: Fresh Python environment (fleet runners only)
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && runner.environment == 'self-hosted'
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
       # X11 TOOLING FOR THE DISPLAY-OWNERSHIP GATES. Installed on EVERY gate
       # shard on purpose, not only the one that needs it today: the existing
       # fetch-depth comment in this job already records that a future re-shuffle
@@ -497,9 +539,13 @@ jobs:
       # H622: video acceptance uses real ffmpeg; provision it before pytest.
       - name: install X11 and video acceptance utilities
         if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
+        # A1: up to 8 fleet jobs share one host and its dpkg lock, so apt runs only when a tool is missing
+        # and under one host-wide flock; the three checks below still decide.
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends xvfb x11-utils ffmpeg
+          if ! { command -v ffmpeg && command -v Xvfb && command -v xdpyinfo; } >/dev/null; then
+            flock -w 900 /tmp/bd-ci-apt.lock sudo apt-get update -qq -o DPkg::Lock::Timeout=600
+            flock -w 900 /tmp/bd-ci-apt.lock sudo apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=600 xvfb x11-utils ffmpeg
+          fi
           command -v ffmpeg >/dev/null || { echo "ffmpeg absent after install"; exit 1; }
           command -v Xvfb    >/dev/null || { echo "Xvfb absent after install"; exit 1; }
           command -v xdpyinfo >/dev/null || { echo "xdpyinfo absent after install"; exit 1; }
@@ -544,7 +590,8 @@ jobs:
       # so a shard that gains a browser-driven gate cannot silently lose it.
       - name: Install Chromium for browser-driven fixture gates
         if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && matrix.name == 'download-chain'
-        run: python -m playwright install --with-deps chromium
+        # A1: --with-deps runs apt; the same host-wide flock as the X11 step.
+        run: flock -w 900 /tmp/bd-ci-apt.lock python -m playwright install --with-deps chromium
 
       - name: ${{ matrix.name }} gates
         if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
