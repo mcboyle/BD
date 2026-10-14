@@ -6,7 +6,7 @@ here, as GitHub runs it (bash -e), over every event shape: only a same-repo pull
 goes to the fleet. Trains, pushes to main, other same-repo PRs, fork PRs (even from a branch named cut/*),
 the nightly schedule and the Gitea mirror stay hosted (PM RULING ANSWER-pm-B2-B-A1-after-run-1822Z). A fork
 must never reach a self-hosted runner, so the fork cases are the ones this file exists for.
-gate-suites keeps version-at-land hosted; postgres-integration stays hosted (its service needs Docker).
+gate-suites keeps version-at-land and isolation hosted and gives a cut a 60 min job timeout; postgres-integration stays hosted (its service needs Docker).
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ REPO = "mcboyle/BD"
 FLEET_RUNS_ON = ("${{ needs.ci_docs_only.outputs.runner == 'fleet' && "
                  "fromJSON('[\"self-hosted\", \"bd-fleet\"]') || 'ubuntu-latest' }}")
 GATE_RUNS_ON = ("${{ needs.ci_docs_only.outputs.runner == 'fleet' && matrix.name != 'version-at-land' && "
+                "matrix.name != 'isolation' && "
                 "fromJSON('[\"self-hosted\", \"bd-fleet\"]') || 'ubuntu-latest' }}")
 HEAVY = {"gate-suites", "frontend-vitest"}
 POOL_ENV = {"EVENT": "${{ github.event_name }}", "SERVER_URL": "${{ github.server_url }}",
@@ -97,9 +98,11 @@ def test_only_the_heavy_jobs_can_reach_the_fleet():
     fleet = {n for n, j in jobs.items() if j.get("runs-on") != "ubuntu-latest"}
     assert fleet == HEAVY, ("FLEET-JOBS", sorted(fleet))
     assert jobs["frontend-vitest"]["runs-on"] == FLEET_RUNS_ON, jobs["frontend-vitest"]["runs-on"]
-    assert jobs["gate-suites"]["runs-on"] == GATE_RUNS_ON, ("VERSION-AT-LAND-NOT-HOSTED", jobs["gate-suites"]["runs-on"])
+    assert jobs["gate-suites"]["runs-on"] == GATE_RUNS_ON, ("HOSTED-SHARDS-NOT-HOSTED", jobs["gate-suites"]["runs-on"])
     shards = [m["name"] for m in jobs["gate-suites"]["strategy"]["matrix"]["include"]]
-    assert "version-at-land" in shards                                   # the exclusion names a real shard
+    assert {"version-at-land", "isolation"} <= set(shards)               # the exclusions name real shards
+    tm = jobs["gate-suites"]["timeout-minutes"]
+    assert tm == "${{ needs.ci_docs_only.outputs.runner == 'fleet' && 60 || 30 }}", ("CUT-TIMEOUT-NOT-60", tm)
     for n in HEAVY:
         assert "ci_docs_only" in ([jobs[n]["needs"]] if isinstance(jobs[n]["needs"], str) else jobs[n]["needs"])
     assert jobs["postgres-integration"]["runs-on"] == "ubuntu-latest"     # services: need Docker; fleet has none

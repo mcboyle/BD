@@ -439,10 +439,12 @@ jobs:
     needs: ci_docs_only
     # A1: version-at-land stays hosted even for a cut: its trio-stamp tests run >180 s each on every fleet
     # host (PR #1234 run 38603911954 timed out on bd3 and on an idle cir2) and ~4 min for the whole file hosted.
-    runs-on: ${{ needs.ci_docs_only.outputs.runner == 'fleet' && matrix.name != 'version-at-land' && fromJSON('["self-hosted", "bd-fleet"]') || 'ubuntu-latest' }}
+    # isolation stays hosted too: its timing gates failed on the fleet (cut probe #1236), ci-fleet-runner-disk r1.
+    runs-on: ${{ needs.ci_docs_only.outputs.runner == 'fleet' && matrix.name != 'version-at-land' && matrix.name != 'isolation' && fromJSON('["self-hosted", "bd-fleet"]') || 'ubuntu-latest' }}
     # pytest-timeout runs inside pytest. This is the independent owner bound
     # for a dead interpreter/runner, kept well below Actions' six-hour default.
-    timeout-minutes: 30
+    # A cut gets 60: on probe #1236 two fleet shards ran 25-28 min of gate step and were cancelled at 30.
+    timeout-minutes: ${{ needs.ci_docs_only.outputs.runner == 'fleet' && 60 || 30 }}
     strategy:
       # One shard's failure must not cancel the others: a cut usually wants to
       # see every gate that is red, not the first one.
