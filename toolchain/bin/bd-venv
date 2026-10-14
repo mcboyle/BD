@@ -52,6 +52,24 @@ set -u
 case " $* " in *" --selftest "*)
   echo "SKIP: needs the cloak pack wheels + service venv"
   echo "SELFTEST PASS"; exit 0;; esac
+# Parse args before resolving the work tree: --help and an unknown-arg refusal
+# must not depend on BD_WORK_TREE being runnable.
+MODE="ensure"; WANT_STEALTH=1; OFFLINE=0; FRESH=0; WANT_DEV=1; USE_DEVPI=1  # early-exit-ok
+[ "${BD_NO_DEVPI:-0}" = "1" ] && USE_DEVPI=0  # early-exit-ok
+while [ $# -gt 0 ]; do  # early-exit-ok
+    case "$1" in  # early-exit-ok
+        --check) MODE="check"; shift ;;  # early-exit-ok
+        --fresh) FRESH=1; shift ;;  # early-exit-ok
+        --no-stealth) WANT_STEALTH=0; shift ;;  # early-exit-ok
+        --no-dev) WANT_DEV=0; shift ;;  # early-exit-ok
+        --dev) WANT_DEV=1; shift ;;  # early-exit-ok
+        --offline) OFFLINE=1; shift ;;  # early-exit-ok
+        --no-devpi) USE_DEVPI=0; shift ;;  # early-exit-ok
+        --devpi) USE_DEVPI=1; shift ;;  # early-exit-ok
+        -h|--help) sed -n '2,55p' "$0"; exit 0 ;;
+        *) echo "bd-venv: unknown arg '$1'" >&2; exit 2 ;;  # early-exit-ok
+    esac
+done
 _bd_tool_file="$(readlink -f "${BASH_SOURCE[0]}")" || exit 2
 _bd_tool_dir="$(CDPATH= cd -- "$(dirname -- "$_bd_tool_file")" && pwd -P)" || exit 2
 [ -f "$_bd_tool_dir/_bd_work_tree.py" ] || {
@@ -90,22 +108,6 @@ acquire_venv_lock() {
     flock -x 9 || return 1
 }
 
-MODE="ensure"; WANT_STEALTH=1; OFFLINE=0; FRESH=0; WANT_DEV=1; USE_DEVPI=1
-[ "${BD_NO_DEVPI:-0}" = "1" ] && USE_DEVPI=0
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --check) MODE="check"; shift ;;
-        --fresh) FRESH=1; shift ;;
-        --no-stealth) WANT_STEALTH=0; shift ;;
-        --no-dev) WANT_DEV=0; shift ;;
-        --dev) WANT_DEV=1; shift ;;
-        --offline) OFFLINE=1; shift ;;
-        --no-devpi) USE_DEVPI=0; shift ;;
-        --devpi) USE_DEVPI=1; shift ;;
-        -h|--help) sed -n '2,55p' "$0"; exit 0 ;;
-        *) echo "bd-venv: unknown arg '$1'" >&2; exit 2 ;;
-    esac
-done
 
 G="\033[32m"; R="\033[31m"; Y="\033[33m"; DIM="\033[2m"; RST="\033[0m"
 ok(){ printf "  ${G}OK${RST}  %s\n" "$1"; }

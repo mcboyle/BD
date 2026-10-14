@@ -166,6 +166,13 @@ NOT_TOOLS = {"bdtools_sec.py", "bdtools_taint.py", "bdtools_cache.py",
              "bd-audit-gate.py", "bd-triage.py"}
 
 
+def _bin_entries(bindir):
+    """bd* names in bindir that are files: a directory (or other non-file entry)
+    is not a tool and must not count as 'uncategorized' or satisfy a catalog row."""
+    return [t for t in os.listdir(bindir)
+            if t.startswith("bd") and os.path.isfile(os.path.join(bindir, t))]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("term", nargs="?", default="")
@@ -192,7 +199,7 @@ def main():
         sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=%s\n"
                          % (a.bin, sec.REASON_ABSENT))
         return sec.EXIT_CANNOT_EVALUATE
-    if not [t for t in os.listdir(a.bin) if t.startswith("bd")]:
+    if not _bin_entries(a.bin):
         sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=%s (no bd-* tools)\n"
                          % (a.bin, sec.REASON_EMPTY))
         return sec.EXIT_CANNOT_EVALUATE
@@ -201,8 +208,7 @@ def main():
         import os as _os, json as _json
         ok = True
         listed = {t for v in CATEGORY.values() for t in v}
-        have = {t for t in _os.listdir(a.bin)
-                if t.startswith("bd") and not t.endswith(".json")} - NOT_TOOLS
+        have = {t for t in _bin_entries(a.bin) if not t.endswith(".json")} - NOT_TOOLS
         # POS: real coverage
         cov = not (have - listed) and not (listed - have)
         print(("PASS" if cov else "FAIL") + "  every tool categorized + no stale entries")
@@ -224,8 +230,7 @@ def main():
     if a.json:
         import os as _os, json as _json
         listed = {t for v in CATEGORY.values() for t in v}
-        have = {t for t in _os.listdir(a.bin)
-                if t.startswith("bd") and not t.endswith(".json")} - NOT_TOOLS
+        have = {t for t in _bin_entries(a.bin) if not t.endswith(".json")} - NOT_TOOLS
         print(_json.dumps({
             "categories": {c: [t for t in CATEGORY[c] if t in have] for c in CATEGORY},
             "when": WHEN,
@@ -234,13 +239,16 @@ def main():
             "uncategorized": sorted(have - listed),
             "stale": sorted(listed - have),
         }, indent=1))
+        # --check --json is the same GATE as text --check: an uncategorized or
+        # stale tool BLOCKS (exit 3); the JSON form only changes the rendering.
+        if a.check and ((have - listed) or (listed - have)):
+            return 3
         return 0
 
     if a.check or a.when or a.emit_doc:
         import os as _os
         listed = {t for v in CATEGORY.values() for t in v}
-        have = {t for t in _os.listdir(a.bin)
-                if t.startswith("bd") and not t.endswith(".json")} - NOT_TOOLS
+        have = {t for t in _bin_entries(a.bin) if not t.endswith(".json")} - NOT_TOOLS
         missing = sorted(have - listed)
         stale = sorted(listed - have)
         if a.when or a.emit_doc:

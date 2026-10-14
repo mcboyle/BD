@@ -60,22 +60,35 @@ def _parse_stdlib(code: str) -> ParseResult:
         )
 
 
-def is_server_available(server_url: str = DEFAULT_SERVER_URL, timeout: float = DEFAULT_TIMEOUT_SEC) -> bool:
-    """Check if the Tree-sitter AST server is reachable and reporting healthy."""
+# Every way the remote leg can fail to give a usable answer. ValueError covers a
+# malformed URL port (urlparse .port raises it), undecodable/invalid JSON and a
+# reply field of the wrong type; TypeError a reply value int() cannot take.
+_UNREACHABLE = (OSError, http.client.HTTPException, ValueError, TypeError)
+
+
+def _endpoint(server_url: str, default_port: int | None = None) -> tuple[str, int]:
+    """(host, port) of SERVER_URL; ValueError on a port urlparse cannot read."""
     parsed = urllib.parse.urlparse(server_url)
     host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if default_port is None:
+        default_port = 443 if parsed.scheme == "https" else 80
+    return host, parsed.port or default_port
+
+
+def is_server_available(server_url: str = DEFAULT_SERVER_URL, timeout: float = DEFAULT_TIMEOUT_SEC) -> bool:
+    """Check if the Tree-sitter AST server is reachable and reporting healthy."""
     try:
+        host, port = _endpoint(server_url)
         conn = http.client.HTTPConnection(host, port, timeout=timeout)
         conn.request("GET", "/health")
         resp = conn.getresponse()
         if resp.status == 200:
             data = json.loads(resp.read().decode("utf-8"))
             conn.close()
-            return data.get("status") == "ok"
+            return isinstance(data, dict) and data.get("status") == "ok"
         conn.close()
         return False
-    except (OSError, http.client.HTTPException, json.JSONDecodeError):
+    except _UNREACHABLE:
         return False
 
 
@@ -86,11 +99,8 @@ def parse_code(
     fallback: bool = True,
 ) -> ParseResult:
     """Parse Python code using the remote Tree-sitter server, falling back to ast.parse."""
-    parsed = urllib.parse.urlparse(server_url)
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-
     try:
+        host, port = _endpoint(server_url)
         conn = http.client.HTTPConnection(host, port, timeout=timeout)
         body = json.dumps({"code": code}).encode("utf-8")
         headers = {"Content-Type": "application/json", "Content-Length": str(len(body))}
@@ -98,6 +108,8 @@ def parse_code(
         resp = conn.getresponse()
         data = json.loads(resp.read().decode("utf-8"))
         conn.close()
+        if not isinstance(data, dict):
+            raise ValueError(f"reply is not a JSON object: {data!r}")
 
         if data.get("status") == "ok":
             return ParseResult(
@@ -123,7 +135,7 @@ def parse_code(
                 raise RuntimeError(f"Server returned unexpected status: {data}")
             return _parse_stdlib(code)
 
-    except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
+    except _UNREACHABLE as exc:
         if not fallback:
             raise RuntimeError(f"Remote AST server error at {server_url}: {exc}") from exc
         return _parse_stdlib(code)
@@ -137,10 +149,8 @@ def query_pattern(
     timeout: float = 1.0,
 ) -> dict:
     """Query ast-grep / footgun pattern on the remote server."""
-    parsed = urllib.parse.urlparse(server_url)
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
+        host, port = _endpoint(server_url)
         conn = http.client.HTTPConnection(host, port, timeout=timeout)
         body = json.dumps({"pattern": pattern, "code": code, "lang": lang}).encode("utf-8")
         headers = {"Content-Type": "application/json", "Content-Length": str(len(body))}
@@ -148,8 +158,10 @@ def query_pattern(
         resp = conn.getresponse()
         data = json.loads(resp.read().decode("utf-8"))
         conn.close()
+        if not isinstance(data, dict):
+            raise ValueError(f"reply is not a JSON object: {data!r}")
         return data
-    except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
+    except _UNREACHABLE as exc:
         return {"status": "offline", "matches": "", "returncode": 1, "error": str(exc)}
 
 
@@ -171,9 +183,7 @@ def benchmark_batch(
     subprocess_sec = time.perf_counter() - t0
 
     # 2. Benchmark remote server with persistent HTTP connection
-    parsed = urllib.parse.urlparse(server_url)
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or 8095
+    host, port = _endpoint(server_url, 8095)
 
     t0 = time.perf_counter()
     conn = http.client.HTTPConnection(host, port, timeout=2.0)
@@ -210,14 +220,23 @@ def main() -> int:
             print("Usage: bdtools_ast.py parse <file>", file=sys.stderr)
             return 2
         path = sys.argv[2]
-        with open(path, encoding="utf-8") as f:
-            code = f.read()
+        try:
+            with open(path, encoding="utf-8") as f:
+                code = f.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"CANNOT-EVALUATE parse {path}: reason=UNREADABLE ({exc})", file=sys.stderr)
+            return 2
         res = parse_code(code)
         print(f"Status: {res.status} (source: {res.source}), nodes: {res.node_count}")
         return 0 if res.valid_syntax else 1
     elif cmd == "benchmark":
         samples = ["x = 1\ny = 2\nz = x + y\n"] * 5
-        stats = benchmark_batch(samples)
+        try:
+            stats = benchmark_batch(samples)
+        except _UNREACHABLE as exc:
+            print(f"CANNOT-EVALUATE benchmark {DEFAULT_SERVER_URL}: reason=SERVER-UNREACHABLE ({exc})",
+                  file=sys.stderr)
+            return 2
         print(f"Subprocess: {stats['subprocess_sec']:.4f}s, Remote: {stats['remote_sec']:.4f}s, Speedup: {stats['speedup']:.1f}x")
         return 0
     else:
