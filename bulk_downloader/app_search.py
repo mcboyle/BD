@@ -45,10 +45,26 @@ def _app_s_cfg():
 
 
 def _facet_counts(query: str = "", site_id: str = "", status: str = "") -> dict:
-    """Group matching history rows by site_id and by status. ``query`` is a LIKE
-    match on filename/url. Read-only; the same filter fields a saved search uses,
-    so the UI can show 'N matches across M sites' and drill down."""
+    """Group matching history rows by site_id and by status. Read-only; the same
+    filter fields a saved search uses, so the UI can show 'N matches across M
+    sites' and drill down. ``query`` is matched by db_search_fts, the matcher
+    /api/search uses (O1789 hl-history-search F3: a LIKE on filename/url here
+    counted a different row set, e.g. 0 facets beside 30 results)."""
     from . import db as _db
+    if query and query.strip():
+        try:
+            with _db.db_conn() as cx:
+                every = int(cx.execute("SELECT COUNT(*) FROM history").fetchone()[0])
+            rows = _db.db_search_fts(query, site_id=site_id or None,
+                                     status=status or None, limit=max(1, every))
+        except Exception:
+            return {"by_site": {}, "by_status": {}, "total": 0}
+        by_site, by_status = {}, {}
+        for r in rows:
+            sid, stt = r.get("site_id") or "?", r.get("status") or "?"
+            by_site[sid] = by_site.get(sid, 0) + 1
+            by_status[stt] = by_status.get(stt, 0) + 1
+        return {"by_site": by_site, "by_status": by_status, "total": len(rows)}
     where, params = ["1=1"], []
     if site_id:
         where.append("site_id = ?")
@@ -56,9 +72,6 @@ def _facet_counts(query: str = "", site_id: str = "", status: str = "") -> dict:
     if status:
         where.append("status = ?")
         params.append(status)
-    if query:
-        where.append("(filename LIKE ? OR url LIKE ?)")
-        params += [f"%{query}%", f"%{query}%"]
     wsql = " AND ".join(where)
     by_site: dict = {}
     by_status: dict = {}

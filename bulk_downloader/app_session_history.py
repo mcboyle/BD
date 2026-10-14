@@ -19,7 +19,10 @@ def api_session_history():
     sid = request.args.get("site_id") or None
     acc_str = request.args.get("account_idx")
     acc = int(acc_str) if acc_str and acc_str.isdigit() else None
-    limit = min(500, int(request.args.get("limit", "100")))
+    try:
+        limit = min(500, int(request.args.get("limit", "100")))
+    except ValueError:
+        return jsonify({"ok": False, "error": "limit must be an integer"}), 400
     return jsonify({"ok": True,
                     "events": _db.session_event_recent(sid, acc, limit)})
 

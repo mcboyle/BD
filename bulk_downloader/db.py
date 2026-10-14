@@ -1948,6 +1948,15 @@ def db_search_fts(query: str, *, site_id=None, status=None, limit: int = 100):
         # something with these words" intent without crashing.
         return db_search(site_id=site_id, status=status, query=query.strip(), limit=limit)
 
+def like_contains(text):
+    """A LIKE pattern matching ``text`` literally anywhere (use with ESCAPE '\\').
+
+    O1789 hl-history-search F4: a bare ``%{q}%`` let q's own ``%`` and ``_`` act
+    as wildcards, so q=% matched every row and q=a_b matched 'axb'."""
+    text = str(text).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{text}%"
+
+
 def db_search(site_id=None, status=None, query=None, limit=200):
     """Read recent history rows with optional filters. `query` substring-
     matches url/filename/message. Returns a list of dicts ordered newest
@@ -1959,8 +1968,9 @@ def db_search(site_id=None, status=None, query=None, limit=200):
         if site_id: sql += " AND h.site_id=?"; params.append(site_id)
         if status:  sql += " AND h.status=?";  params.append(status)
         if query:
-            sql += " AND (h.url LIKE ? OR h.filename LIKE ? OR h.message LIKE ?)"
-            params += [f"%{query}%"] * 3
+            sql += (" AND (h.url LIKE ? ESCAPE '\\' OR h.filename LIKE ? ESCAPE '\\'"
+                    " OR h.message LIKE ? ESCAPE '\\')")
+            params += [like_contains(query)] * 3
         sql += " ORDER BY h.id DESC LIMIT ?"; params.append(limit)
         return [dict(r) for r in cx.execute(sql, params).fetchall()]
 
@@ -1991,8 +2001,9 @@ def db_search_cursor(site_id=None, status=None, query=None,
         if site_id: sql += " AND h.site_id=?"; params.append(site_id)
         if status:  sql += " AND h.status=?";  params.append(status)
         if query:
-            sql += " AND (h.url LIKE ? OR h.filename LIKE ? OR h.message LIKE ?)"
-            params += [f"%{query}%"] * 3
+            sql += (" AND (h.url LIKE ? ESCAPE '\\' OR h.filename LIKE ? ESCAPE '\\'"
+                    " OR h.message LIKE ? ESCAPE '\\')")
+            params += [like_contains(query)] * 3
         if after_id is not None:
             # Strict less-than because `id` is unique. This is what makes
             # cursor pagination work — no risk of duplicate rows across
@@ -2768,9 +2779,9 @@ def queue_search(site_id=None, query=None, status=None, priority=None,
     if priority:
         sql += " AND priority=?"; params.append(priority)
     if query:
-        sql += (" AND (url LIKE ? OR message LIKE ? "
-                "OR filename LIKE ? OR screenshot LIKE ?)")
-        params += [f"%{query}%"] * 4
+        sql += (" AND (url LIKE ? ESCAPE '\\' OR message LIKE ? ESCAPE '\\' "
+                "OR filename LIKE ? ESCAPE '\\' OR screenshot LIKE ? ESCAPE '\\')")
+        params += [like_contains(query)] * 4
     if after_ord is not None:
         sql += " AND ord > ?"
         params.append(int(after_ord))

@@ -134,11 +134,11 @@ def add(*, name: str, query: str, site_id: str = "", status: str = "",
     Schedule must be one of the keys in _SCHEDULE_INTERVALS. `action` is
     'notify' (default) or 'enqueue'; an unknown action coerces to 'notify'.
     `daily_cap` bounds enqueues per UTC day (clamped >= 0)."""
-    if not name or not name.strip():
+    if not isinstance(name, str) or not name.strip():
         return None
-    if not query or not query.strip():
+    if not isinstance(query, str) or not query.strip():
         return None
-    if schedule not in _SCHEDULE_INTERVALS:
+    if not isinstance(schedule, str) or schedule not in _SCHEDULE_INTERVALS:
         schedule = "manual"
     if action not in _ACTIONS:
         action = "notify"
@@ -209,7 +209,23 @@ def update(search_id: int, **fields) -> bool:
     allowed = {"name", "query", "site_id", "status", "schedule",
                "notify_via", "enabled", "action", "daily_cap"}
     changes = {k: v for k, v in fields.items() if k in allowed}
-    if "action" in changes and changes["action"] not in _ACTIONS:
+    # O1789 hl-history-search F9: PATCH refuses what add() refuses -- a blank or
+    # non-text name/query is dropped (stored stripped, as add() stores it), and
+    # enabled must be a real boolean (or 0/1): the TEXT 'false' it used to store
+    # is skipped by the scheduler (enabled = 1) yet truthy to run_one.
+    for k in ("name", "query"):
+        if k in changes:
+            if isinstance(changes[k], str) and changes[k].strip():
+                changes[k] = changes[k].strip()
+            else:
+                changes.pop(k)
+    if "enabled" in changes:
+        if changes["enabled"] in (True, False):  # also 1 and 0
+            changes["enabled"] = int(changes["enabled"])
+        else:
+            changes.pop("enabled")
+    if "action" in changes and not (isinstance(changes["action"], str)
+                                    and changes["action"] in _ACTIONS):
         changes.pop("action")
     if "schedule" in changes and not (isinstance(changes["schedule"], str)
                                       and changes["schedule"] in _SCHEDULE_INTERVALS):

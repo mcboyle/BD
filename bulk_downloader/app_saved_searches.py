@@ -25,10 +25,26 @@ def api_saved_searches_list():
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
+_TEXT_FIELDS = ("name", "query", "site_id", "status", "schedule", "notify_via", "action")
+
+
+def _body_error(body):
+    """O1789 hl-history-search F10: a body that is not an object, or a text field
+    that is not text, is the client's error (400) -- not a 500 that echoes the
+    raw exception ("'int' object has no attribute 'strip'")."""
+    if not isinstance(body, dict):
+        return "body must be a JSON object"
+    bad = [k for k in _TEXT_FIELDS if body.get(k) is not None and not isinstance(body[k], str)]
+    return f"{', '.join(bad)} must be text" if bad else None
+
+
 @saved_searches_bp.route("/api/saved_searches", methods=["POST"])
 def api_saved_searches_add():
     _check_csrf()
-    body = request.json or {}
+    body = request.get_json(silent=True) or {}
+    err = _body_error(body)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     try:
         from . import saved_searches as _ss
         sid = _ss.add(
@@ -66,7 +82,9 @@ def api_saved_searches_update(search_id):
     so a bad PATCH can't silently flip a rule's lane). Returns {ok} where ok is
     False when no row matched or the body carried no accepted change."""
     _check_csrf()
-    body = request.json or {}
+    body = request.get_json(silent=True)  # r2: malformed/missing -> None -> 400, never {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
     try:
         from . import saved_searches as _ss
         ok = _ss.update(search_id, **body)

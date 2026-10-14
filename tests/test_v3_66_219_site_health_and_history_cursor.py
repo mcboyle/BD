@@ -239,10 +239,12 @@ def test_history_cursor_end_returns_none():
     assert j["next_cursor"] is None
 
 
-def test_history_bad_cursor_falls_back():
+def test_history_bad_cursor_is_refused():
+    # O1789 hl-history-search F7: a bad cursor was silently treated as the first page; it is now a 400
+    # (as library browse does). Control: a well-formed cursor still gets the envelope.
     c = _client()
     r = c.get("/api/history?cursor=notanint&limit=5")
-    assert r.status_code == 200
-    j = r.get_json()
-    # bad cursor -> treated as first page (after_id None), still an envelope
-    assert set(j.keys()) == {"rows", "next_cursor"}
+    assert r.status_code == 400, (r.status_code, r.get_data(as_text=True)[:200])
+    assert r.get_json() == {"error": "cursor_invalid"}
+    ok = c.get("/api/history?cursor=1&limit=5")
+    assert ok.status_code == 200 and set(ok.get_json().keys()) == {"rows", "next_cursor"}
