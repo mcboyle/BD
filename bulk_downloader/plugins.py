@@ -63,6 +63,7 @@ operator's. BD ships no evasion/DRM/challenge-solving plugins.
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib.util
 import json
 import os
@@ -1502,6 +1503,30 @@ def _ordered_files(pdir: Path, lcfg: dict) -> list:
     return [by_name[nm] for nm in final_names]
 
 
+# plugins-fix F4: an in-proc plugin registers at import time, before its
+# manifest is gated. A skipped plugin's registrations are rolled back in place
+# (held references to the registries stay valid), so a gated plugin reported
+# "skipped" never runs.
+def _registry_snapshot() -> list:
+    snap: list = []
+    for reg in (_extractors, _hooks, _lifecycle):
+        snap.append((reg, {k: (list(v) if isinstance(v, list) else v)
+                           for k, v in reg.items()}))
+    for reg in (_processors, _config_providers, _recognizers, _prefilters,
+                _namers, _sinks, _sources, _enrichers, _healthchecks):
+        snap.append((reg, list(reg)))
+    return snap
+
+
+def _registry_restore(snap: list) -> None:
+    for reg, saved in snap:
+        if isinstance(reg, dict):
+            reg.clear()
+            reg.update(saved)
+        else:
+            reg[:] = saved
+
+
 def _validate_manifest(mod, filename: str) -> tuple:
     """Return (ok, manifest, skip_reason). Enforces api_version + full-access gate."""
     man = getattr(mod, "PLUGIN", None)
@@ -1647,20 +1672,19 @@ def load_all() -> dict:
                 raise ImportError("could not create spec")
             mod = importlib.util.module_from_spec(spec)
             sys.modules[spec.name] = mod
+            snap = _registry_snapshot()
             spec.loader.exec_module(mod)  # type: ignore[union-attr]
             ok, man, reason = _validate_manifest(mod, path.name)
             entry["manifest"] = man
             if not ok:
-                # Roll back any registrations the module made during import by
-                # re-running reset is too broad; instead we note the skip. Since
-                # exec already ran, a gated module SHOULD guard its own
-                # registration on capability; we still surface the skip clearly.
+                _registry_restore(snap)
                 entry["skipped_reason"] = reason
                 out["skipped"] += 1
                 sys.stderr.write(f"[plugins] skipped {path.name}: {reason}\n")
             else:
                 hook_err = _wire_enable_disable(mod, man, path.name)
                 if hook_err:
+                    _registry_restore(snap)
                     entry["skipped_reason"] = hook_err
                     out["skipped"] += 1
                     sys.stderr.write(
@@ -1710,6 +1734,12 @@ class PluginConfigUnreadable(PluginConfigError):
 
 _config_write_lock = threading.Lock()
 
+# plugins-fix F10: plugins.json is re-read on every load; a patch was written
+# whole however large (a 100k-entry list + 1 MB node_bin -> 2.8 MB file).
+_CONFIG_MAX_LIST = 1000
+_CONFIG_MAX_ITEM = 255
+_CONFIG_MAX_NODE_BIN = 4096
+
 
 def _check_config_patch(patch) -> None:
     """dss-fix M3/L5: refuse a wrong-typed value rather than coerce it. The
@@ -1721,9 +1751,16 @@ def _check_config_patch(patch) -> None:
             raise PluginConfigError(f"{k} must be true or false")
     if "node_bin" in patch and not isinstance(patch["node_bin"], (str, type(None))):
         raise PluginConfigError("node_bin must be a string")
+    if len(patch.get("node_bin") or "") > _CONFIG_MAX_NODE_BIN:
+        raise PluginConfigError(f"node_bin longer than {_CONFIG_MAX_NODE_BIN} characters")
     for k in ("enabled", "disabled", "order", "granted_capabilities", "force_isolated"):
         if k in patch and not isinstance(patch[k], (list, type(None))):
             raise PluginConfigError(f"{k} must be a list")
+        items = patch.get(k) or []
+        if len(items) > _CONFIG_MAX_LIST:
+            raise PluginConfigError(f"{k} has more than {_CONFIG_MAX_LIST} entries")
+        if any(len(str(x)) > _CONFIG_MAX_ITEM for x in items):
+            raise PluginConfigError(f"{k} has an entry longer than {_CONFIG_MAX_ITEM} characters")
 
 
 def write_config(patch: dict) -> dict:
@@ -1775,6 +1812,51 @@ def write_config(patch: dict) -> dict:
     return cur
 
 
+def _disable_on_install(name: str) -> bool:
+    """plugins-fix F5 (PM 07:56Z): a newly installed file is default-deny.
+    Add ``name`` to plugins.json "disabled" (deduped, same lock + atomic write
+    as write_config). Returns False when "enabled" is an explicit allowlist
+    that does not name it: the name is already not loaded, so the config is
+    left alone. An allowlist that already names it (a reinstall) still gets
+    the "disabled" entry; the loader honours "disabled" under an allowlist. Raises
+    PluginConfigUnreadable when plugins.json is not a JSON object, and
+    PluginConfigError when "disabled" is already at the F10 list bound (one
+    more entry would make the config route refuse every later save)."""
+    pdir = _plugin_dir()
+    fp = pdir / "plugins.json"
+    with _config_write_lock, open(pdir / "plugins.json.lock", "a+b") as lock_fh:
+        if fcntl is not None:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+        cur: dict = {}
+        if fp.exists():
+            try:
+                raw = json.loads(fp.read_text("utf-8"))
+            except (OSError, ValueError) as e:
+                raise PluginConfigUnreadable(
+                    f"plugins.json is unreadable ({type(e).__name__})") from e
+            if not isinstance(raw, dict):
+                raise PluginConfigUnreadable("plugins.json is not a JSON object")
+            cur = raw
+        enabled = cur.get("enabled")
+        if isinstance(enabled, list) and name not in [str(x) for x in enabled]:
+            return False
+        disabled = cur.get("disabled")
+        disabled = [str(x) for x in disabled] if isinstance(disabled, list) else []
+        if name not in disabled:
+            if len(disabled) >= _CONFIG_MAX_LIST:
+                raise PluginConfigError(
+                    f'"disabled" already has {_CONFIG_MAX_LIST} entries')
+            cur["disabled"] = disabled + [name]
+            tmp = pdir / f".plugins.json.{os.getpid()}.{threading.get_ident()}.tmp"
+            try:
+                tmp.write_text(json.dumps(cur, indent=2), "utf-8")
+                os.replace(tmp, fp)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
+    return True
+
+
 # ── O5: managed install + registry ────────────────────────────────────
 # Registry of plugins installed via install_plugin() -- distinct from a file
 # hand-dropped into the plugin dir (which still loads, but has no record) and
@@ -1819,6 +1901,34 @@ def _write_registry(reg: dict) -> None:
         os.replace(str(tmp), str(rp))
     except Exception:  # noqa: BLE001
         pass
+
+
+# plugins-fix F3: install/uninstall read-modify-write the registry under one
+# lock (thread lock + flock on a sibling file), as write_config does for
+# plugins.json -- unlocked, concurrent installs lost registry rows.
+_registry_write_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def _registry_locked(pdir: Path):
+    with _registry_write_lock:
+        if not pdir.is_dir():   # nothing on disk to race on; never create it here
+            yield
+            return
+        with open(pdir / "plugins.registry.json.lock", "a+b") as lock_fh:
+            if fcntl is not None:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+            yield
+
+
+# plugins-fix F2: only a loadable plugin file name may be installed or
+# uninstalled; plugins.json, .plugin_state.json, the registry and their lock
+# and temp files live in the same dir and were reachable with force=1.
+_INSTALLABLE_SUFFIXES = (".py", ".js", ".mjs", ".rb", ".sh", ".php", "")
+
+
+def _installable_name(name: str) -> bool:
+    return Path(name).suffix.lower() in _INSTALLABLE_SUFFIXES
 
 
 def installed_registry() -> list:
@@ -1884,11 +1994,17 @@ def install_plugin(src: str, *, ack: bool = False, force: bool = False) -> dict:
 
     Returns ``{"installed": bool, ...}``. Does NOT enable or load the plugin --
     that stays the operator's plugins.json + load_all() concern.
+    The file name is added to plugins.json "disabled" (unless "enabled" is an
+    allowlist); removing it from "disabled" + reload is the enable step.
     """
     try:
         text, name, source_label = _resolve_source(src)
     except (FileNotFoundError, OSError, UnicodeDecodeError) as e:
         return {"installed": False, "reason": f"unreadable source: {e}"}
+
+    if not _installable_name(name):
+        return {"installed": False,
+                "reason": f"{name} is not a plugin file name (.py/.js/.mjs/.rb/.sh/.php)"}
 
     man = _read_manifest_ast(text)
 
@@ -1902,46 +2018,60 @@ def install_plugin(src: str, *, ack: bool = False, force: bool = False) -> dict:
 
     pdir = _plugin_dir()
     pdir.mkdir(parents=True, exist_ok=True)
-    dst = pdir / name
-    reg = _read_registry()
-    registered = name in reg.get("plugins", {})
-    if dst.exists() and not registered and not force:
-        return {"installed": False,
-                "reason": f"{name} exists and is not registry-managed; pass force=True"}
+    with _registry_locked(pdir):
+        dst = pdir / name
+        reg = _read_registry()
+        registered = name in reg.get("plugins", {})
+        if dst.exists() and not registered and not force:
+            return {"installed": False,
+                    "reason": f"{name} exists and is not registry-managed; pass force=True"}
 
-    # temp suffix is NOT a loadable extension, so a crash mid-write can never
-    # leave a discoverable partial in the plugin dir.
-    tmp = pdir / (name + ".incoming")
-    try:
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(str(tmp), str(dst))   # atomic commit
-    except Exception as e:  # noqa: BLE001
+        # F5: deny first, then stage -- a reload between the two never loads it.
         try:
-            if tmp.exists():
-                tmp.unlink()
-        except OSError:
-            pass
-        return {"installed": False, "reason": f"stage failed: {e}"}
+            via_disabled = _disable_on_install(name)
+        except PluginConfigError as e:   # incl. PluginConfigUnreadable
+            return {"installed": False, "reason": f"{e}; nothing was installed"}
 
-    prev = reg["plugins"].get(name, {}).get("version")
-    rec = {
-        "name": man.get("name") or Path(name).stem,
-        "version": man.get("version") or "",
-        "api_version": man.get("api_version"),
-        "min_api": man.get("min_api"),
-        "max_api": man.get("max_api"),
-        "source": source_label,
-        "installed_at": _now_iso(),
-    }
-    if prev is not None:
-        rec["previous_version"] = prev
-    reg["plugins"][name] = rec
-    _write_registry(reg)
+        # temp suffix is NOT a loadable extension, so a crash mid-write can never
+        # leave a discoverable partial in the plugin dir.
+        tmp = pdir / (name + ".incoming")
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(str(tmp), str(dst))   # atomic commit
+        except Exception as e:  # noqa: BLE001
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+            return {"installed": False, "reason": f"stage failed: {e}"}
+
+        prev = reg["plugins"].get(name, {}).get("version")
+        rec = {
+            "name": man.get("name") or Path(name).stem,
+            "version": man.get("version") or "",
+            "api_version": man.get("api_version"),
+            "min_api": man.get("min_api"),
+            "max_api": man.get("max_api"),
+            "source": source_label,
+            "installed_at": _now_iso(),
+        }
+        if prev is not None:
+            rec["previous_version"] = prev
+        reg["plugins"][name] = rec
+        _write_registry(reg)
+    if via_disabled:
+        enable = (f'remove "{name}" from "disabled" (POST /api/plugins/config), '
+                  "then Reload")
+    else:
+        enable = (f'add "{name}" to the "enabled" allowlist (POST /api/plugins/config), '
+                  "then Reload")
     return {"installed": True, "name": rec["name"],
-            "version": rec["version"], "file": name}
+            "version": rec["version"], "file": name,
+            "enabled": False, "enable": enable}
 
 
 def uninstall_plugin(file: str, *, ack: bool = False) -> dict:
@@ -1965,6 +2095,8 @@ def uninstall_plugin(file: str, *, ack: bool = False) -> dict:
     if (name in (".", "..") or "/" in name or "\\" in name
             or name != Path(name).name):
         return {"uninstalled": False, "reason": "invalid plugin filename"}
+    if not _installable_name(name):
+        return {"uninstalled": False, "reason": "not a plugin file name"}
     if not ack:
         return {"uninstalled": False, "reason": "uninstall not acknowledged"}
     pdir = _plugin_dir()
@@ -1975,16 +2107,17 @@ def uninstall_plugin(file: str, *, ack: bool = False) -> dict:
             return {"uninstalled": False, "reason": "outside managed plugin dir"}
     except OSError:
         return {"uninstalled": False, "reason": "bad path"}
-    reg = _read_registry()
-    if name not in reg.get("plugins", {}):
-        return {"uninstalled": False, "reason": "not a registry-managed plugin"}
-    try:
-        if dst.exists():
-            dst.unlink()
-    except OSError as e:
-        return {"uninstalled": False, "reason": f"remove failed: {e}"}
-    reg["plugins"].pop(name, None)
-    _write_registry(reg)
+    with _registry_locked(pdir):
+        reg = _read_registry()
+        if name not in reg.get("plugins", {}):
+            return {"uninstalled": False, "reason": "not a registry-managed plugin"}
+        try:
+            if dst.exists():
+                dst.unlink()
+        except OSError as e:
+            return {"uninstalled": False, "reason": f"remove failed: {e}"}
+        reg["plugins"].pop(name, None)
+        _write_registry(reg)
     return {"uninstalled": True, "file": name}
 
 

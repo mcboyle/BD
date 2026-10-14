@@ -108,6 +108,8 @@ def api_plugins_install():
     requires an at-your-own-risk acknowledgment, stages atomically, and records
     the install in the registry. No plugin code runs at any step, and install
     does NOT enable/load -- the operator hits Reload + the load toggle after.
+    The installed file name is added to plugins.json "disabled" (the response's
+    `enable` names the step that loads it).
 
     Multipart form:
       file        (required) the plugin source (.py / .js / .mjs / exec script)
