@@ -57,49 +57,82 @@ _VALID_KINDS = {"click", "wait", "scroll", "type", "sleep", "press", "await_url"
 # from here so the marker has a single source of truth.
 VAULT_MARKER = "(set in vault)"
 
-# Tight password-field detection: only true password inputs, so we never
-# false-positive and resolve a vault password into a non-password field
-# (which would itself leak the credential). The recorder's own selector
-# synthesis emits input[type='password'] for password inputs, so this
-# catches real recorder output; non-standard builders should additionally
-# set an explicit "secret": true flag on the action.
+# Stored instead of the typed text of a secret/token-named field. Unlike
+# VAULT_MARKER it is never resolved: the vault holds the site PASSWORD, and
+# typing that into an API-token / OTP field would itself leak it. Replay
+# refuses a step carrying this marker (re-record or supply it live).
+SCRUB_MARKER = "(scrubbed: not stored)"
+
+# Password-field detection, two tiers. Tier 1 (vault-routed): an explicit
+# "secret": true flag, the recorder's own input[type='password'] /
+# autocomplete=password output, or a selector WORD pass/password/passwd/pwd
+# (#password, input[name=pass], #userPassword). Words, not substrings, so
+# #passport / #bypass never resolve a vault password into a non-password
+# field. Tier 2 (scrubbed, never resolved): a selector word secret/token.
 _PW_SELECTOR_RE = re.compile(
     r"""type\s*=\s*['"]?password"""            # input[type='password']
     r"""|autocomplete\s*=\s*['"]?(?:current-|new-)?password""",  # autocomplete pw
     re.IGNORECASE,
 )
+# camelCase-aware words: "userPassword" -> user, Password; "PASSPORT" stays whole.
+_SELECTOR_WORD_RE = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|[0-9]+")
+_PW_WORDS = frozenset({"pass", "password", "passwd", "pwd"})
+_SECRET_WORDS = frozenset({"secret", "token"})
+
+
+def _selector_words(action: dict) -> set:
+    sel = action.get("selector")
+    if not isinstance(sel, str):
+        return set()
+    return {w.lower() for w in _SELECTOR_WORD_RE.findall(sel)}
 
 
 def _looks_like_password_field(action: dict) -> bool:
-    """True if a 'type' action targets a password field. Keyed on an
-    explicit ``secret`` flag (authoritative, set by an updated recorder)
-    or a precise password-selector match (catches real recorder output)."""
+    """True if a 'type' action targets a password field (tier 1, vault-
+    routed): the explicit ``secret`` flag, a type=/autocomplete=password
+    selector, or a pass/password/passwd/pwd selector word."""
     if not isinstance(action, dict) or action.get("kind") != "type":
         return False
     if action.get("secret"):
         return True
-    return bool(_PW_SELECTOR_RE.search(action.get("selector") or ""))
+    if _PW_SELECTOR_RE.search(action.get("selector") or ""):
+        return True
+    return bool(_selector_words(action) & _PW_WORDS)
+
+
+def _looks_like_other_secret_field(action: dict) -> bool:
+    """True if a non-password 'type' action targets a secret/token-named
+    field (tier 2: scrubbed to SCRUB_MARKER, never vault-resolved)."""
+    if not isinstance(action, dict) or action.get("kind") != "type":
+        return False
+    return bool(_selector_words(action) & _SECRET_WORDS)
 
 
 def _scrub_secret_actions(actions: list) -> tuple[list, int]:
-    """Return (new_actions, n_scrubbed). Any 'type' action that targets a
-    password field has its real ``text`` replaced with VAULT_MARKER and is
-    flagged ``secret: True`` — so a plaintext password is never persisted.
-    Idempotent: an action already carrying the marker is normalised (flag
-    set) but not counted as a fresh scrub. Never mutates the input."""
+    """Return (new_actions, n_scrubbed). A tier-1 password field has its
+    real ``text`` replaced with VAULT_MARKER and is flagged ``secret:
+    True``; a tier-2 secret/token field gets SCRUB_MARKER and no flag — so
+    a plaintext credential is never persisted. Idempotent: an action
+    already carrying its marker is normalised but not counted as a fresh
+    scrub. Never mutates the input."""
     out = []
     n = 0
     for a in actions:
         if isinstance(a, dict) and _looks_like_password_field(a):
-            had_real = a.get("text") not in (VAULT_MARKER, None, "")
-            copy = dict(a)
-            copy["text"] = VAULT_MARKER
-            copy["secret"] = True
-            out.append(copy)
-            if had_real:
-                n += 1
+            marker, flag = VAULT_MARKER, True
+        elif isinstance(a, dict) and _looks_like_other_secret_field(a):
+            marker, flag = SCRUB_MARKER, False
         else:
             out.append(a)
+            continue
+        had_real = a.get("text") not in (marker, None, "")
+        copy = dict(a)
+        copy["text"] = marker
+        if flag:
+            copy["secret"] = True
+        out.append(copy)
+        if had_real:
+            n += 1
     return out, n
 
 
@@ -123,6 +156,10 @@ def _substitute_secret(action: dict, site_id: Optional[str]) -> dict:
     message) if a password marker is present but the vault has none."""
     if not isinstance(action, dict) or action.get("kind") != "type":
         return action
+    if action.get("text") == SCRUB_MARKER:
+        raise ValueError(
+            "secret/token field was scrubbed at record time and is not "
+            "stored; re-record the flow or enter it live")
     if not (action.get("secret") or action.get("text") == VAULT_MARKER):
         return action
     secret = _resolve_secret_for(site_id)
@@ -131,6 +168,19 @@ def _substitute_secret(action: dict, site_id: Optional[str]) -> dict:
             "password marker present but no vault password for site "
             f"{site_id!r}")
     return {**action, "text": secret}
+
+
+def _write_bundle(path: Path, bundle: dict) -> None:
+    """Atomic tmp-then-replace write, owner-only (0600) whatever the umask:
+    a flow file can hold selectors, URLs and typed usernames. fchmod also
+    resets a stale .tmp left behind with a wider mode. Raises OSError."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        if hasattr(os, "fchmod"):  # absent on Windows
+            os.fchmod(f.fileno(), 0o600)
+        f.write(json.dumps(bundle, indent=2))
+    tmp.replace(path)
 
 
 def _macro_dir() -> Path:
@@ -215,9 +265,7 @@ def record_macro(site_id: str, name: str, actions: list, *,
     try:
         # v3.47.8 (#43): atomic write — tmp-then-replace so crash mid-write
         # leaves the previous bundle intact instead of a truncated file.
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        _write_bundle(path, bundle)
         return {"ok": True, "path": str(path)}
     except OSError as e:
         return {"ok": False, "error": f"write failed: {e}"}
@@ -283,9 +331,7 @@ def mark_replay_result(site_id: str, name: str,
         meta["last_replay_ts"] = time.time()
         meta["last_replay_message"] = (message or "")[:200]
         # v3.47.8 (#43): atomic write
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        _write_bundle(path, bundle)
         return True
     except (json.JSONDecodeError, OSError):
         return False
@@ -559,9 +605,7 @@ def scrub_stored_passwords(site_id: Optional[str] = None) -> dict:
         bundle["actions"] = new_actions
         bundle["updated_at"] = time.time()
         try:
-            tmp = path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(bundle, indent=2), encoding="utf-8")
-            tmp.replace(path)
+            _write_bundle(path, bundle)
             modified += 1
             files.append(str(path))
         except OSError:
