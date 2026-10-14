@@ -34,16 +34,16 @@ Design contract (the load-bearing constraints):
 
 Post-conditions (what "this step worked" means):
 
-  * ``locator_exists``    — default. The locator matched ≥1 element.
-                            (The legacy behavior: count() > 0.)
+  * ``locator_exists``    — default. The locator matched ≥1 element
+                            within the step timeout.
   * ``input_held``        — after filling, the field still holds the
                             value (catches anti-bot JS that clears the
                             field immediately).
   * ``navigation_occurred`` — a navigation / URL change happened within
                             the step timeout (catches decoy submit
                             buttons that do nothing).
-  * ``text_appeared:<pat>`` — the given text/regex appeared on the page
-                            within the timeout (catches "logged in"
+  * ``text_appeared:<pat>`` — the given text/regex appeared in the page's
+                            visible text within the timeout (catches "logged in"
                             confirmation, error banners, etc.).
 
 advance_on / abort:
@@ -185,15 +185,20 @@ def parse_step(raw) -> Optional[SelectorStep]:
         s = raw.strip()
         return SelectorStep(selector=s) if s else None
     if isinstance(raw, dict):
-        sel = (raw.get("selector") or "").strip()
-        if not sel:
+        sel = raw.get("selector")
+        if not isinstance(sel, str) or not sel.strip():
             return None
+        sel = sel.strip()
         kwargs = {"selector": sel}
         if "timeout_ms" in raw:
             try:
-                kwargs["timeout_ms"] = int(raw["timeout_ms"])
-            except (TypeError, ValueError):
-                pass
+                timeout_ms = int(raw["timeout_ms"])
+            except (TypeError, ValueError, OverflowError):
+                timeout_ms = None
+            # A negative timeout fails every Playwright action at once
+            # ("Timeout -5ms exceeded"); keep the default instead.
+            if timeout_ms is not None and timeout_ms >= 0:
+                kwargs["timeout_ms"] = timeout_ms
         if raw.get("post_condition"):
             kwargs["post_condition"] = str(raw["post_condition"])
         if "advance_on" in raw and isinstance(raw["advance_on"], (list, tuple)):
@@ -246,6 +251,9 @@ def try_step(step: SelectorStep, page, action: str, *, value=None,
              nav_probe=None):
     """Execute one step and classify the outcome.
 
+    Waits up to ``step.timeout_ms`` (3000 ms for a bare-string step) for the
+    locator to match before reporting ``not_found``.
+
     nav_probe: optional zero-arg callable returning True if a navigation
     occurred since it was armed; supplied by the caller for
     navigation_occurred post-conditions (the caller knows how to arm a
@@ -256,6 +264,13 @@ def try_step(step: SelectorStep, page, action: str, *, value=None,
     try:
         loc = page.locator(sel).first
         count = loc.count()
+        if not count:
+            # Wait up to step.timeout_ms (including the 3000 ms default on a
+            # bare-string step) for the element to render: reporting
+            # not_found at once would advance past, or abort on, an element
+            # that is still on its way.
+            _wait_until(lambda: (loc.count() or 0) > 0, step.timeout_ms, page)
+            count = loc.count()
     except Exception as e:
         return _classify_failure(step, FM_THREW, f"locator error: {e}")
 
@@ -372,13 +387,22 @@ def _wait_until(check, timeout_ms, page=None) -> bool:
 
 
 def _text_present(page, pattern, timeout_ms) -> bool:
+    deadline = time.monotonic() + max(timeout_ms or 0, 0) / 1000.0
+
     def _check():
+        remaining_ms = max(1.0, (deadline - time.monotonic()) * 1000.0)
         try:
-            content = page.content()
+            # The text a reader of the page can see. page.content() is the
+            # HTML source: it also holds script bodies and hidden elements,
+            # so text nobody was shown would count as "appeared". Bound the
+            # selector wait to the step's remaining time so a document with
+            # no <body> (frameset, stalled head) cannot wait the page's 30 s
+            # default timeout.
+            content = page.inner_text("body", timeout=remaining_ms)
         except TargetClosedError:
             raise  # a closed page is an error, not "text not found"
         except PWError as e:
-            logger.debug("page.content() failed, polling again: %s", e)
+            logger.debug("page.inner_text() failed, polling again: %s", e)
             return False
         if not content:
             return False

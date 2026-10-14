@@ -40,6 +40,10 @@ class _ContentPage:
     def locator(self, sel):
         return _Loc()
 
+    def inner_text(self, selector, **_kwargs):
+        # try_step reads the page's visible text; this fake has one text.
+        return self.content()
+
     def content(self):
         self.content_calls += 1
         if self._errors:
