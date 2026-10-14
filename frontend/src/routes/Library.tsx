@@ -66,6 +66,9 @@ const ITEM_SORT_OPTS = [
 const itemLabel = (it: LibraryItem) =>
   it.title || it.name || it.path || `#${it.id}`;
 const tagLabel = (t: LibraryTag) => t.name || t.tag || `#${t.id}`;
+// BD browse rows name the file `file_path` and send tags as {id, name, color}.
+const itemPath = (it: LibraryItem) =>
+  (typeof it.file_path === "string" && it.file_path) || it.path || "";
 
 // library-fix F8: a stored rating outside the 1-5 options (0, 7, 3.5) or sent
 // as a numeric string ("4") read as "none". Show what is stored.
@@ -1066,13 +1069,17 @@ export function Library() {
           {preview && (
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
               <dt className="text-muted-foreground">Path</dt>
-              <dd className="break-all">{preview.path || "—"}</dd>
+              <dd className="break-all">{itemPath(preview) || "—"}</dd>
               <dt className="text-muted-foreground">Rating</dt>
               <dd>{ratingText(preview.rating) || "none"}</dd>
               <dt className="text-muted-foreground">Watched</dt>
               <dd>{preview.watched ? "yes" : "no"}</dd>
               <dt className="text-muted-foreground">Tags</dt>
-              <dd>{preview.tags?.length ? preview.tags.join(", ") : "none"}</dd>
+              <dd>
+                {preview.tags?.length
+                  ? preview.tags.map((t) => (typeof t === "string" ? t : tagLabel(t))).join(", ")
+                  : "none"}
+              </dd>
             </dl>
           )}
           <DialogFooter>

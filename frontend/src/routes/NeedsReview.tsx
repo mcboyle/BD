@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -254,6 +255,22 @@ export default function NeedsReview() {
                   threshold. Retry re-queues it. Skip marks it failed and
                   stops the auto-retry scanner.
                 </p>
+
+                {typeof current.site_id === "string" &&
+                typeof current.url === "string" &&
+                current.site_id &&
+                current.url ? (
+                  <p className="text-xs text-muted">
+                    <Link
+                      to={`/sites/${encodeURIComponent(current.site_id)}/actions?teach_url=${encodeURIComponent(current.url)}`}
+                      className="font-medium text-ink underline underline-offset-2"
+                    >
+                      Take over to teach
+                    </Link>{" "}
+                    — open this URL in a takeover browser and teach the site
+                    its download selectors.
+                  </p>
+                ) : null}
 
                 {typeof current.site_id === "string" &&
                 typeof current.url === "string" &&

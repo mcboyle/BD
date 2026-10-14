@@ -41,7 +41,7 @@ def _run_in_clean_interpreter(collector):
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in pp.split(os.pathsep) if p and not p.rstrip("/").endswith("tools"))
     return subprocess.run([sys.executable, "-c", code],
-                          capture_output=True, text=True, env=env)
+                          capture_output=True, text=True, env=env, timeout=120)
 
 
 def test_template_health_resolves_in_fresh_process():

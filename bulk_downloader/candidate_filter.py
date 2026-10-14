@@ -294,7 +294,7 @@ def classify(*, url: Optional[str] = None, text: str = "", classes: str = "",
 def best_url(cand: Dict[str, Any]) -> str:
     """Pick the most download-relevant URL field from an extractor candidate."""
     for k in ("href", "data_href", "data_url", "data_src", "data_download",
-              "url", "data_video"):
+              "url", "data_video", "src"):
         v = (cand.get(k) or "").strip()
         if v:
             return v

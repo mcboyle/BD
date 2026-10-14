@@ -115,9 +115,6 @@
     "/api/sites/<sid>/reconnect": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
     "/api/sites/<sid>/reset_learned": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
     "/api/sites/<sid>/stash/preview_url": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
-    "/api/sites/<sid>/take_over_cancel": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
-    "/api/sites/<sid>/take_over_done": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
-    "/api/sites/<sid>/take_over_url": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
     "/api/sites/<sid>/teach_cancel": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
     "/api/sites/<sid>/teach_commit": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
     "/api/sites/<sid>/teach_save_template": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
@@ -223,9 +220,6 @@
     "/api/sites/<sid>/reconnect",
     "/api/sites/<sid>/reset_learned",
     "/api/sites/<sid>/stash/preview_url",
-    "/api/sites/<sid>/take_over_cancel",
-    "/api/sites/<sid>/take_over_done",
-    "/api/sites/<sid>/take_over_url",
     "/api/sites/<sid>/teach_cancel",
     "/api/sites/<sid>/teach_commit",
     "/api/sites/<sid>/teach_save_template",
@@ -245,5 +239,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 100
+  "dark_count": 97
 }

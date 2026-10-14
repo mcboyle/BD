@@ -8,10 +8,13 @@
 //                                                   backstops, preserve-on-blanks secrets,
 //                                                   and audits the change server-side)
 // High-risk changes (any secret / gated field) are gated behind a confirm dialog.
-import { useMemo, useState } from "react";
+// F009: pending edits can be discarded (Cancel) and leaving with unsaved edits
+// prompts; an id absent from GET /api/sites/v2 renders a not-found state, not
+// an editor (the editable endpoint describes fields for any sid).
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router";
-import { Save } from "lucide-react";
+import { Link, useParams } from "react-router";
+import { ArrowLeft, Save, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
@@ -19,6 +22,7 @@ import { CookieClipboardPanel } from "@/components/ui/CookieClipboardPanel";
 import { KnowledgeNotesPanel } from "@/components/ui/KnowledgeNotesPanel";
 import { SettingRow, SettingSection } from "@/components/SettingSection";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PathValidator } from "@/components/PathValidator";
 import { SecretField } from "@/components/SecretField";
@@ -34,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet, apiPut } from "@/lib/api-client";
+import type { SitesV2 } from "@/lib/api-types";
 import { cn } from "@/lib/utils";
 
 interface FieldDescriptor {
@@ -118,6 +123,16 @@ export function SiteSettings() {
   });
   const tunnels = tunnelsQ.data?.tunnels ?? [];
 
+  // F009: same cached list SiteDetail/SiteActions use. Missing only when the
+  // list loaded as an array and lacks this id (a malformed reply proves nothing).
+  const sitesQ = useQuery<SitesV2>({
+    queryKey: ["sites-v2"],
+    queryFn: ({ signal }) => apiGet<SitesV2>("/api/sites/v2", signal),
+    refetchOnWindowFocus: false,
+  });
+  const siteList = sitesQ.data?.sites;
+  const siteMissing = Array.isArray(siteList) && !siteList.some((s) => s.site_id === siteId);
+
   // Draft of user edits, keyed by field. Absent => unchanged. Secrets start empty
   // (blank => preserve-on-blank, never sent).
   const [draft, setDraft] = useState<Record<string, unknown>>({});
@@ -185,6 +200,20 @@ export function SiteSettings() {
     pricingUrl: "",
     cost: "Provider-controlled pricing varies per solve; review the provider's current price before enabling.",
   };
+
+  // F009: Cancel drops every pending edit (incl. typed-but-blank secrets).
+  const hasDraft = Object.keys(draft).length > 0;
+  const onCancel = () => setDraft({});
+
+  useEffect(() => {
+    if (!hasDraft) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasDraft]);
 
   const onSave = () => {
     if (!dirty) return;
@@ -339,6 +368,22 @@ export function SiteSettings() {
     </SettingSection>
   );
 
+  if (siteMissing) {
+    return (
+      <AppShell title="Site not found">
+        <Card className="rounded-lg border border-amber/30 bg-amber-soft p-4 text-sm text-ink" role="alert">
+          <span className="eyebrow eyebrow-warn">Site not found</span>
+          <div className="mt-1 text-ink-3">
+            We couldn't find a site with ID {siteId}. It may have been deleted.
+          </div>
+          <Link to="/sites" className="mt-3 inline-flex items-center text-sm text-muted-foreground">
+            <ArrowLeft className="mr-1 h-4 w-4" /> Back to sites
+          </Link>
+        </Card>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
       title={`Site settings — ${siteId}`}
@@ -361,6 +406,14 @@ export function SiteSettings() {
                 {Object.keys(patch).length} change(s) pending
               </span>
             )}
+            <Button
+              variant="outline"
+              onClick={onCancel}
+              disabled={!hasDraft || saveMut.isPending}
+            >
+              <Undo2 className="mr-1.5 h-4 w-4" />
+              Cancel
+            </Button>
             <Button onClick={onSave} disabled={!dirty || saveMut.isPending}>
               <Save className="mr-1.5 h-4 w-4" />
               {saveMut.isPending ? "Saving…" : "Save"}

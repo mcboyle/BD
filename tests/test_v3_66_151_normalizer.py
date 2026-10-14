@@ -223,7 +223,7 @@ def _promote(candidate_path, *extra):
     return subprocess.run(
         [sys.executable, str(_REPO / "tools" / "promote_template.py"),
          str(candidate_path), *extra],
-        cwd=str(_REPO), capture_output=True, text=True)
+        cwd=str(_REPO), capture_output=True, text=True, timeout=120)
 
 
 def test_promote_accepts_normalized_candidate():

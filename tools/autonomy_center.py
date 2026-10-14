@@ -333,14 +333,22 @@ def review_operations() -> Dict[str, Any]:
                      "guardrail sweep. Read-only view."}
 
 
-def notification_center() -> Dict[str, Any]:
-    """Current in-GUI notifications + what the next generation would add. Read-only."""
+def notification_center(include_would: bool = True) -> Dict[str, Any]:
+    """Current in-GUI notifications + what the next generation would add. Read-only.
+    include_would=False skips the next-generation derivation (operator mission control over
+    every site: 16-18 s on the live corpus, F044) and reports would_create=None with
+    would_create_pending=True, so the panel renders the current list at once."""
     cur = ahk.list_notifications()
-    would = ahk.generate_notifications(mode="suggest", by="cockpit")
-    return {"notifications": cur.get("notifications", []),
-            "generated_at": cur.get("generated_at"),
-            "would_create": would.get("would_create", 0),
-            "_note": "In-GUI notifications only — no external push. Read-only view."}
+    out = {"notifications": cur.get("notifications", []),
+           "generated_at": cur.get("generated_at"),
+           "_note": "In-GUI notifications only — no external push. Read-only view."}
+    if include_would:
+        would = ahk.generate_notifications(mode="suggest", by="cockpit")
+        out["would_create"] = would.get("would_create", 0)
+    else:
+        out["would_create"] = None
+        out["would_create_pending"] = True
+    return out
 
 
 def governance_health() -> Dict[str, Any]:

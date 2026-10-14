@@ -218,7 +218,7 @@ def inspect_candidates(html: str, page_url: str = "",
 
     from .template_extractor import (_walk_for_candidates, _score_all,
                                      _generalize_selectors)
-    raw = _walk_for_candidates(soup)
+    raw = _walk_for_candidates(soup, read_media_src=True)   # F010: <video>/<source> src
     try:
         _score_all(raw)          # scores in place (score / estimated_size_bytes)
     except Exception:

@@ -60,7 +60,7 @@ def test_shim_passes_through_when_no_netns():
     shim = NI.write_browser_shim(d)
     env = dict(os.environ, NETNS_NS="", NETNS_BROWSER_BIN="/bin/echo")
     cp = subprocess.run([shim, "hello", "--flag=1"], env=env,
-                        capture_output=True, text=True)
+                        capture_output=True, text=True, timeout=120)
     assert cp.returncode == 0, f"shim must pass through without a ns: {cp.stderr}"
     assert "hello" in cp.stdout and "--flag=1" in cp.stdout
 
@@ -74,7 +74,7 @@ def test_shim_still_enters_netns_when_set():
     shim = NI.write_browser_shim(d)
     env = dict(os.environ, NETNS_NS="bd_no_such_ns_701",
                NETNS_BROWSER_BIN="/bin/echo")
-    cp = subprocess.run([shim, "hello"], env=env, capture_output=True, text=True)
+    cp = subprocess.run([shim, "hello"], env=env, capture_output=True, text=True, timeout=120)
     assert cp.returncode != 0, "a missing ns must fail closed, not pass through"
     assert "hello" not in cp.stdout
 

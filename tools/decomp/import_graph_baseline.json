@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6431,
+  "edge_count": 6438,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2653,6 +2653,12 @@
     "tests/test_app_semantic_search.py": [
       "bulk_downloader/app_semantic_search.py"
     ],
+    "tests/test_appfeat_f010_dry_run_inspector.py": [
+      "bulk_downloader/dry_run.py"
+    ],
+    "tests/test_appfeat_f055_template_manager_filter.py": [
+      "bulk_downloader/app_template_manager_ui.py"
+    ],
     "tests/test_at_fix_adapters_transport.py": [
       "bulk_downloader/app_flaresolverr.py",
       "bulk_downloader/app_scrapling.py",
@@ -4305,6 +4311,14 @@
     "tests/test_f020_backup_list.py": [
       "bulk_downloader/app_backup.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_f035_teach_session_spa_wired.py": [
+      "tools/endpoint_reachability.py"
+    ],
+    "tests/test_f044_notification_center_renders_first.py": [
+      "tools/autonomy_housekeeping.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_templates.py"
     ],
     "tests/test_f044_notification_readiness_perf.py": [
       "tools/autonomy_housekeeping.py",
@@ -7787,6 +7801,9 @@
       "bulk_downloader/app.py",
       "bulk_downloader/daily_budget.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_ste_fix_selector_shape_linear.py": [
+      "bulk_downloader/cross_site_selectors.py"
     ],
     "tests/test_storage_capture.py": [
       "bulk_downloader/capture_redact.py",

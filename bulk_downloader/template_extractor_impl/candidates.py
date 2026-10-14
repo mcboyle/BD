@@ -92,9 +92,14 @@ def extract_from_html(html: str,
     }
 
 
-def _walk_for_candidates(soup) -> List[Dict[str, Any]]:
+def _walk_for_candidates(soup, read_media_src: bool = False) -> List[Dict[str, Any]]:
     """Walk every element that could be a download trigger and
-    pull the fields the scorer needs."""
+    pull the fields the scorer needs.
+
+    ``read_media_src`` (F010 r2): only the dry-run inspector reads a
+    <video>/<source> ``src``. The template extractor keeps BASE behaviour --
+    its rows carry one url_attribute, and a src row under ``href`` is a
+    template with no fetchable row (lens D139 R1)."""
     out = []
     seen_keys = set()
     # Search by tag first
@@ -121,13 +126,17 @@ def _walk_for_candidates(soup) -> List[Dict[str, Any]]:
             data_src = el.get("data-src") or ""
             data_download = el.get("data-download") or ""
             tag = el.name.lower() if el.name else "?"
+            # F010: a <video src> / <source src> names its media directly; without
+            # this the inspector rejected it as "no url, no trigger signal".
+            src = ((el.get("src") or "")
+                   if read_media_src and tag in ("video", "source") else "")
             # Skip nothing-elements
-            if not (text or href or data_href or data_url or data_src):
+            if not (text or href or data_href or data_url or data_src or src):
                 continue
             # Build ancestor text for context scoring
             ancestor_text = _collect_ancestor_signals(el, depth=4)
             # Dedup
-            key = (tag, text[:50], (href or data_href)[:60])
+            key = (tag, text[:50], (href or data_href or src)[:60])
             if key in seen_keys:
                 continue
             seen_keys.add(key)
@@ -149,6 +158,8 @@ def _walk_for_candidates(soup) -> List[Dict[str, Any]]:
                               if k.startswith("data-")},
                 "_el": el,  # keep for selector generalization
             })
+            if read_media_src:
+                out[-1]["src"] = src
         except Exception:
             continue
     return out

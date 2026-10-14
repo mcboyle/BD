@@ -96,10 +96,22 @@ def _inventory_data():
                 "recognition": a.get("recognition"),
                 # a drift report is meaningful only for a non-reviewed template
                 # that has a reviewed gold for the same host
-                "drift_available": name in ("drafts", "review_candidates"),
+                "drift_available": (name in ("drafts", "review_candidates")
+                                    and _has_reviewed_gold(host)),
             })
         out["dirs"][name] = rows
     return out
+
+
+def _has_reviewed_gold(host):
+    """True when _drift_for would find a reviewed gold for ``host`` (the same
+    _default_gold resolution), so the page never links a drift report that can
+    only answer 400 "no reviewed gold for this host"."""
+    _ensure_tools_on_path()
+    from tools import template_drift_report as DR  # type: ignore
+
+    gold_rel = DR._default_gold({"host": host})
+    return bool(gold_rel) and (_REPO_ROOT / gold_rel).is_file()
 
 
 def _drift_for(file_arg):
@@ -247,7 +259,7 @@ def _recognition_html(name, r):
             f"font-size:12px'>recognition (review-only)</summary>"
             f"<div style='margin:6px 0 0 4px;font-size:12px'>{detail or '(no further detail)'}</div>"
             f"</details>")
-    return ("<tr style='border-bottom:1px solid #222'>"
+    return ("<tr class='tm-sub' style='border-bottom:1px solid #222'>"
             "<td></td>"
             f"<td colspan='7' style='padding:2px 10px 8px'>{' '.join(summary)}{body}</td>"
             "</tr>")
@@ -276,8 +288,12 @@ def _row_html(name, r):
         fn = html.escape(os.path.basename(r["source"]))
         drift = (f'<a href="/api/template_manager/drift?file={fn}" '
                  f'style="color:#6cf">drift vs gold</a>')
+    elif name in ("drafts", "review_candidates"):
+        drift = "<span style='color:#666;font-size:12px'>no reviewed gold</span>"
+    needle = html.escape(f"{r['host']} {r['status']}".lower(), quote=True)
     return (
-        "<tr style='border-bottom:1px solid #222'>"
+        f"<tr class='tm-row' data-tm-filter='{needle}' "
+        "style='border-bottom:1px solid #222'>"
         f"<td style='padding:6px 10px'>{host}</td>"
         f"<td style='padding:6px 10px'>{status}</td>"
         f"<td style='padding:6px 10px'>{_bar(r['completeness_score'])}</td>"
@@ -297,9 +313,45 @@ def _section(title, name, rows):
             "<th style='padding:6px 10px'>flags</th><th style='padding:6px 10px'>drift</th></tr>")
     body = "".join(_row_html(name, r) for r in rows) or (
         "<tr><td colspan='8' style='padding:10px;color:#666'>(none)</td></tr>")
-    return (f"<h2 style='font-size:15px;margin:22px 0 6px'>{html.escape(title)} "
-            f"<span style='color:#666;font-weight:normal'>({len(rows)})</span></h2>"
-            f"<table style='border-collapse:collapse;width:100%'>{head}{body}</table>")
+    if rows:
+        body += ("<tr class='tm-nomatch' hidden><td colspan='8' "
+                 "style='padding:10px;color:#666'>(no match)</td></tr>")
+    return (f"<section class='tm-section'>"
+            f"<h2 style='font-size:15px;margin:22px 0 6px'>{html.escape(title)} "
+            f"<span class='tm-count' style='color:#666;font-weight:normal'>({len(rows)})</span></h2>"
+            f"<table style='border-collapse:collapse;width:100%'>{head}{body}</table></section>")
+
+
+# Client-side list filter (host/status substring). No form, no button: the page
+# stays read-only; rows without a match are hidden, counts read "n of N".
+_FILTER_JS = """<script>
+(function () {
+  var box = document.getElementById('tm-filter');
+  var note = document.getElementById('tm-filter-count');
+  if (!box) return;
+  function apply() {
+    var q = box.value.trim().toLowerCase(), shown = 0, total = 0;
+    document.querySelectorAll('.tm-section').forEach(function (sec) {
+      var rows = sec.querySelectorAll('tr.tm-row'), n = 0;
+      rows.forEach(function (tr) {
+        var hit = !q || tr.getAttribute('data-tm-filter').indexOf(q) !== -1;
+        tr.hidden = !hit;
+        var sub = tr.nextElementSibling;
+        if (sub && sub.classList.contains('tm-sub')) sub.hidden = !hit;
+        if (hit) n++;
+      });
+      total += rows.length; shown += n;
+      var c = sec.querySelector('.tm-count');
+      if (c) c.textContent = q ? '(' + n + ' of ' + rows.length + ')' : '(' + rows.length + ')';
+      var nm = sec.querySelector('tr.tm-nomatch');
+      if (nm) nm.hidden = !(q && rows.length && !n);
+    });
+    note.textContent = q ? shown + ' of ' + total + ' shown' : '';
+  }
+  box.addEventListener('input', apply);
+  apply();
+})();
+</script>"""
 
 
 @template_manager_ui_bp.route("/cockpit/template-manager", methods=["GET"])
@@ -329,13 +381,19 @@ def cockpit_template_manager_page():
 Completeness &amp; “gate-ready” mirror the <code>promote_template.py</code> gate; they do not promote anything.
 </div>
 {sanity_html}
+<div style="margin:12px 0 0;font-size:13px">
+<label for="tm-filter" style="color:#aaa">Filter</label>
+<input type="search" id="tm-filter" placeholder="host or status" autocomplete="off"
+ style="background:#1a1a1a;color:#ddd;border:1px solid #444;border-radius:4px;padding:4px 8px;width:260px">
+<span id="tm-filter-count" style="color:#888;font-size:12px"></span>
+</div>
 {_section("Reviewed (gold)", "reviewed", dirs.get("reviewed", []))}
 {_section("Enabled", "enabled", dirs.get("enabled", []))}
 {_section("Drafts", "drafts", dirs.get("drafts", []))}
 {_section("Review candidates", "review_candidates", dirs.get("review_candidates", []))}
 <p style="color:#555;font-size:11px;margin-top:24px">Generated read-only from templates/ — counts:
 {html.escape(json.dumps(data["counts"]))}</p>
-</div></body></html>"""
+</div>{_FILTER_JS}</body></html>"""
     return page
 
 

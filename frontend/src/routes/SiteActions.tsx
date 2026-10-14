@@ -1,10 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
+import { TeachSessionCard } from "@/components/TeachSessionCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -74,6 +75,8 @@ const GROUPS: { title: string; acts: Act[] }[] = [
 
 export function SiteActions() {
   const { siteId = "" } = useParams();
+  // F035: /needs-review hands a parked URL over as ?teach_url=<url>.
+  const [searchParams] = useSearchParams();
   const [pending, setPending] = useState<Act | null>(null);
   const [idx, setIdx] = useState("0");
   const [output, setOutput] = useState<unknown>(null);
@@ -232,6 +235,8 @@ export function SiteActions() {
           </div>
         </Card>
       ))}
+
+      <TeachSessionCard siteId={siteId} initialUrl={searchParams.get("teach_url") ?? ""} />
 
       <Card className="mb-3 p-4">
         <h2 className="section-head">Integration connection tests</h2>
