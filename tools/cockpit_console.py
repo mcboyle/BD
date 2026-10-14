@@ -1597,8 +1597,10 @@ def api_autonomy_review_ops():
 
 @bp.get("/api/autonomy/notifications")
 def api_autonomy_notifications():
-    """In-GUI notifications + what the next generation would add. Read-only."""
-    return jsonify(ac.notification_center())
+    """In-GUI notifications + what the next generation would add. Read-only.
+    ?would=0 returns the current list without the next-generation derivation (F044): the
+    Notification Center renders at once and fills the count from a second, full GET."""
+    return jsonify(ac.notification_center(include_would=request.args.get("would") != "0"))
 
 
 @bp.get("/api/autonomy/governance-health")
@@ -3878,10 +3880,15 @@ PAGES.reviewops=async()=>{
    <p class="muted">${esc(d._note)}</p></div>`;
 };
 PAGES.notifcenter=async()=>{
-  const d=await api('/api/autonomy/notifications');
+  // F044: render the current list at once (?would=0 skips the 16 s next-generation derivation),
+  // then fill the "would add" count from the full GET once the page is in the DOM.
+  const d=await api('/api/autonomy/notifications?would=0');
+  api('/api/autonomy/notifications').then(f=>{const el=document.getElementById('nc-would');
+    if(el){el.textContent=String(f.would_create);el.classList.remove('muted');}})
+   .catch(()=>{const el=document.getElementById('nc-would');if(el)el.textContent='unavailable';});
   const rows=(d.notifications||[]).map(n=>`<tr><td class="muted">${esc(n.ts||n.created_at||'')}</td><td>${esc(n.kind||n.type||'')}</td><td>${esc(n.message||n.detail||JSON.stringify(n))}</td></tr>`).join('');
   return `<h1>Notification Center</h1><p class="sub">In-GUI notifications only — no external push.</p>${banner()}
-   <div class="panel"><a class="btn" data-p="autonomycenter">← Autonomy Center</a> · ${(d.notifications||[]).length} notification(s) · would add <b>${d.would_create}</b> on next cycle</div>
+   <div class="panel"><a class="btn" data-p="autonomycenter">← Autonomy Center</a> · ${(d.notifications||[]).length} notification(s) · would add <b id="nc-would" class="muted">…</b> on next cycle</div>
    <div class="panel"><table><thead><tr><th>When</th><th>Kind</th><th>Message</th></tr></thead>
    <tbody>${rows||'<tr><td colspan=3 class="muted">No notifications.</td></tr>'}</tbody></table>
    <p class="muted">${esc(d._note)}</p></div>`;
