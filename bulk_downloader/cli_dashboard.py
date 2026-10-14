@@ -27,6 +27,7 @@ Implementation:
 """
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 from typing import Optional
@@ -190,17 +191,24 @@ def _build_events_table(events: list) -> "Table":
         table.add_row("·", "·", "·", "(no events yet)")
         return table
     for evt in events[:8]:
+        if not isinstance(evt, dict):
+            # A null / list / text entry is not an event: say so, keep the rest.
+            table.add_row("·", "·", "·", Text(f"(unreadable event: {type(evt).__name__})", style="red"))
+            continue
         ts = evt.get("ts", "")
-        if isinstance(ts, (int, float)):
-            ts = time.strftime("%H:%M:%S", time.localtime(ts))
-        kind = evt.get("kind", "")
+        if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+            try:
+                ts = time.strftime("%H:%M:%S", time.localtime(ts))
+            except (OverflowError, ValueError, OSError):
+                pass  # out of time_t range / NaN: shown as sent
+        kind = str(evt.get("kind") or "")
         style = {"done": "green", "failed": "red",
                  "needs_review": "magenta"}.get(kind, "white")
         table.add_row(
             str(ts)[-8:],
-            (evt.get("site_id") or "")[:12],
+            str(evt.get("site_id") or "")[:12],
             Text(kind, style=style),
-            (evt.get("message") or "")[:60],
+            str(evt.get("message") or "")[:60],
         )
     return table
 
@@ -334,6 +342,33 @@ def _run_once_plain(api_base: str) -> int:
     return 1 if err else 0
 
 
+# Slowest refresh the live loop takes: a day. select() refuses far larger timeouts.
+MAX_REFRESH_SECONDS = 86400.0
+
+
+def _refresh_ok(value, *, allow_zero: bool) -> bool:
+    """A refresh interval the live loop can wait out: finite (NaN never polls
+    again, inf waits forever) and at most MAX_REFRESH_SECONDS. Both bounds are
+    plain comparisons, so NaN (false against both) is refused with them."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    low_ok = value >= 0 if allow_zero else value > 0
+    return low_ok and value <= MAX_REFRESH_SECONDS
+
+
+def refresh_seconds_arg(text: str) -> float:
+    """argparse type for --refresh: seconds in (0, MAX_REFRESH_SECONDS]; 0
+    would poll BD on every pass of the loop."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if not _refresh_ok(value, allow_zero=False):
+        raise argparse.ArgumentTypeError(
+            f"must be a finite number of seconds in (0, {MAX_REFRESH_SECONDS:.0f}], got {text!r}")
+    return value
+
+
 def run_live(*, api_base: str = "http://127.0.0.1:5000",
             refresh_seconds: float = 2.0):
     """Run the live dashboard. Blocks the terminal until [q] or ^C.
@@ -342,7 +377,13 @@ def run_live(*, api_base: str = "http://127.0.0.1:5000",
     TerminalDashboardController snapshot; each key goes to the controller and
     is drawn at once (j/k select a site, x/u/t pause/resume/retry it, 1/2/3
     switch view, p holds the refresh, r polls now, q quits). A key costs no
-    poll, so a burst of keys is not a burst of GETs."""
+    poll, so a burst of keys is not a burst of GETs.
+
+    `refresh_seconds` is finite and in [0, MAX_REFRESH_SECONDS] (ValueError
+    otherwise); 0 polls on every pass."""
+    if not _refresh_ok(refresh_seconds, allow_zero=True):
+        raise ValueError(f"refresh_seconds must be a finite number of seconds in "
+                         f"[0, {MAX_REFRESH_SECONDS:.0f}], got {refresh_seconds!r}")
     if not _HAS_RICH:
         sys.stderr.write("rich not installed — falling back to one-shot mode.\n"
                          "pip install rich\n")
@@ -355,7 +396,8 @@ def run_live(*, api_base: str = "http://127.0.0.1:5000",
             next_poll = 0.0
             while not dashboard.should_quit:
                 if dashboard.refresh_requested or time.monotonic() >= next_poll:
-                    if not dashboard.state.paused:
+                    # [p] holds the timed refresh; [r] polls even while paused.
+                    if dashboard.refresh_requested or not dashboard.state.paused:
                         dashboard.assemble_snapshot(_fetch_status(api_base),
                                                     _fetch_capacity(api_base),
                                                     _fetch_events(api_base))
@@ -375,13 +417,12 @@ def inspect_dashboard_frame(frame_text: str, max_width: Optional[int] = None):
 
 
 if __name__ == "__main__":
-    import argparse
     p = argparse.ArgumentParser(description="BulkDownloader CLI dashboard")
     p.add_argument("--api", default="http://127.0.0.1:5000",
                   help="BD dashboard URL (default: http://127.0.0.1:5000)")
     p.add_argument("--once", action="store_true",
                   help="Print one snapshot and exit (default: live mode)")
-    p.add_argument("--refresh", type=float, default=2.0,
+    p.add_argument("--refresh", type=refresh_seconds_arg, default=2.0,
                   help="Refresh interval seconds (default: 2.0)")
     args = p.parse_args()
     if args.once:

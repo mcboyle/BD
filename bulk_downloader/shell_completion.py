@@ -18,6 +18,7 @@ class OptionInfo:
     is_flag: bool = True
     choices: Optional[List[str]] = None
     metavar: Optional[str] = None
+    dest: Optional[str] = None
 
 
 @dataclass
@@ -51,8 +52,22 @@ class ShellCompletionEngine:
             self._tree = self.introspect(parser, prog=prog)
 
     def register_dynamic_completer(self, arg_name: str, callback: Callable[[], List[str]]) -> None:
-        """Register a dynamic completion provider for a specific argument or option."""
+        """Register a dynamic completion provider for an option's value.
+
+        `arg_name` is one of the option's flags (``--site``) or its dest
+        (``site``); complete_command_line offers the callback's words, with the
+        option's choices, for the token after that option."""
         self._dynamic_completers[arg_name] = callback
+
+    def _option_values(self, opt: OptionInfo, prefix: str) -> List[str]:
+        """Candidates for the value of `opt`: its choices plus the words of any
+        completer registered under one of its flags or its dest."""
+        values = list(opt.choices or [])
+        for name in [*opt.flags, opt.dest]:
+            callback = self._dynamic_completers.get(name) if name else None
+            if callback is not None:
+                values.extend(str(v) for v in callback() or [])
+        return sorted({v for v in values if v.startswith(prefix)})
 
     def introspect(
         self,
@@ -74,12 +89,19 @@ class ShellCompletionEngine:
         for action in getattr(parser, "_actions", []):
             # Subparsers
             if isinstance(action, argparse._SubParsersAction):
+                # add_parser(name, help=...) keeps that help on a pseudo-action
+                # in _choices_actions, not on the subparser; aliases share it.
+                help_by_parser = {
+                    id(action.choices[a.dest]): a.help
+                    for a in getattr(action, "_choices_actions", [])
+                    if a.dest in action.choices and isinstance(a.help, str)
+                }
                 for sub_name, sub_parser in action.choices.items():
                     if sub_name.startswith("_"):
                         # Internal helpers (``_complete-sites``) are called by the
                         # scripts, never offered to the user.
                         continue
-                    sub_help = getattr(sub_parser, "description", "") or getattr(sub_parser, "help", "") or ""
+                    sub_help = getattr(sub_parser, "description", "") or help_by_parser.get(id(sub_parser)) or ""
                     child_node = CommandNode(prog=sub_name, help=str(sub_help).strip())
                     self._extract_node(sub_parser, child_node)
                     node.subcommands[sub_name] = child_node
@@ -105,6 +127,7 @@ class ShellCompletionEngine:
                         is_flag=is_flag,
                         choices=choices,
                         metavar=action.metavar if isinstance(action.metavar, str) else None,
+                        dest=action.dest if isinstance(action.dest, str) else None,
                     )
                 )
             else:
@@ -152,6 +175,9 @@ class ShellCompletionEngine:
             tokens = tokens[1:]
 
         curr_node = tree
+        # An option that takes a value: the next token is that value, never a
+        # subcommand or a flag ("--site run" names a site called "run").
+        value_of: Optional[OptionInfo] = None
         idx = 0
         while idx < len(tokens):
             tok = tokens[idx]
@@ -159,6 +185,8 @@ class ShellCompletionEngine:
 
             if is_last and not ends_with_space:
                 # Completing current token 'tok'
+                if value_of is not None:
+                    return self._option_values(value_of, tok)
                 if tok.startswith("-"):
                     opts: List[str] = []
                     for opt in curr_node.options:
@@ -171,11 +199,19 @@ class ShellCompletionEngine:
                     return sorted(subs)
             else:
                 # tok is fully entered
-                if tok in curr_node.subcommands:
+                if value_of is not None:
+                    value_of = None
+                elif tok in curr_node.subcommands:
                     curr_node = curr_node.subcommands[tok]
+                elif tok.startswith("-") and "=" not in tok:
+                    opt = next((o for o in curr_node.options if tok in o.flags), None)
+                    if opt is not None and not opt.is_flag:
+                        value_of = opt
                 idx += 1
 
         # Starting a new token
+        if value_of is not None:
+            return self._option_values(value_of, "")
         candidates: List[str] = []
         if curr_node.subcommands:
             candidates.extend(curr_node.subcommands.keys())
