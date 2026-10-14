@@ -501,6 +501,11 @@ def _on_attribute_error(e):
                 "AttributeError at %s (body type mismatch): %s",
                 request.path, str(e)[:120])
         except Exception: pass
+        # dss-type-500s F7: blame the body shape only when the body really is not
+        # a JSON object; a well-formed object (or no body) had a wrong-typed value.
+        if isinstance(request.get_json(silent=True), dict) or not request.get_data():
+            return _json_error(400, "a value in the request has the wrong type",
+                               hint="the body shape is fine; check each field's type")
         return _json_error(400, "request body must be a JSON object",
                            hint="check Content-Type and body shape")
     raise e  # non-API: let Flask handle
