@@ -271,23 +271,39 @@ def _redirect_target(response, requested: str) -> str:
     return urljoin(requested, location)
 
 
+def _cookie_header(cookies, url: str) -> str:
+    """The site's cookies (Playwright dicts: domain, path and secure kept)
+    scoped to `url` as a browser scopes them. A flat {name: value} records no
+    domain: it is scoped host-only to `url`'s own host, the one place it was
+    ever sent (the runner passes the Playwright dicts, never a flat dict)."""
+    if not cookies:
+        return ""
+    from .cookie_scope import cookie_header_for
+    if isinstance(cookies, dict):
+        from urllib.parse import urlsplit
+        host = urlsplit(url).hostname or ""
+        cookies = [{"name": k, "value": v, "domain": host} for k, v in cookies.items()] if host else ()
+    return cookie_header_for(cookies, url)
+
+
 def _probe_request(client, method: str, url: str, headers: dict, cookies):
     """One HEAD / GET with redirects followed by hand; returns the final
     response with its body UNREAD and closed.
 
-    The site's cookies are a flat {name: value} with no domain, so a client
-    that followed redirects itself sent every one of them to whatever host a
-    candidate redirected to. They go to the candidate's own origin (scheme,
-    host, port) only; a hop anywhere else is made without them. The response
-    is streamed and never read: a Range the server ignores costs its headers,
-    not its body.
+    A client that followed redirects itself sent the site's cookies to
+    whatever host a candidate redirected to, so they go to the candidate's own
+    origin (scheme, host, port) only; a hop anywhere else is made without them.
+    O1789 F11: even there, only the cookies a browser would send to that URL
+    (_cookie_header) -- the candidate's host is whatever the page named. The
+    response is streamed and never read: a Range the server ignores costs its
+    headers, not its body.
     """
     home = _origin(url)
-    cookie = "; ".join(f"{k}={v}" for k, v in (cookies or {}).items())
     current = url
     for _ in range(_MAX_REDIRECTS + 1):
         hop_headers = dict(headers)
-        if cookie and _origin(current) == home:
+        cookie = _cookie_header(cookies, current) if _origin(current) == home else ""
+        if cookie:
             hop_headers["Cookie"] = cookie
         if method == "HEAD":
             r = client.head(current, headers=hop_headers)      # no body to pull
@@ -330,7 +346,7 @@ def probe_higher_tiers(
     *,
     user_agent: str = "",
     referer: str = "",
-    cookies: Optional[dict] = None,
+    cookies: Optional[list | dict] = None,
     ladder: Optional[list] = None,
     timeout_s: float = 5.0,
     max_attempts: int = 6,

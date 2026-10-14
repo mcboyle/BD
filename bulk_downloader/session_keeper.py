@@ -1721,20 +1721,28 @@ class SessionKeeper:
                 or cfg.get("login_url")
                 or "")
 
-    def _load_cookies(self) -> dict:
-        """Load cookies for this site from the shared cookie file. The
-        runner already maintains this file; we just read it."""
+    def _load_cookies(self):
+        """Load cookies for this site from the shared cookie file as a
+        CookieJar that keeps each cookie's domain, path and secure flag. The
+        runner already maintains this file; we just read it.
+
+        O1789 session-auth-capture HIGH-F1: a plain {name: value} dict made
+        httpx send EVERY cookie in the file -- an IdP's SSO cookie too -- to
+        the check host. A legacy flat file records no domain: it is scoped
+        host-only to the check host, the one place it was ever sent."""
+        from .cookie_scope import scoped_jar
         try:
             cookie_path = Path("cookies") / f"{self.site_id}.json"
             if not cookie_path.exists(): return {}
             import json
             data = json.loads(cookie_path.read_text(encoding="utf-8"))
-            # httpx wants a plain {name: value} dict
             if isinstance(data, list):
-                return {c["name"]: c["value"] for c in data
-                        if isinstance(c, dict) and "name" in c and "value" in c}
+                return scoped_jar(data)
             elif isinstance(data, dict):
-                return data
+                from urllib.parse import urlsplit
+                host = urlsplit(self._derive_check_url()).hostname or ""
+                return scoped_jar([{"name": k, "value": v, "domain": host}
+                                   for k, v in data.items()] if host else ())
         except Exception as e:
             sys.stderr.write(
                 f"  keepalive[{self.site_id}]: cookie read failed: {e}\n")

@@ -412,6 +412,94 @@ def site_untaught(config) -> bool:
     return not (learned_dl.get("trigger_selectors") or learned_dl.get("row_selectors"))
 
 
+# O1789 dd-cookie-egress-f1 (HIGH): the deep-detect probe client used to get the
+# browser context's cookies as a flat {name: value} dict. httpx stores those with
+# domain "" and attaches them to EVERY host, so a page linking to any public host
+# had the site's session cookies sent there. Each helper below holds alone.
+
+def _dd_probe_cookie_jar(browser_cookies):
+    """Playwright context cookies as a CookieJar that scopes each cookie like the
+    browser (cookie_scope.scoped_jar: domain, path and secure kept; a cookie
+    without a domain is dropped)."""
+    from .cookie_scope import scoped_jar
+    return scoped_jar(browser_cookies)
+
+
+def _dd_cross_site_referer(page_url, target_url):
+    """strict-origin-when-cross-origin: the page ORIGIN only (no path, no query);
+    None on an https -> http downgrade."""
+    from urllib.parse import urlsplit
+    try:
+        p, t = urlsplit(page_url or ""), urlsplit(str(target_url))
+    except ValueError:
+        return None
+    if not p.scheme or not p.netloc:
+        return None
+    if p.scheme == "https" and t.scheme != "https":
+        return None
+    return f"{p.scheme}://{p.netloc}/"
+
+
+class _DDProbeHttp:
+    """The http object handed to deep_detect_live. Requests to the page's own
+    site (same registrable domain) go through the cookie-bearing client; every
+    cross-site request goes through a COOKIELESS client. On any cross-site
+    request -- including a redirect hop -- the Referer is cut to the page origin."""
+
+    def __init__(self, page_url, browser_cookies, make_client):
+        from .registrable_domain import same_site
+        self._page_url = page_url
+        self._same_site = same_site
+
+        def _referer_hook(request):
+            if same_site(str(request.url), page_url):
+                return
+            if "referer" in request.headers:
+                ref = _dd_cross_site_referer(page_url, request.url)
+                if ref is None:
+                    del request.headers["referer"]
+                else:
+                    request.headers["referer"] = ref
+
+        self._site = make_client(cookies=_dd_probe_cookie_jar(browser_cookies),
+                                 event_hooks={"request": [_referer_hook]})
+        self._xsite = make_client(cookies=None,
+                                  event_hooks={"request": [_referer_hook]})
+
+    @property
+    def cookies(self):
+        return self._site.cookies
+
+    def _for(self, url):
+        return self._site if self._same_site(str(url), self._page_url) else self._xsite
+
+    def head(self, url, *a, **k):
+        return self._for(url).head(url, *a, **k)
+
+    def get(self, url, *a, **k):
+        return self._for(url).get(url, *a, **k)
+
+    def post(self, url, *a, **k):
+        return self._for(url).post(url, *a, **k)
+
+    def stream(self, method, url, *a, **k):
+        return self._for(url).stream(method, url, *a, **k)
+
+    def close(self):
+        for c in (self._site, self._xsite):
+            try:
+                c.close()
+            except Exception:
+                pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+
 class ExtractorsMixin:
     def _try_ytdlp_fallback(self, url, fail_reason="", *, force=False):
         """Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
@@ -768,14 +856,13 @@ class ExtractorsMixin:
                 # Cookies go on the client (httpx encodes them into
                 # the Cookie: header per-request); other headers go
                 # on every probe via `probe_headers`.
+                # O1789 dd-cookie-egress-f1: domain/path/secure scoped
+                # (_dd_probe_cookie_jar), never a flat dict, and only the
+                # same-site client carries them (_DDProbeHttp).
                 try:
-                    cookies_dict = {
-                        c["name"]: c["value"]
-                        for c in page.context.cookies()
-                        if c.get("name") and "value" in c
-                    }
+                    browser_cookies = list(page.context.cookies())
                 except Exception:
-                    cookies_dict = {}
+                    browser_cookies = []
                 ua = (self.config.get("user_agent")
                       or "Mozilla/5.0")
                 probe_headers = {
@@ -798,13 +885,19 @@ class ExtractorsMixin:
                         return None
                     raise
                 from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
-                with _httpx.Client(
+
+                # A lambda, not a def: the guarded transport stays constructed
+                # in this function's scope (row703 site-to-policy map).
+                _make_probe_client = lambda cookies, event_hooks: _httpx.Client(  # noqa: E731
                         timeout=_httpx.Timeout(
                             connect=5.0, read=8.0,
                             write=5.0, pool=5.0),
-                        cookies=cookies_dict,
+                        cookies=cookies,
                         follow_redirects=True,
-                        transport=guarded_transport(PUBLIC_ONLY, proxy=_cp_proxy)) as http:
+                        event_hooks=event_hooks,
+                        transport=guarded_transport(PUBLIC_ONLY, proxy=_cp_proxy))
+                with _DDProbeHttp(base_url, browser_cookies,
+                                  _make_probe_client) as http:
                     # v3.66.15 (P5): read learned.deep_detect from
                     # the site config so deep_detect can apply its
                     # site-memory bias. Lazy import keeps the runner
@@ -2945,15 +3038,14 @@ class ExtractorsMixin:
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
-        # Pass the site's cookies as a flat dict for httpx. cookies
-        # comes from cookies/<sid>.json in Playwright format; convert.
-        cookies_dict = {}
+        # The site's cookies as stored (cookies/<sid>.json, Playwright format)
+        # with domain, path and secure kept. O1789 F11: a flat {name: value}
+        # sent every cookie to whatever host the page's media URL named;
+        # tier_probe now sends each hop only what a browser would send there.
         try:
-            for c in (self.cookies or []):
-                if isinstance(c, dict) and "name" in c and "value" in c:
-                    cookies_dict[c["name"]] = c["value"]
+            site_cookies = [c for c in (self.cookies or []) if isinstance(c, dict)]
         except Exception:
-            cookies_dict = {}
+            site_cookies = []
         # Speculative HEADs with the site's cookies: over the site's egress,
         # or skipped (the known-good URL stands).
         egress_ok, proxy_url = self._site_client_egress("tier_probe")
@@ -2963,7 +3055,7 @@ class ExtractorsMixin:
             result = _tier_probe.probe_higher_tiers(
                 url, pattern,
                 user_agent=user_agent, referer=referer,
-                cookies=cookies_dict or None,
+                cookies=site_cookies or None,
                 ladder=ladder, timeout_s=timeout_s,
                 max_attempts=max_attempts,
                 proxy_url=proxy_url,
