@@ -18,6 +18,7 @@ Covers:
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 from unittest.mock import MagicMock, patch
@@ -54,6 +55,17 @@ def _mock_httpx(routes: dict):
     client.__enter__ = MagicMock(return_value=client)
     client.__exit__ = MagicMock(return_value=None)
     client.get = MagicMock(side_effect=_get)
+
+    # dah-probe F7: the module reads the body as a capped stream, so the same
+    # routes are also served through client.stream("GET", url).
+    @contextlib.contextmanager
+    def _stream(_method, url, **_kw):
+        r = _get(url)
+        r.encoding = "utf-8"
+        r.iter_bytes = lambda: iter([r.text.encode("utf-8")])
+        yield r
+
+    client.stream = MagicMock(side_effect=_stream)
     fake.Client = MagicMock(return_value=client)
     return fake
 

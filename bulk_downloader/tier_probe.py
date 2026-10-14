@@ -219,6 +219,88 @@ def _is_signed_url_rejection(status: int, body_preview: str = "") -> bool:
     ))
 
 
+_SIGNATURE_PARAMS = frozenset((
+    "signature", "sig", "x-amz-signature", "x-amz-credential", "key-pair-id",
+    "policy", "expires", "x-amz-expires", "token", "hdnea", "hdnts", "hmac",
+    "st", "e", "md5", "sv", "se", "x-goog-signature",
+))
+
+
+def _url_looks_signed(url: str) -> bool:
+    """True when the URL carries a signature-style query parameter. Only then
+    can a 403 on a rewritten tier be "the signature does not cover this path";
+    on an unsigned URL a 403 is just how some CDNs say the key is absent."""
+    try:
+        from urllib.parse import parse_qsl, urlsplit
+        return any(k.lower() in _SIGNATURE_PARAMS
+                   for k, _v in parse_qsl(urlsplit(url).query, keep_blank_values=True))
+    except Exception:
+        return True     # unreadable: keep the conservative stop
+
+
+_NOT_MEDIA_TYPES = ("text/", "application/json", "application/xml",
+                    "application/xhtml")
+
+
+def _answer_is_a_page(response) -> bool:
+    """A 200 whose Content-Type is a page or a document, not a media file: a
+    soft-404 (the site's "not found" HTML served with 200) must not be chosen
+    as the upgraded tier. An absent or binary type is not judged."""
+    ctype = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
+    return ctype.startswith(_NOT_MEDIA_TYPES)
+
+
+_MAX_REDIRECTS = 5
+
+
+def _origin(url: str) -> tuple:
+    from urllib.parse import urlsplit
+    p = urlsplit(url)
+    scheme = (p.scheme or "").lower()
+    return scheme, (p.hostname or "").lower(), p.port or {"http": 80, "https": 443}.get(scheme)
+
+
+def _redirect_target(response, requested: str) -> str:
+    """Absolute URL a 3xx answer points at, or "" when it is not a redirect."""
+    if response.status_code not in (301, 302, 303, 307, 308):
+        return ""
+    location = response.headers.get("location") or ""
+    if not location:
+        return ""
+    from urllib.parse import urljoin
+    return urljoin(requested, location)
+
+
+def _probe_request(client, method: str, url: str, headers: dict, cookies):
+    """One HEAD / GET with redirects followed by hand; returns the final
+    response with its body UNREAD and closed.
+
+    The site's cookies are a flat {name: value} with no domain, so a client
+    that followed redirects itself sent every one of them to whatever host a
+    candidate redirected to. They go to the candidate's own origin (scheme,
+    host, port) only; a hop anywhere else is made without them. The response
+    is streamed and never read: a Range the server ignores costs its headers,
+    not its body.
+    """
+    home = _origin(url)
+    cookie = "; ".join(f"{k}={v}" for k, v in (cookies or {}).items())
+    current = url
+    for _ in range(_MAX_REDIRECTS + 1):
+        hop_headers = dict(headers)
+        if cookie and _origin(current) == home:
+            hop_headers["Cookie"] = cookie
+        if method == "HEAD":
+            r = client.head(current, headers=hop_headers)      # no body to pull
+            location = _redirect_target(r, current)
+        else:
+            with client.stream(method, current, headers=hop_headers) as r:
+                location = _redirect_target(r, current)
+        if not location:
+            return r
+        current = location
+    return r
+
+
 def _ssrf_guard_hook(request):
     """v3.66.542 (F-SWEEP-N2): SSRF guard for the tier-probe fetcher.
 
@@ -297,8 +379,9 @@ def probe_higher_tiers(
 
     try:
         from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
-        with httpx.Client(timeout=timeout_s, follow_redirects=True,
-                          cookies=cookies or None,
+        # follow_redirects=False and no client cookies: _probe_request walks
+        # the hops and decides, hop by hop, which one may carry the cookies.
+        with httpx.Client(timeout=timeout_s, follow_redirects=False,
                           event_hooks={"request": [_ssrf_guard_hook]},
                           transport=guarded_transport(PUBLIC_ONLY, proxy=proxy_url)) as client:
             for i, (tier, candidate) in enumerate(candidates):
@@ -314,7 +397,7 @@ def probe_higher_tiers(
                     # Don't break — keep checking higher tiers.
                     continue
                 try:
-                    r = client.head(candidate, headers=headers)
+                    r = _probe_request(client, "HEAD", candidate, headers, cookies)
                     status = r.status_code
                     body_preview = ""
                 except httpx.RequestError as e:
@@ -324,6 +407,9 @@ def probe_higher_tiers(
                     continue
                 except Exception as e:
                     probed.append((tier, f"err:{type(e).__name__}"))
+                    continue
+                if status == 200 and _answer_is_a_page(r):
+                    probed.append((tier, "200-not-media"))
                     continue
                 probed.append((tier, status))
                 if status == 200:
@@ -335,9 +421,12 @@ def probe_higher_tiers(
                     # Method Not Allowed: CDN doesn't accept HEAD. Try
                     # a Range-bounded GET so we don't fetch the body.
                     try:
-                        r = client.get(candidate, headers={
+                        r = _probe_request(client, "GET", candidate, {
                             **headers, "Range": "bytes=0-0",
-                        })
+                        }, cookies)
+                        if r.status_code in (200, 206) and _answer_is_a_page(r):
+                            probed[-1] = (tier, f"GET-Range:{r.status_code}-not-media")
+                            continue
                         if r.status_code in (200, 206):
                             chosen_url = candidate
                             chosen_tier = tier
@@ -349,7 +438,11 @@ def probe_higher_tiers(
                     continue
                 # Signed-URL rejection: stop probing higher tiers — the
                 # signature error will repeat for every variant.
-                if _is_signed_url_rejection(status, body_preview):
+                # ...but only a SIGNED url can fail that way. HEAD has no
+                # body to tell the two apart, and CDNs that answer 403 for an
+                # absent key ended the cascade at the first missing tier.
+                if (_is_signed_url_rejection(status, body_preview)
+                        and _url_looks_signed(url)):
                     error = "signed_url_rejection"
                     break
                 # Other non-200 (404, 403 non-signed, 5xx): continue

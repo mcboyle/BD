@@ -100,6 +100,25 @@ from urllib.parse import quote, urljoin, urlparse
 
 log = logging.getLogger(__name__)
 
+# A scene record is a few KiB of JSON. The API host decides how much it sends,
+# so the read is bounded: a larger body is not parsed and not kept.
+MAX_JSON_BODY_BYTES = 8 * 1024 * 1024
+
+
+def _read_capped(r, cap: int = MAX_JSON_BODY_BYTES) -> Optional[str]:
+    """The text of the open streamed response ``r``, or None when its body
+    exceeds ``cap`` bytes (the read stops at the cap, the rest is never
+    pulled)."""
+    declared = r.headers.get("content-length") or ""
+    if declared.isdigit() and int(declared) > cap:
+        return None
+    got = bytearray()
+    for chunk in r.iter_bytes():
+        got += chunk
+        if len(got) > cap:
+            return None
+    return bytes(got).decode(r.encoding or "utf-8", "replace")
+
 
 # Default endpoint paths to probe in order. Most sites either use both
 # or just one; we always try /heresphere first since it carries richer
@@ -177,9 +196,9 @@ def probe_site(
                 for path in DEFAULT_PROBE_PATHS:
                     full = host + path
                     try:
-                        r = _get_keeping_cookies_home(client, full, site_cookies)
-                        status = r.status_code
-                        body = r.text or ""
+                        status, body = _get_keeping_cookies_home(
+                            client, full, site_cookies)
+                        body = body or ""       # over the cap: not a probe hit
                     except Exception as e:
                         outcome.probed_urls.append(
                             (full, f"err:{type(e).__name__}"))
@@ -220,8 +239,12 @@ def _origin(url: str) -> tuple:
     return ((p.scheme or "").lower(), (p.hostname or "").lower(), p.port)
 
 
-def _get_keeping_cookies_home(client, url: str, cookies: Optional[dict]):
-    """GET ``url`` following redirects by hand. bughunt ah-fix F2: the site's
+def _get_keeping_cookies_home(client, url: str, cookies: Optional[dict],
+                              cap: int = MAX_JSON_BODY_BYTES):
+    """GET ``url`` following redirects by hand and return ``(status, text)``.
+    dah-probe: every hop is streamed. A redirect's body is never read; the
+    final answer's is read up to ``cap`` bytes and ``text`` is None beyond
+    that (and when the redirect budget runs out). bughunt ah-fix F2: the site's
     cookies are a flat {name: value} with no domain, so an auto-followed
     redirect carried every one of them to whatever host the API pointed at.
     They are sent to the configured origin only; a hop to another origin
@@ -241,7 +264,7 @@ def _get_keeping_cookies_home(client, url: str, cookies: Optional[dict]):
     of that name, in the jar's order. Valueless cookies pass through as-is."""
     home = _origin(url)
     site = {str(k): str(v) for k, v in (cookies or {}).items()}
-    r = None
+    status = 0
     for _ in range(_MAX_REDIRECTS + 1):
         headers = {}
         if site and _origin(url) == home:
@@ -255,13 +278,14 @@ def _get_keeping_cookies_home(client, url: str, cookies: Optional[dict]):
                     parts.append(f"{k}={v}")
             parts.extend(raw for name, raw in jar if name not in site)
             headers = {"Cookie": "; ".join(parts)}
-        r = client.get(url, headers=headers)
-        location = (r.headers.get("location") or ""
-                    if r.status_code in (301, 302, 303, 307, 308) else "")
-        if not location:
-            return r
+        with client.stream("GET", url, headers=headers) as r:
+            status = r.status_code
+            location = (r.headers.get("location") or ""
+                        if status in (301, 302, 303, 307, 308) else "")
+            if not location:
+                return status, _read_capped(r, cap)
         url = urljoin(url, location)
-    return r
+    return status, None
 
 
 def _jar_cookie_pairs(client, url: str) -> list:
@@ -450,12 +474,17 @@ def fetch_scene(
         with httpx.Client(timeout=timeout_s, follow_redirects=False,
                           cookies=cookies or {}, headers=headers,
                           transport=guarded_transport(PINNED, proxy=proxy_url)) as client:
-            r = _get_keeping_cookies_home(client, full_url, site_cookies)
-            if r.status_code != 200:
-                log.debug("jsonapi: %s returned %d", full_url, r.status_code)
+            status, text = _get_keeping_cookies_home(
+                client, full_url, site_cookies)
+            if status != 200:
+                log.debug("jsonapi: %s returned %d", full_url, status)
+                return None
+            if text is None:
+                log.info("jsonapi: %s body exceeds %d bytes; not read",
+                         full_url, MAX_JSON_BODY_BYTES)
                 return None
             try:
-                return json.loads(r.text or "")
+                return json.loads(text or "")
             except json.JSONDecodeError as e:
                 log.debug("jsonapi: %s body wasn't JSON: %s", full_url, e)
                 return None

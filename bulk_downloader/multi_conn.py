@@ -278,7 +278,11 @@ def probe(
             try:
                 rh = dict(headers or {})
                 rh["Range"] = "bytes=0-0"
-                rg = client.get(url, headers=rh)
+                # Headers only. A server that ignores Range answers 200 with
+                # the WHOLE object; a plain GET pulled all of it into memory
+                # to learn that the answer was not a 206.
+                with client.stream("GET", url, headers=rh) as rg:
+                    pass
             except Exception as e:
                 return ProbeResult(ok=False,
                                    error=f"range_probe_failed:{e}"[:200])
