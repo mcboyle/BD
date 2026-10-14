@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6124,
+  "edge_count": 6128,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4017,6 +4017,12 @@
     ],
     "tests/test_dss_token_rotate.py": [
       "bulk_downloader/global_config.py"
+    ],
+    "tests/test_dss_type_500s.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_secrets.py",
+      "bulk_downloader/extension_vault.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_dsw_fix_tags_stream.py": [
       "bulk_downloader/app_stream.py",

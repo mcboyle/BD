@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1848 - train281f: row
+
+T281f on main 2b7ca835 (5 members; GO-supervisor-T281e-A-deploy-0520Z.md "proceed to T281f intake"; legs BOARD per O1672/BOARDED-for-integration.md 04:45Z/04:48Z/05:05Z/05:15Z x2; pins re-verified at assembly; object-level merge-tree probes clean):
+TEST-ONLY: o1698-checks-before-lens r9 -- tests/test_o1698_checks_before_lens.py (opt-in BD_O1698_CHECKS_BEFORE_LENS_CANDIDATE; skipped in band). Harness candidates under FIX/o1698-checks-before-lens/ are a separate install.
+TEST-ONLY: o1698-hub-ram-pin r2 -- tests/test_o1698_hub_ram_pin.py (opt-in BD_O1698_HUB_RAM_PIN_CANDIDATE; skipped in band). Tool install = PM (MANIFEST r2).
+FIX: sl-dns r3 -- bulk_downloader/site_weather.py: local resolver busy no longer shown as a healthy site's degraded health; tests/test_hunt4_weather_dns_timeout.py.
+FIX (LOW): dss-type-500s r3 -- bulk_downloader/app.py, app_secrets.py: wrong-typed secrets fields refused by name before the backend (deep-settings-secrets F6/F7); tests/test_dss_type_500s.py.
+SECURITY (HIGH, AUDIT-12): o1671-a12-registrable-domain r2 -- extension/background.js, popup.js: vault key by registrable domain (Public Suffix List snapshot 2023-10, extension/public_suffix_data.js); node probe extension/test_registrable_domain.mjs + tests/test_o1671_a12_registrable_domain.py. BOARD 2/2.
+
+
 ## v3.66.1847 - train281e: row
 
 T281e on main dbb2a1a3 (1 member; GO-pm-B-T281d-A-0408Z.md "T281e next"; leg BOARD under O1789/bughunt/deep-settings-secrets; pins re-verified at assembly; object-level merge-tree probe clean):
