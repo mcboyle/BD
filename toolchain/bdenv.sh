@@ -17,7 +17,15 @@ fi
 _bd_valid_root=$(python3 "$_bd_work_resolver") || return 2 2>/dev/null || exit 2
 export BD_WORK_TREE="$_bd_valid_root"
 export PATH="$BD_WORK_TREE/toolchain/bin:$PATH"
-export PYTHONPATH="/tmp/prestaged_site_packages:${PYTHONPATH:-}"
+# o1671-a15 (AUDIT-15): /tmp is shared, so any local user could create the sandbox-era prestaged dir and plant modules
+# every fleet python imports first. Trust it only as a real directory (not a symlink) owned by this user and not
+# group/other-writable.
+_bd_prestaged=${BD_PRESTAGED_SITE_PACKAGES:-/tmp/prestaged_site_packages}
+if [ -d "$_bd_prestaged" ] && [ ! -L "$_bd_prestaged" ] && [ -O "$_bd_prestaged" ] \
+        && [ -z "$(find "$_bd_prestaged" -maxdepth 0 -perm /022 2>/dev/null)" ]; then
+    export PYTHONPATH="$_bd_prestaged:${PYTHONPATH:-}"
+fi
+unset _bd_prestaged
 export BD_HOME="${BD_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/bulkdownloader}"
 export BD_DISABLE_KEEPALIVE=1
 export DISPLAY=:99
