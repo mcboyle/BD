@@ -14,6 +14,10 @@ from .db import db_conn
 
 subtitles_bp = Blueprint("subtitles", __name__)
 
+# Request bounds: languages is a list of codes, a search query is a phrase.
+_MAX_LANGUAGES = 32
+_MAX_QUERY_CHARS = 512
+
 def _check_csrf(*_a, **_k):
     """Delegate to app._check_csrf at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -40,6 +44,15 @@ def api_subtitles_fetch(hid):
     s_cfg = _app_s_cfg()
     _check_csrf()
     body = request.json or {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    langs = body.get("languages")
+    if langs is not None and not (
+            isinstance(langs, list) and all(isinstance(c, str) for c in langs)):
+        return jsonify({"ok": False, "error": "languages must be a list of strings"}), 400
+    if langs and len(langs) > _MAX_LANGUAGES:
+        return jsonify({"ok": False,
+                        "error": f"languages: at most {_MAX_LANGUAGES} entries"}), 400
     try:
         from . import subtitles as _sub
         if not _sub.is_available():
@@ -54,7 +67,6 @@ def api_subtitles_fetch(hid):
             return err
         filename = row["filename"]
         # Languages: body > site config > default
-        langs = body.get("languages") or []
         if not langs:
             site_cfg = (s_cfg or {}).get(row["site_id"]) or {}
             langs = (site_cfg.get("subtitle_languages")
@@ -110,6 +122,9 @@ def api_subtitles_search():
     query = (request.args.get("q") or "").strip()
     if not query:
         return jsonify({"ok": False, "error": "missing q"}), 400
+    if len(query) > _MAX_QUERY_CHARS:
+        return jsonify({"ok": False,
+                        "error": f"q: at most {_MAX_QUERY_CHARS} characters"}), 400
     try:
         k = max(1, min(int(request.args.get("k", 10)), 100))
     except ValueError:
