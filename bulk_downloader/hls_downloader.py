@@ -75,7 +75,12 @@ def _input_timeout_us() -> int:
 # at 5+GB; on a 100Mbps line that's ~10 minutes. Give 60 minutes.
 def _max_runtime_s() -> int:
     from .runtime_flags import num
-    return num("hls_max_runtime_s", "BD_HLS_MAX_RUNTIME_S", 3600, int)
+    v = num("hls_max_runtime_s", "BD_HLS_MAX_RUNTIME_S", 3600, int)
+    # dah-hls-runtime F5: the store key is a free string, and "0"/"-5" cast
+    # cleanly into a deadline already passed -- every transfer then failed
+    # "timeout" at once. Non-positive means "no cap given" -> the default, as
+    # a per-call max_runtime_s=0 already does (download's falsy `or`).
+    return v if v > 0 else 3600
 
 
 # How often to poll the output file size for progress reports (seconds).
