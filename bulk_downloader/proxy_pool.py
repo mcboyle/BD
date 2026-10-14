@@ -26,7 +26,7 @@ from typing import Callable, List, Optional
 from urllib.parse import urlparse
 
 __all__ = [
-    "select_proxy", "record_result", "probe_pool", "healthy_urls",
+    "select_proxy", "soonest_back", "record_result", "probe_pool", "healthy_urls",
     "default_probe",
 ]
 
@@ -52,12 +52,32 @@ def select_proxy(pool, state: dict, *, now: Optional[float] = None) -> Optional[
     ``None`` when the pool is empty or every member is in cooldown.
     Network-free."""
     _ensure(state)
-    hu = healthy_urls(pool, state, now=now)
-    if not hu:
+    members = list(pool or [])
+    healthy = set(healthy_urls(members, state, now=now))
+    if not healthy:
         return None
-    idx = state["cursor"] % len(hu)
-    state["cursor"] = (state["cursor"] + 1) % len(hu)
-    return hu[idx]
+    # The cursor walks the POOL, not the healthy subset: indexing the subset
+    # re-dealt the positions every time a member dropped out or came back, so
+    # one member could be skipped for as long as another kept flapping.
+    start = int(state["cursor"] or 0) % len(members)
+    for step in range(len(members)):
+        idx = (start + step) % len(members)
+        if members[idx] in healthy:
+            state["cursor"] = (idx + 1) % len(members)
+            return members[idx]
+    return None
+
+
+def soonest_back(pool, state: dict) -> Optional[str]:
+    """The member whose cooldown ends first (pool order breaks ties), or None
+    for an empty pool. For a caller that must not go direct while every member
+    is cooling down. Does not move the cursor."""
+    _ensure(state)
+    members = list(pool or [])
+    if not members:
+        return None
+    h = state["health"]
+    return min(members, key=lambda u: float(h.get(u, {}).get("down_until", 0) or 0))
 
 
 def record_result(state: dict, url: str, ok: bool, *,

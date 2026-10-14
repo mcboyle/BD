@@ -236,6 +236,7 @@ def test_row706_fail_closed_probe_never_reaches_the_live_resolver(
 def test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire(
     tmp_path: Path,
 ) -> None:
+    # dah-vpn r2: 74/43 -> 79/44 (tests/test_dah_vpn_site_client_egress.py::test_f15_an_unreadable_proxy_setting_refuses names p.invalid in 5 proxy settings that must be refused; enters by the predicate, runs under the tripwire, not exempted).
     # 2026-10-03 O1713 autofill r2: 73/42 -> 74/43 (tests/test_extension_autofill_scroll.py::test_fixed_suggestion_uses_viewport_coordinates enters by the predicate, runs under the tripwire, not exempted).
     # T103: 70/39 -> 73/42 (new hunt tests: test_hunt4_captcha_terminal_actions.py ; enter by the predicate, run under the tripwire, not exempted).
     # T102 row1093: 69/38 -> 70/39 (tests/test_hunt_history_limit.py names a .invalid host; enters by the predicate, runs under the tripwire, not exempted).
@@ -247,9 +248,9 @@ def test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire(
     # 37 nodeids under the DNS tripwire and still asserts zero resolver attempts.
     sites = _dns_adjacent_sites(_REPO)
     nodeids = tuple(sorted({nodeid for _, nodeid in sites}))
-    assert len(sites) == 74 and len(nodeids) == 43, (
+    assert len(sites) == 79 and len(nodeids) == 44, (
         "UNKNOWN: resolver-adjacent census drifted: "
-        "expected sites=74 nodeids=43; "
+        "expected sites=79 nodeids=44; "
         f"observed sites={len(sites)} nodeids={len(nodeids)}"
     )
     hook, sink = _install_dns_tripwire(tmp_path)
@@ -297,13 +298,13 @@ def test_row706_narrowed_census_is_unknown(
 ) -> None:
     sites = _dns_adjacent_sites(_REPO)
     nodeids = {nodeid for _, nodeid in sites}
-    assert len(sites) == 74 and len(nodeids) == 43
+    assert len(sites) == 79 and len(nodeids) == 44
     frequencies = Counter(nodeid for _, nodeid in sites)
     unique_nodeid = next(
         nodeid for nodeid, count in frequencies.items() if count == 1)
     narrowed = tuple(site for site in sites if site[1] != unique_nodeid)
-    assert len(narrowed) == 73
-    assert len({nodeid for _, nodeid in narrowed}) == 42
+    assert len(narrowed) == 78
+    assert len({nodeid for _, nodeid in narrowed}) == 43
     monkeypatch.setattr(
         sys.modules[__name__], "_dns_adjacent_sites", lambda repo: narrowed)
 
@@ -311,7 +312,7 @@ def test_row706_narrowed_census_is_unknown(
         AssertionError,
         match=(
             "UNKNOWN: resolver-adjacent census drifted: "
-            "expected sites=74 nodeids=43; observed sites=73 nodeids=42"
+            "expected sites=79 nodeids=44; observed sites=78 nodeids=43"
         ),
     ):
         test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire(

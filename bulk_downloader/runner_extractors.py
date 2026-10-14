@@ -1138,6 +1138,18 @@ class ExtractorsMixin:
         except Exception:
             cookies_dict = {}
 
+        # The lookup carries the site's cookies: it leaves the way the site
+        # leaves, or not at all.
+        egress_ok, proxy_url = self._site_client_egress("jsonapi")
+        if not egress_ok:
+            self.log_event(
+                "jsonapi_extract_failed",
+                "egress_refused: the site's egress could not be resolved; "
+                "no API request was made",
+                url=url,
+            )
+            return False
+
         self._update_job(url, "running", "JsonAPI: querying...")
         try:
             result = _jsonapi.fetch_and_extract(
@@ -1146,6 +1158,7 @@ class ExtractorsMixin:
                 cookies=cookies_dict or None, user_agent=user_agent,
                 timeout_s=timeout_s, id_regex=id_regex,
                 prefer_codec=prefer_codec,
+                proxy_url=proxy_url,
             )
         except Exception as e:
             sys.stderr.write(f"  jsonapi: fetch_and_extract raised {e}\n")
@@ -2376,11 +2389,13 @@ class ExtractorsMixin:
                 f"dl8: HEAD-probing {len(result.badoink_candidates)} "
                 "Badoink candidates...",
             )
+            egress_ok, proxy_url = self._site_client_egress("dl8")
             picked = _dl8.probe_badoink_candidates(
                 result.badoink_candidates,
                 user_agent=user_agent, referer=referer,
                 cookies=cookies_dict or None,
-            )
+                proxy_url=proxy_url,
+            ) if egress_ok else None
             if picked is None:
                 self.log_event(
                     "dl8_badoink_no_match",
@@ -2939,6 +2954,11 @@ class ExtractorsMixin:
                     cookies_dict[c["name"]] = c["value"]
         except Exception:
             cookies_dict = {}
+        # Speculative HEADs with the site's cookies: over the site's egress,
+        # or skipped (the known-good URL stands).
+        egress_ok, proxy_url = self._site_client_egress("tier_probe")
+        if not egress_ok:
+            return url
         try:
             result = _tier_probe.probe_higher_tiers(
                 url, pattern,
@@ -2946,6 +2966,7 @@ class ExtractorsMixin:
                 cookies=cookies_dict or None,
                 ladder=ladder, timeout_s=timeout_s,
                 max_attempts=max_attempts,
+                proxy_url=proxy_url,
             )
         except Exception as e:
             sys.stderr.write(f"  tier_probe: raised {type(e).__name__}: {e}\n")

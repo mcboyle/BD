@@ -95,6 +95,22 @@ class VPNRequiredError(Exception):
     """Raised when a site has vpn.required=True but the tunnel isn't available."""
 
 
+class EgressRefusedError(VPNRequiredError):
+    """A site's egress could not be decided, so no client may be built for it.
+
+    A ``VPNRequiredError`` on purpose: every in-process client already fails
+    closed on that type, and a refusal for any other reason (the requirement
+    or the tunnel state could not be read, resolution failed for a required
+    site, an unreadable ``proxy`` / ``proxy_pool``) must take the same path
+    rather than fall through to an unproxied client. ``code`` names the reason
+    for a caller that reports one (the segmented-transfer gate).
+    """
+
+    def __init__(self, message: str = "", *, code: str = "egress_refused"):
+        super().__init__(message)
+        self.code = code
+
+
 @contextmanager
 def _init_transaction():
     """Serialize init and reject a still-live stopped monitor generation.
@@ -541,6 +557,7 @@ def _reset_for_tests() -> None:
 __all__ = [
     "init", "shutdown",
     "get_tunnel_for_site", "is_vpn_required_for_site",
+    "EgressRefusedError",
     "get_socks_url_for_site", "maybe_wait_for_vpn",
     "playwright_proxy_for_site",
     "VPNRequiredError",

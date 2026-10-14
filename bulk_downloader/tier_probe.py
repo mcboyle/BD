@@ -252,6 +252,7 @@ def probe_higher_tiers(
     ladder: Optional[list] = None,
     timeout_s: float = 5.0,
     max_attempts: int = 6,
+    proxy_url: Optional[str] = None,
 ) -> ProbeResult:
     """Speculatively HEAD-probe higher tiers for `url`.
 
@@ -299,7 +300,7 @@ def probe_higher_tiers(
         with httpx.Client(timeout=timeout_s, follow_redirects=True,
                           cookies=cookies or None,
                           event_hooks={"request": [_ssrf_guard_hook]},
-                          transport=guarded_transport(PUBLIC_ONLY)) as client:
+                          transport=guarded_transport(PUBLIC_ONLY, proxy=proxy_url)) as client:
             for i, (tier, candidate) in enumerate(candidates):
                 if i >= max_attempts:
                     error = f"max_attempts={max_attempts}_exhausted"

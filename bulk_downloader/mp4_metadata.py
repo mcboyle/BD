@@ -287,7 +287,8 @@ def _detect_image_format(b: bytes) -> Optional[str]:
 
 
 def fetch_cover(url: str, *, timeout: float = 10.0,
-                referer: str = "", user_agent: str = "") -> Optional[bytes]:
+                referer: str = "", user_agent: str = "",
+                proxy_url: Optional[str] = None) -> Optional[bytes]:
     """Download `url` and return its bytes if it's a JPEG or PNG image.
 
     Returns None on any failure (network error, non-200 response, wrong
@@ -314,7 +315,8 @@ def fetch_cover(url: str, *, timeout: float = 10.0,
         headers["Referer"] = referer
     try:
         from bulk_downloader.ssrf_transport import guarded_transport, PINNED
-        with httpx.Client(timeout=timeout, follow_redirects=True, transport=guarded_transport(PINNED)) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=True,
+                          transport=guarded_transport(PINNED, proxy=proxy_url)) as client:
             with client.stream("GET", url, headers=headers) as r:
                 if r.status_code != 200:
                     log.info("mp4_metadata: cover fetch HTTP %s for %s",
