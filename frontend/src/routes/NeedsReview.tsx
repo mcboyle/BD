@@ -79,12 +79,17 @@ export default function NeedsReview() {
   useKeyboardShortcut("s", {}, () => act(skip));
 
   const ss = current ? screenshotUrl(current) : null;
+  // dsq-spa-errors r2: only a failed FIRST read is "could not load". A failed poll keeps
+  // isError but also the rows already loaded; those stay on screen (and stay the rows a/r/s act on).
+  const loadFailed = history.isError && !history.data;
 
   return (
     <AppShell
       title="Needs review"
       subtitle={
-        rows.length === 0
+        loadFailed
+          ? "Triage queue — could not load"
+          : rows.length === 0
           ? "Triage queue — nothing waiting"
           : `${rows.length} item${rows.length === 1 ? "" : "s"} awaiting review`
       }
@@ -99,6 +104,14 @@ export default function NeedsReview() {
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />
         </div>
+      ) : loadFailed ? (
+        // dsq-spa-errors F2a: a failed read is not an empty queue.
+        <Card className="border-red bg-red-soft p-3 text-sm text-red" role="alert">
+          Couldn't load the review queue
+          {history.error instanceof Error && history.error.message
+            ? `: ${history.error.message}`
+            : "."}
+        </Card>
       ) : rows.length === 0 ? (
         <EmptyState
           title="No review items"

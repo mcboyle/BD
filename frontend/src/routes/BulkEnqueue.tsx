@@ -5,11 +5,16 @@
 // dupes, adds 0) and caps at 1000. Never touches capture/extraction.
 
 import * as React from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useBulkEnqueue } from "@/hooks/useBulkEnqueue";
+
+// The server enqueues at most this many per submit and counts the rest as
+// skipped (app_bulk.py CAP).
+const SUBMIT_CAP = 1000;
 
 // F040: the ready count and the submitted batch are the same list -- non-blank
 // lines that parse as http(s) URLs, first occurrence kept. Blank lines are not
@@ -37,8 +42,14 @@ function parseUrls(raw: string) {
 
 export default function BulkEnqueue() {
   const enqueue = useBulkEnqueue();
+  const qc = useQueryClient();
   const [siteId, setSiteId] = React.useState("");
   const [raw, setRaw] = React.useState("");
+  // dsq-spa-errors F5b: a result describes the inputs it was submitted with;
+  // editing either input retires it.
+  const clearResult = () => {
+    if (enqueue.data || enqueue.isError) enqueue.reset();
+  };
 
   const { urls, invalid, duplicate } = parseUrls(raw);
   const dropped = [
@@ -49,7 +60,17 @@ export default function BulkEnqueue() {
 
   function onSubmit() {
     if (!canSubmit) return;
-    enqueue.mutate({ site_id: siteId.trim(), urls });
+    enqueue.mutate(
+      { site_id: siteId.trim(), urls },
+      {
+        // dsq-spa-errors F5a: the queue and site counts changed.
+        onSuccess: () => {
+          void qc.invalidateQueries({ queryKey: ["queue-v2"] });
+          void qc.invalidateQueries({ queryKey: ["queue-v2-badge"] });
+          void qc.invalidateQueries({ queryKey: ["sites-v2"] });
+        },
+      },
+    );
   }
 
   const res = enqueue.data;
@@ -64,8 +85,11 @@ export default function BulkEnqueue() {
             <Input
               aria-label="site id"
               value={siteId}
-              onChange={(e) => setSiteId(e.target.value)}
-              placeholder="e.g. example.com"
+              onChange={(e) => {
+                setSiteId(e.target.value);
+                clearResult();
+              }}
+              placeholder="site id (8 characters, e.g. 3d8961f5)"
             />
           </label>
           <label className="block text-sm">
@@ -74,10 +98,19 @@ export default function BulkEnqueue() {
               aria-label="urls"
               className="mt-1 w-full min-h-[160px] rounded-md border border-hairline bg-transparent p-3 text-sm"
               value={raw}
-              onChange={(e) => setRaw(e.target.value)}
+              onChange={(e) => {
+                setRaw(e.target.value);
+                clearResult();
+              }}
               placeholder={"https://\u2026\nhttps://\u2026"}
             />
           </label>
+          {urls.length > SUBMIT_CAP && (
+            <p role="status" className="text-sm text-amber">
+              Only the first {SUBMIT_CAP} URLs are enqueued per submit;{" "}
+              {urls.length - SUBMIT_CAP} will be skipped.
+            </p>
+          )}
           <Button type="button" onClick={onSubmit} disabled={!canSubmit}>
             {enqueue.isPending ? "Enqueuing\u2026" : `Enqueue ${urls.length} URL(s)`}
           </Button>
@@ -93,6 +126,8 @@ export default function BulkEnqueue() {
               <span>
                 Enqueued on <strong>{res.site_id}</strong>: requested {res.requested},
                 added {res.added}, dupes {res.dupes}, skipped {res.skipped}.
+                {(res.requested ?? 0) > SUBMIT_CAP &&
+                  ` ${(res.requested ?? 0) - SUBMIT_CAP} were over the ${SUBMIT_CAP}-per-submit limit and were not enqueued.`}
               </span>
             ) : (
               <span>{res.error || "Enqueue failed"}</span>
