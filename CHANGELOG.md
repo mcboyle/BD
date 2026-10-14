@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1852 - train281k: row
+
+T281k-A = train-3 (O3141/O3142 F3: on MAIN fd97d96d = train-2 T281i-D landed; member list frozen at assembly 16:30Z; 10 members, pairwise path-disjoint, greedy by BOARD age; no other train in flight). Product train; legs BOARD per O1672/BOARDED-for-integration.md; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge (F4). Ejected earlier: plugins-fix r2 (CI leaker census), inspect-pick-bounds r1 (gitleaks). Waiting for train-4: ddr f8-f11 r2, ext-csrf-token r1 (chain tails), session-jar-integrity r2, request-capture-redact r2 (app.py vs dev-paired), dev-path-inputs r1, dev-run-bounds r1 (app_dev_runtime.py vs dev-exec-lows), dom-recorder-bounds r1 (guards.json pin vs main; resolver ready).
+FIX: ddr-fix r3 -- deep-dl-runner-state: db.py, runner.py, runner_queue.py (BOARDED 10:55Z).
+FIX: dev-paired-session-scope r1 -- HIGH; app.py + DevToolsSection.tsx paired-session scope (R244-D, BOARDED 14:05Z; after health-core-fix r1 in train-2).
+FIX: dev-exec-lows r2 -- LOW; dev-console-exec R242-D F1 4301-digit port closed (R266-B, BOARDED 15:14Z).
+FIX: dva-auth r4 -- HIGH live: login throttle; fix-direct F4 (R248-B, BOARDED 15:34Z).
+FIX: plex-advanced-guard r2 -- HIGH latent; T3 2/2 R250-B + R251-D (BOARDED 15:34Z).
+FIX: tempdir-clean-safety r1 -- MED (R255-B, BOARDED 15:34Z).
+FIX: fed-auth r1 -- MED (R257-B, BOARDED 15:34Z).
+FIX: wayback-lows r1 -- LOW (R259-D, BOARDED 15:34Z).
+FIX: fed-trust r1 -- MED (R258-B, BOARDED 15:44Z).
+TEST: symbol-pins r1 -- census/row703/source-window pins anchor on symbols + content hash, not line numbers (O3141 item 6; R273-B, BOARDED 15:54Z).
+
+
 ## v3.66.1851 - train281i: row
 
 T281i-D (train-2, integrator D2-D) on main 44640c61 (T281h-D merged) (19 members; product train; legs BOARD per O1672/BOARDED-for-integration.md; O3122 auto promote+deploy on green). Members path-disjoint (ORDER-pm-B-landing-throughput-1412Z item 3); selection T281i/SELECT-train2-1450Z.md.
