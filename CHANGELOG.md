@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1847 - train281e: row
+
+T281e on main dbb2a1a3 (1 member; GO-pm-B-T281d-A-0408Z.md "T281e next"; leg BOARD under O1789/bughunt/deep-settings-secrets; pins re-verified at assembly; object-level merge-tree probe clean):
+SECURITY (LOW): dss-global-secrets r2 -- F4 ai_api_key typing, F8 effective-view redaction in settings center (restack of r1 BOARD over dss-token-rotate r2, landed T281d).
+STACKS: dss-global-secrets r2 over dss-token-rotate r2 (synthetic base cce7a358 = stack-dss-token-rotate-r2).
+
+
 ## v3.66.1846 - train281d: row
 
 T281d on main 54bac9ba (5 members; ORDER-pm-B-resume-step0-1-0326Z.md; every leg BOARD under O1789/bughunt, pins re-verified at assembly; object-level merge-tree probe clean 5/5):

@@ -1690,6 +1690,7 @@
     "settings_center": {
       "module": "app_settings_center.py",
       "providers": [
+        "bulk_downloader/app_global_config.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/http_client.py",
         "bulk_downloader/site_editor.py",
@@ -2427,7 +2428,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1849,
+    "edge_count": 1850,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2625,6 +2626,9 @@
       ],
       "bulk_downloader/app_gallerydl_update.py": [
         "bulk_downloader/app.py"
+      ],
+      "bulk_downloader/app_global_config.py": [
+        "bulk_downloader/app_settings_center.py"
       ],
       "bulk_downloader/app_health.py": [
         "bulk_downloader/deployment_timeline.py"
@@ -5909,6 +5913,7 @@
         "bulk_downloader/session_keeper.py"
       ],
       "bulk_downloader/app_settings_center.py": [
+        "bulk_downloader/app_global_config.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/http_client.py",
         "bulk_downloader/site_editor.py",

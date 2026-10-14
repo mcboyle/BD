@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6119,
+  "edge_count": 6124,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -579,6 +579,7 @@
       "bulk_downloader/session_keeper.py"
     ],
     "bulk_downloader/app_settings_center.py": [
+      "bulk_downloader/app_global_config.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/http_client.py",
       "bulk_downloader/site_editor.py",
@@ -4003,6 +4004,12 @@
       "bulk_downloader/secrets_store.py",
       "bulk_downloader/vpn_config.py",
       "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_dss_global_secrets.py": [
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app_global_config.py",
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/global_config.py"
     ],
     "tests/test_dss_site_secrets_put_reports_vault_failure.py": [
       "bulk_downloader/app.py",

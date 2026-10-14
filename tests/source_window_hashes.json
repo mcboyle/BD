@@ -257,7 +257,7 @@
     {
       "bytes": 1002,
       "key": "tests/test_v3_43_43_multi_provider_ai.py::test_global_config_preserves_key_on_omit::src[pos:pos + 1000]::1",
-      "sha256": "0a939839b713912891668d2af097fd2c8508ad617bfc45724a03c253cfe4ba39"
+      "sha256": "2602c2e5d471ed983c6495f8a672bf684d3628d5bdd0700b54d4df89108de75a"
     },
     {
       "bytes": 1504,
