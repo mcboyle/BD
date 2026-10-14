@@ -83,7 +83,13 @@ def widgets_get_scope(scope):
 @widgets_bp.route("/api/widgets/<scope>", methods=["PUT"]) if widgets_bp else (lambda f: f)
 def widgets_put_scope(scope):
     from . import widgets_config
-    data = request.get_json(silent=True) or {}
+    try:
+        data = request.get_json(silent=True) or {}
+    except RecursionError:
+        # widgets-fix F11: silent=True swallows only ValueError; a deeply nested body is a bad request, not a 500.
+        return _err("request body is nested too deeply")
+    # widgets-fix F4: load before writing, else the first write after a restart saves defaults over widgets.json.
+    widgets_config.load()
     raw = data.get("widgets")
     if not isinstance(raw, list):
         return _err("body.widgets must be a list of {id, size} entries")
@@ -102,6 +108,7 @@ def widgets_put_scope(scope):
 @widgets_bp.route("/api/widgets/<scope>", methods=["DELETE"]) if widgets_bp else (lambda f: f)
 def widgets_delete_scope(scope):
     from . import widgets_config
+    widgets_config.load()
     try:
         if scope == "_global":
             widgets_config.reset_global()
