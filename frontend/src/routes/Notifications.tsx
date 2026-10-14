@@ -116,6 +116,9 @@ export default function Notifications() {
           onSuccess: () => {
             setAppriseUrls(""); // never retain the secret in state
             toast.success("Apprise settings saved");
+            // settings-fe-fix F13: once the saved settings are read back, the
+            // field follows the server (and its 30s poll) again.
+            void apprise.refetch().then(() => setAppriseEnabledEdit(null));
           },
           onError: (e) => toast.error(String((e as Error).message)),
         });
@@ -150,6 +153,11 @@ export default function Notifications() {
           onSuccess: () => {
             setTgToken("");
             toast.success("Telegram settings saved");
+            // settings-fe-fix F13: as above.
+            void tgSettings.refetch().then(() => {
+              setTgEnabledEdit(null);
+              setTgAllowlistEdit(null);
+            });
           },
           onError: (e) => toast.error(String((e as Error).message)),
         });

@@ -57,7 +57,13 @@ export default function AlertRules() {
         <Button
           type="button"
           variant="outline"
-          onClick={() => testEvaluate.mutate()}
+          onClick={() =>
+            // settings-fe-fix F06: the evaluation pass reports either way.
+            testEvaluate.mutate(undefined, {
+              onSuccess: () => toast.success("Evaluation pass ran"),
+              onError: (e) => toast.error(`Test-send failed: ${e.message}`),
+            })
+          }
           disabled={testEvaluate.isPending}
         >
           {testEvaluate.isPending ? "Evaluating\u2026" : "Test-send (evaluate now)"}
@@ -125,6 +131,12 @@ export default function AlertRules() {
               {save.data.error || "Could not save rule"}
             </p>
           )}
+          {/* settings-fe-fix F06: apiPost throws on a 400/500, so the rejected save is save.error. */}
+          {save.isError && (
+            <p role="alert" className="text-sm text-danger">
+              Could not save rule: {save.error.message}
+            </p>
+          )}
         </div>
 
         {query.isLoading && <p className="text-sm text-ink-soft">Loading…</p>}
@@ -175,6 +187,8 @@ export default function AlertRules() {
                             onSuccess: (res) => {
                               if (res.ok === false) toast.error(`Rule ${r.id} was not removed`);
                             },
+                            onError: (e) =>
+                              toast.error(`Rule ${r.id} was not removed: ${e.message}`),
                           })
                         }
                         disabled={remove.isPending}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { apiGet, apiPost } from "@/lib/api-client";
 import type { GlobalConfigSubset } from "@/lib/api-types";
@@ -127,9 +128,9 @@ export function useSyncedSoundPref(): UseSyncedSoundPref {
           sound_on_complete: v,
         })
           .then(() => qc.invalidateQueries({ queryKey: ["global-config"] }))
-          .catch(() => {
-            /* swallow — ambient feature, no user-facing error */
-          });
+          // settings-fe-fix F07: a failed write leaves the server value as it
+          // was; say so instead of letting the toggle look saved.
+          .catch((e: Error) => toast.error(`Sound setting not saved: ${e.message}`));
       }
     },
     [syncMode, qc],
@@ -152,9 +153,7 @@ export function useSyncedSoundPref(): UseSyncedSoundPref {
           sound_on_complete: current,
         })
           .then(() => qc.invalidateQueries({ queryKey: ["global-config"] }))
-          .catch(() => {
-            /* swallow */
-          });
+          .catch((e: Error) => toast.error(`Sound sync not turned on: ${e.message}`));
       } else {
         // Flipping OFF: just clear the server flag. The localStorage
         // value remains; we don't blow it away.
@@ -162,9 +161,7 @@ export function useSyncedSoundPref(): UseSyncedSoundPref {
           sound_sync_enabled: false,
         })
           .then(() => qc.invalidateQueries({ queryKey: ["global-config"] }))
-          .catch(() => {
-            /* swallow */
-          });
+          .catch((e: Error) => toast.error(`Sound sync not turned off: ${e.message}`));
       }
     },
     [qc],
