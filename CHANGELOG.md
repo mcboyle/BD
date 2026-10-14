@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1846 - train281d: row
+
+T281d on main 54bac9ba (5 members; ORDER-pm-B-resume-step0-1-0326Z.md; every leg BOARD under O1789/bughunt, pins re-verified at assembly; object-level merge-tree probe clean 5/5):
+SECURITY: dah-probe r2 (MED: bounded, cookie-keeping capped probes over dah-vpn r2), dss-token-rotate r2 (settings token rotation).
+FIXES: isc (infinite-scroll chromium pager), dah-vpn r2 (egress/proxy guard, row703/row706 hygiene), qti-queue-f6 r2 (queue-templates io f6).
+STACKS: dah-probe r2 over dah-vpn r2 (synthetic base 9752444a); dah-vpn r2 + dss-token-rotate r2 over T281b-B staged 09d9947b (content now on main via T281c); qti-queue-f6 r2 over qti-queue-meta r3 (on main).
+Excluded (PAUSED, 3 test failures unfixed): dat-egress-xport r2, dsq-batch-ops r2. HELD: dss-global-secrets, dss-type-500s r2, codex-hooks.
+
+
 ## v3.66.1845 - train281b: row
 
 T281b on main 2e984922 (22 members; RULING-pm-A3-A-batch-2010Z.md item 3, GO-pm-A3-A-T281a-G-deploy-2221Z.md AFTER; every leg BOARD on O1672, pins re-verified at assembly):
