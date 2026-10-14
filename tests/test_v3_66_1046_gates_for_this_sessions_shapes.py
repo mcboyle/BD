@@ -406,9 +406,13 @@ def test_bd_jobs_diff_does_not_trust_a_log_outside_the_registry(tmp_path):
 #
 # Measured 2026-09-09 on fresh-1 (10.0.70.149), isolated repository-venv
 # subprocesses; values are math.ceil of process wall seconds in MEASUREMENT.md.
+# 1040 re-measured 2026-10-14 on spr-pool05 (10.0.70.149, 32 cores, load1
+# 2.8-3.9) with the runner's own command, 3 runs of 375 passed: 42.9, 51.0 and
+# 45.4 s. The 37 s fired the 110 s budget in the stale gate at 2b7ca835
+# (harness-work/O1789/main-red/stale-gate-dbb2a1a/fix-r1/C/runs).
 _SUITE_BASELINE_S = {
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py": 196,   # 55 tests
-    "tests/test_v3_66_1040_remote_job_registry.py": 37,            # 375 tests
+    "tests/test_v3_66_1040_remote_job_registry.py": 52,            # 375 tests
     "tests/test_v3_66_1044_run_context_and_chains.py": 2,          # 11 tests
     "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py": 5,  # 6
 }
@@ -489,12 +493,16 @@ def test_h664_budget_scales_with_measured_load_and_stays_bounded(monkeypatch):
     assert saturated <= quiet * 4, "H664: load can remove the finite hang bound"
 
 
-@pytest.mark.parametrize("load,elapsed,passes", [
-    (0.0, 50.0, True), (8.0, 100.0, True),
-    (0.0, 100.0, False), (8.0, 250.0, False),
+@pytest.mark.parametrize("load,share,passes", [
+    (0.0, 0.5, True), (8.0, 0.5, True),
+    (0.0, 1.25, False), (8.0, 1.25, False),
 ])
 def test_h664_elapsed_check_uses_the_same_measured_load(
-        monkeypatch, tmp_path, load, elapsed, passes):
+        monkeypatch, tmp_path, load, share, passes):
+    # elapsed is a share of the bound at this load (4 cpus), so the cases follow
+    # the recorded baseline instead of pinning the one it had when they were written
+    suite = "tests/test_v3_66_1040_remote_job_registry.py"
+    elapsed = share * _SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR * (1.0 + load / 4)
     module = sys.modules[__name__]
     jobs, runctx = tmp_path / "jobs", tmp_path / "runctx"
     jobs.mkdir()
@@ -521,7 +529,6 @@ def test_h664_elapsed_check_uses_the_same_measured_load(
             argv, 0, stdout=f"1 passed\n1 worker chain(s): {mine}\n", stderr="")
 
     monkeypatch.setattr(subprocess, "run", completed)
-    suite = "tests/test_v3_66_1040_remote_job_registry.py"
     if passes:
         _run_tool_state_suite(suite)
     else:

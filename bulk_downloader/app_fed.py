@@ -51,13 +51,28 @@ def _fed_write_refusal():
         fed_token = ""
     if not fed_token:
         return None
-    if _fed.verify_request(request.get_data(),
-                           signature=request.headers.get("X-BD-Fed-Sig", ""),
-                           token=fed_token):
+    # fed-replay r1: the signature binds method, path, X-BD-Fed-Ts and
+    # X-BD-Fed-Nonce (no replay, no cross-route reuse). The legacy body-only
+    # signature passes only with fed_legacy_sig on, only on announce /
+    # template_push, and is logged; the fed-auth write routes never take it.
+    body = request.get_data()
+    if request.headers.get("X-BD-Fed-Ts") or request.headers.get("X-BD-Fed-Nonce"):
+        ok, reason = _fed.verify_signed_request(request.method, request.path, body,
+                                                request.headers.get, fed_token)
+    elif request.endpoint in ("fed.api_fed_manual_register", "fed.api_fed_set_trust",
+                              "fed.api_fed_claim") or not _fed.legacy_sig_enabled():
+        ok, reason = False, "legacy signature refused"
+    else:
+        ok = _fed.verify_request(body, signature=request.headers.get("X-BD-Fed-Sig", ""),
+                                 token=fed_token)
+        reason = "bad signature"
+        if ok:
+            _fed.log_legacy_acceptance(request.path, request.remote_addr or "")
+    if ok:
         return None
     if _is_master():
         return None
-    return jsonify({"ok": False, "error": "bad signature",
+    return jsonify({"ok": False, "error": "bad signature", "reason": reason,
                     "required": "X-BD-Fed-Sig or master token"}), 401
 
 

@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import io
 import time
+import types
 
 BD_GATE_SCOPE = "module"
 
 import pytest
 
+from bulk_downloader import traffic_shaper
 from bulk_downloader.traffic_shaper import (
     TokenBucket,
     BandwidthShaper,
@@ -70,8 +72,20 @@ class TestTrafficShaperAcceptance:
             f"Expected effective throughput near {target_mbps} Mbps, got {effective_mbps:.2f} Mbps"
         )
 
-    def test_smooth_chunk_pacing_without_burst_drops(self):
+    def test_smooth_chunk_pacing_without_burst_drops(self, monkeypatch):
         """(2) Smooth chunk pacing without burst drops across multiple intervals."""
+        # The shaper runs on its own clock, advanced only by the sleeps it asks for.
+        # On the real clock a host stall in one sleep reads as a slow chunk and the
+        # refill after it as a burst: the stale gate saw 0.2015s, and one rep in 300
+        # failed at load 5.6/64 after a 415 ms oversleep. Throughput on the real
+        # clock is test (1).
+        now = [0.0]
+        clock = types.ModuleType("time")
+        clock.__dict__.update(vars(traffic_shaper.time))
+        clock.perf_counter = lambda: now[0]
+        clock.sleep = lambda seconds: now.__setitem__(0, now[0] + seconds)
+        monkeypatch.setattr(traffic_shaper, "time", clock)
+
         # 4.0 Mbps = 500,000 bytes/sec
         target_mbps = 4.0
         shaper = BandwidthShaper(global_mbps=target_mbps, burst_ratio=1.0)
@@ -81,9 +95,9 @@ class TestTrafficShaperAcceptance:
         delays = []
 
         for _ in range(num_chunks):
-            t0 = time.perf_counter()
+            t0 = clock.perf_counter()
             shaper.pace(chunk_size)
-            delays.append(time.perf_counter() - t0)
+            delays.append(clock.perf_counter() - t0)
 
         # Skip first chunk (which may consume initial burst tokens)
         steady_delays = delays[1:]

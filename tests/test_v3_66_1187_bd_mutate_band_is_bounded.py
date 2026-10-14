@@ -20,12 +20,17 @@ BD_GATE_SCOPE = "module"
 _REPO = Path(__file__).resolve().parent.parent
 _TOOL = _REPO / "toolchain" / "bin" / "bd-mutate"
 _BAND = "tests/test_m.py"
-_STALL_SECONDS = 8.0
+# The stall is what the derived timeout must cut short, so it bounds the warm-up the
+# calibration accepts (0.9x). A passing run never waits it out. At 8 s, the stale
+# gate's -n 12 load measured an 11.19 s warm-up against a 7.2 s ceiling at 2b7ca835
+# (harness-work/O1789/main-red/stale-gate-dbb2a1a/fix-r1/C/runs).
+_STALL_SECONDS = 30.0
 _WARMUP_TIMEOUT_SECONDS = _STALL_SECONDS
 _STARTUP_HEADROOM = 1.0
 _MIN_DERIVED_TIMEOUT_SECONDS = 0.25
 _MAX_DERIVED_TIMEOUT_SECONDS = _STALL_SECONDS * 0.9
-_SUBPROCESS_CAP_SECONDS = 30.0
+# Above the largest wall bound the band accepts: 0.9 * stall + 3 * that warm-up = 108 s.
+_SUBPROCESS_CAP_SECONDS = 120.0
 _TAIL_CHARACTERS = 2000
 
 

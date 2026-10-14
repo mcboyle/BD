@@ -455,16 +455,16 @@ Schema version: 2
 ```
 - L0035 `_is_stream_container` `[private]` — True for the files verify_media_integrity checks with ffprobe (video/audio/unknown);
 - L0042 `_quarantine_failure` `[private]`
-- L0062 `IntegrityMixin` `[class]`
-  - L0063 `IntegrityMixin._dedup_hash_worker` `[private]` — v3.43.72: background worker that pHashes a finished download
-  - L0124 `IntegrityMixin._apply_quality_preference` `[private]` — Phase 67 (v3.38.x): explicit quality preference order. `qpref` is
-  - L0193 `IntegrityMixin._dedup_preflight` `[private]` — F1.5: pre-download history-match dedup. Returns a message string
-  - L0270 `IntegrityMixin._job_expected_duration` `[private]` — The job's known media length in seconds (extractor/playlist metadata), or None.
-  - L0284 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
-  - L0333 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
-  - L0447 `IntegrityMixin._verify_payload` `[private]` — Row 1046: the file's measured media duration vs the job's expected duration.
-  - L0465 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
-  - L0589 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
+- L0071 `IntegrityMixin` `[class]`
+  - L0072 `IntegrityMixin._dedup_hash_worker` `[private]` — v3.43.72: background worker that pHashes a finished download
+  - L0133 `IntegrityMixin._apply_quality_preference` `[private]` — Phase 67 (v3.38.x): explicit quality preference order. `qpref` is
+  - L0202 `IntegrityMixin._dedup_preflight` `[private]` — F1.5: pre-download history-match dedup. Returns a message string
+  - L0279 `IntegrityMixin._job_expected_duration` `[private]` — The job's known media length in seconds (extractor/playlist metadata), or None.
+  - L0293 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
+  - L0342 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
+  - L0456 `IntegrityMixin._verify_payload` `[private]` — Row 1046: the file's measured media duration vs the job's expected duration.
+  - L0474 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
+  - L0598 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
 ```
 
 

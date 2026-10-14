@@ -36,7 +36,13 @@ def send(c, path, obj, *, signed=False, sig=None, headers=None):
     raw = json.dumps(obj).encode()
     h = {"Content-Type": "application/json", **(headers or {})}
     if signed:
-        h["X-BD-Fed-Sig"] = hmac.new(FEDTOK.encode(), raw, hashlib.sha256).hexdigest()
+        # fed-replay r1: the signature binds method, path, timestamp and nonce
+        import secrets
+        import time
+        ts, nonce = str(int(time.time())), secrets.token_hex(16)
+        canon = "\n".join(("POST", path, ts, nonce, hashlib.sha256(raw).hexdigest())).encode()
+        h.update({"X-BD-Fed-Sig": hmac.new(FEDTOK.encode(), canon, hashlib.sha256).hexdigest(),
+                  "X-BD-Fed-Ts": ts, "X-BD-Fed-Nonce": nonce})
     if sig is not None:
         h["X-BD-Fed-Sig"] = sig
     return c.post(path, data=raw, headers=h)

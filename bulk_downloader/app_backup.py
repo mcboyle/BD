@@ -109,6 +109,15 @@ def api_backup_history():
             limit=limit)})
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
+@backup_bp.route("/api/backup/list")
+def api_backup_list():
+    """F020: every backup BD keeps on disk -- metadata only (name, size, created, kind)."""
+    try:
+        from . import backup_verify as _bv
+        inv = _bv.backup_inventory()
+        return jsonify({"ok": True, "backups": inv["backups"], "errors": inv["errors"]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
 @backup_bp.route("/api/backup/create", methods=["POST"])
 def api_backup_create():
     """Create a backup zip and return as download. Body params:

@@ -76,7 +76,12 @@ def run(monkeypatch):
     mod, fake = _load(monkeypatch, {})
     mod.REFERENCE_FRAME = str(REFERENCE)
     sleeps = []
-    monkeypatch.setattr(mod.time, "sleep", sleeps.append)
+    # Record the script's own sleeps only: patching time.sleep itself records every
+    # thread in the worker (the stale gate's -n 12 run caught 2794 foreign sleeps).
+    clock = types.ModuleType("time")
+    clock.__dict__.update(vars(mod.time))
+    clock.sleep = sleeps.append
+    monkeypatch.setattr(mod, "time", clock)
     return mod, fake, sleeps
 
 

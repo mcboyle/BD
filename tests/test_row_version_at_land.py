@@ -28,6 +28,13 @@ RELEASE_PATHS = {
     "project-knowledge/STATIC_KB_MANIFEST.json",
 }
 TITLE = "Land the reviewed feature"
+# The two whole-tree steps (bd-regen-order in the baseline, the first bd-land-trio
+# --write) ran 98-298 s in a loaded -n 12 battery on a 64-core host (load 28-36),
+# against ~100 s idle; 180 s cut them off. Each gets 2x the loaded worst (298 s),
+# rounded up to a minute. The item bound sits above both, so a hung step is named by
+# its own TimeoutExpired before pytest-timeout fires. Every other step keeps 180 s.
+_WHOLE_TREE_STEP_S = 600
+_STAMP_ITEM_S = 2 * _WHOLE_TREE_STEP_S + 60
 
 
 def _env(work):
@@ -54,9 +61,9 @@ def _git(work, *args):
     return _run(work, ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], ok=True).stdout.strip()
 
 
-def _stamp(work, *args, title=TITLE):
+def _stamp(work, *args, title=TITLE, timeout=180):
     return _run(work, [sys.executable, str(TOOL), "--work", str(work),
-                       "--title", title, *args])
+                       "--title", title, *args], timeout=timeout)
 
 
 def _version(work):
@@ -105,7 +112,7 @@ def tree(tmp_path):
 def _clean_generated_baseline(work):
     """A real reviewed tree has its derived artifacts current before stamping."""
     _run(work, [sys.executable, str(work / "toolchain/bin/bd-regen-order"),
-                "--work", str(work)], ok=True)
+                "--work", str(work)], ok=True, timeout=_WHOLE_TREE_STEP_S)
     _git(work, "add", "--all")
     if _git(work, "diff", "--cached", "--name-only"):
         _git(work, "commit", "--quiet", "-m", "Fixture reviewed generated baseline")
@@ -197,6 +204,7 @@ def test_check_uses_max_main_and_tree_without_any_write(tree, tree_ahead, main_a
     assert _snapshot(tree) == before
 
 
+@pytest.mark.timeout(_STAMP_ITEM_S)
 def test_real_stamp_stages_exactly_five_paths_and_replays_byte_identically(tree, tmp_path):
     """Omitting a generator, moving an extra path, or rebumping a replay fails here."""
     _clean_generated_baseline(tree)
@@ -206,7 +214,7 @@ def test_real_stamp_stages_exactly_five_paths_and_replays_byte_identically(tree,
     body = tmp_path / "body.txt"
     body.write_text("Reviewed behavior is stamped at landing.\n")
     args = ["--body", str(body), "--write"]
-    cp = _stamp(tree, *args)
+    cp = _stamp(tree, *args, timeout=_WHOLE_TREE_STEP_S)
     assert cp.returncode == 0, cp.stdout + cp.stderr
     changed = _git(tree, "diff", "--cached", "--name-only").splitlines()
     assert len(changed) == 5, changed
@@ -238,13 +246,14 @@ def test_real_stamp_stages_exactly_five_paths_and_replays_byte_identically(tree,
 
 
 
+@pytest.mark.timeout(_STAMP_ITEM_S)
 def test_pending_stamp_rejects_changed_inputs_head_main_and_foreign_dirt(tree, tmp_path):
     """A replay receipt cannot authorize a different request or integration tree."""
     _clean_generated_baseline(tree)
     body = tmp_path / "body.txt"
     body.write_text("Original reviewed body.\n")
     args = ["--body", str(body), "--write"]
-    cp = _stamp(tree, *args)
+    cp = _stamp(tree, *args, timeout=_WHOLE_TREE_STEP_S)
     assert cp.returncode == 0, cp.stdout + cp.stderr
 
     _refused_without_writes(tree, "DIRTY-TREE", *args, title="Different title")

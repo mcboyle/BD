@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1857 - train281n: row875
+
+T281n-F (train-6, integrator D2-D) on main 94fe25bd (train-7 T281o merged) (5 members; product train; legs BOARD per O1672/BOARDED-for-integration.md). Members path-disjoint (26 paths). Intake T281n/INTAKE-train6-1800Z.md. Ejected at kit: BD-SEC-2 r3-restack-c (gitleaks), F017 r2-restack-b (body-contract ratchet).
+FIX: dl-retry refresh -- retry_policy Retry-After floor x cap (material refresh on fd97d96d, AGY council).
+FIX: fed-replay r1 -- federation signature covers method+path+ts+nonce+sha256(body); replay/skew 401 (MED SEC, R257-B A2); stacked on fed-auth r1 (landed train-3), synthetic stack base d9010f2f.
+FIX: row875-latency-isolation r1 -- pg_vector HNSW latency test isolation (main-red stale-gate dbb2a1a).
+FIX: migrations-integrity-fix r3 -- migrations backup/restore through the db seam inside the owned state dir (train-4 eject refile).
+FIX: BD-BACKUP-LIST r3 refresh -- backup list/verify routes (F020).
+
+
 ## v3.66.1856 - train281o: row
 
 T281o-A = train-7 (O3141/O3142 F3: on MAIN 82585d41 = train-5 T281m-B landed; pipelined beside train-6 T281n (D2-D, in flight, 54 paths incl. app.py + SEC-2 r3-restack-c); member list frozen at assembly 18:27Z; 3 members = every BOARDed product cut that is path-disjoint from train-6 and merges clean on main; <=15 per RULING-pm-B-ci-queue-1640Z). Product train; legs BOARD per O1672/BOARDED-for-integration.md; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge (F4). Whichever of train-6/train-7 merges second re-kits on the first one's merge commit (release trio). Waiting for train-8 (train-6 overlaps / conflicts / chain tails; T281g/wait-T281o-A.tsv): ext-route-anchor r2 HIGH, request-capture-redact r2 HIGH, ext-csrf-token r1, pair-admission-proxy r2, plex-error-redact r1, secrets-master-throttle-atomic r1b, fed-input-lows r1, dva-trusted-proxies r1, F017 r2-restack-b, dev-console-lows r1-restack, fed-replay r1-amend2.
