@@ -486,6 +486,20 @@
   "unknownType": true
  },
  {
+  "file": "src/components/sections/TemplateAuthoringSection.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "name",
+   "template"
+  ],
+  "path": "/api/template_manager/draft",
+  "sample": {
+   "name": "x",
+   "template": "x"
+  },
+  "unknownType": false
+ },
+ {
   "file": "src/components/ui/PlainLanguageHint.tsx",
   "fn": "apiPost",
   "keys": [
@@ -2101,7 +2115,7 @@
   "sample": {
    "dry_run": false,
    "filter": {},
-   "reset_to_status": "x"
+   "reset_to_status": "pending"
   },
   "unknownType": false
  },
@@ -3196,6 +3210,7 @@
    "cockpit_tasks",
    "framework_reports",
    "watch_folder",
+   "scheduled_export_allowed_dirs",
    "watch_interval_sec",
    "watch_archive",
    "log_level",
@@ -3379,6 +3394,7 @@
    "redact_emails": "x",
    "redact_extra_headers": "x",
    "redact_network_urls": "x",
+   "scheduled_export_allowed_dirs": "x",
    "secrets_audit": "x",
    "secrets_audit_file": "x",
    "secrets_audit_max_bytes": "x",
@@ -3565,6 +3581,14 @@
  },
  {
   "file": "src/routes/TemplateManager.tsx",
+  "fn": "apiDelete",
+  "keys": [],
+  "path": "/api/template_manager/draft?file=${}",
+  "sample": {},
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/TemplateManager.tsx",
   "fn": "apiPost",
   "keys": [
    "html"
@@ -3591,6 +3615,20 @@
   "file": "src/routes/TemplateManager.tsx",
   "fn": "apiPost",
   "keys": [
+   "name",
+   "template"
+  ],
+  "path": "/api/template_manager/draft",
+  "sample": {
+   "name": "x",
+   "template": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/TemplateManager.tsx",
+  "fn": "apiPost",
+  "keys": [
    "file",
    "enable",
    "accept_api"
@@ -3600,6 +3638,20 @@
    "accept_api": false,
    "enable": false,
    "file": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/TemplateManager.tsx",
+  "fn": "apiPut",
+  "keys": [
+   "file",
+   "template"
+  ],
+  "path": "/api/template_manager/draft",
+  "sample": {
+   "file": "x",
+   "template": "x"
   },
   "unknownType": false
  },

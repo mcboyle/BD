@@ -1,6 +1,7 @@
 // TemplateAuthoringSection — T10 (v3.66.211) template authoring, mounted in
 // the existing /templates route (TemplateManager). extract/refine are pure
 // compute (ungated); sandbox fetches a LIVE url → B-tier confirm.
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -20,6 +21,8 @@ import {
   useTemplateRefine,
   useTemplateSandbox,
 } from "@/hooks/useTemplateAuthoring";
+import { apiPost } from "@/lib/api-client";
+import type { TemplateActionResult } from "@/lib/api-types";
 
 function errText(e: unknown): string {
   return e && typeof e === "object" && "message" in e ? String((e as Error).message) : String(e);
@@ -34,6 +37,28 @@ export function TemplateAuthoringSection() {
   const [pageUrl, setPageUrl] = useState("");
   const [sandboxUrl, setSandboxUrl] = useState("");
   const [confirmSandbox, setConfirmSandbox] = useState(false);
+  const [draftName, setDraftName] = useState("");
+
+  // F017 — keep what was extracted: save it as a review-only draft (listed
+  // under Drafts above; never enabled until promoted).
+  const qc = useQueryClient();
+  const saveDraft = useMutation<TemplateActionResult, Error, { name: string; template: unknown }>({
+    mutationFn: (body) => apiPost<TemplateActionResult>("/api/template_manager/draft", body),
+    onSuccess: (res) => {
+      if (res.ok) toast.success(`Saved draft ${res.created}`);
+      else toast.error(res.error ?? "Save failed");
+      qc.invalidateQueries({ queryKey: ["template-manager"] });
+    },
+    onError: (e) => toast.error(`Save failed: ${errText(e)}`),
+  });
+  const defaultDraftName = (() => {
+    try {
+      return pageUrl ? new URL(pageUrl).hostname : "";
+    } catch {
+      return "";
+    }
+  })();
+  const nameForSave = draftName.trim() || defaultDraftName;
 
   const runExtract = () =>
     extract.mutate(
@@ -98,6 +123,31 @@ export function TemplateAuthoringSection() {
 
       {extract.data?.template && (
         <div className="mt-3 border-t border-border/40 pt-3">
+          <p className="mb-1 text-xs font-medium">Extracted draft</p>
+          <pre
+            className="mb-2 max-h-48 overflow-auto rounded bg-muted p-2 text-xs"
+            aria-label="extracted draft"
+          >
+            {JSON.stringify(extract.data.template, null, 2)}
+          </pre>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Input
+              className="max-w-[18rem]"
+              placeholder={defaultDraftName || "draft name (e.g. example.com)"}
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              aria-label="draft name"
+            />
+            <Button
+              variant="outline"
+              onClick={() =>
+                saveDraft.mutate({ name: nameForSave, template: extract.data!.template })
+              }
+              disabled={saveDraft.isPending || !nameForSave}
+            >
+              Save as draft
+            </Button>
+          </div>
           <p className="mb-1 text-xs font-medium">Sandbox the draft against a live URL</p>
           <div className="flex flex-wrap items-center gap-2">
             <Input

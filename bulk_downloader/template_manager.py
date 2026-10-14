@@ -403,3 +403,151 @@ def disable_reviewed(filename: str, *, reviewed_dir=None) -> Dict[str, Any]:
     t["disabled_at"] = int(time.time())
     _atomic_write_json(fp, t)
     return {"ok": True, "disabled": safe, "enabled": False}
+
+
+# ── F017: draft create / read / edit / delete ────────────────────────────────
+# Operator-authored drafts land in DRAFTS_DIR only. They are review-only: a
+# saved draft is never "enabled" (promotion stays the one explicit enable step),
+# and a draft is durable, so nothing secret-looking may be written OR read back.
+
+_DRAFT_NAME_MAX = 120
+_DRAFT_MAX_BYTES = 256 * 1024
+_DRAFT_MAX_DEPTH = 64
+
+
+def _draft_filename(name: str) -> Optional[str]:
+    """``<name>.template-draft.json`` for a bare host-like name, or None."""
+    name = (name or "").strip()
+    if name.endswith(_DRAFT_SUFFIX):
+        name = name[: -len(_DRAFT_SUFFIX)]
+    if (not name or len(name) > _DRAFT_NAME_MAX or ".." in name
+            or not name[0].isalnum()
+            or any(not (c.isascii() and (c.isalnum() or c in "._-")) for c in name)):
+        return None
+    return name + _DRAFT_SUFFIX
+
+
+def _depth(obj: Any, limit: int) -> int:
+    """Nesting depth of ``obj``, counting stops once it passes ``limit``."""
+    stack = [(obj, 1)]
+    deepest = 0
+    while stack:
+        cur, d = stack.pop()
+        if isinstance(cur, (dict, list)):
+            deepest = max(deepest, d)
+            if deepest > limit:
+                return deepest
+            vals = cur.values() if isinstance(cur, dict) else cur
+            stack.extend((v, d + 1) for v in vals)
+    return deepest
+
+
+def _draft_body_errors(t: Any) -> Optional[str]:
+    """Why ``t`` may not be stored or shown as a draft, or None if it may."""
+    if not isinstance(t, dict):
+        return "template must be a JSON object"
+    if _depth(t, _DRAFT_MAX_DEPTH) > _DRAFT_MAX_DEPTH:
+        return "template is nested too deeply"
+    if len(json.dumps(t)) > _DRAFT_MAX_BYTES:
+        return "template is too large"
+    from .capture_artifact_redact import scan_artifact_secrets
+    found = scan_artifact_secrets(t)
+    if found:
+        return ("template holds secret-looking values at "
+                + ", ".join(f"{p} ({k})" for p, k in found[:5]))
+    return None
+
+
+def _as_draft(t: Dict[str, Any], name: str) -> Dict[str, Any]:
+    t = dict(t)
+    if not t.get("host"):
+        t["host"] = name[: -len(_DRAFT_SUFFIX)]
+    if t.get("status") in (None, "", "enabled"):
+        t["status"] = "draft"
+    return t
+
+
+def get_draft(filename: str, *, drafts_dir=None) -> Dict[str, Any]:
+    """Return a draft's JSON for editing. Refused when it holds a secret."""
+    dd = Path(drafts_dir or DRAFTS_DIR)
+    safe = _safe_name(filename, _DRAFT_SUFFIX)
+    if not safe:
+        return {"ok": False, "error": "invalid draft filename"}
+    fp = dd / safe
+    if not fp.is_file():
+        return {"ok": False, "error": "draft not found"}
+    try:
+        t = json.loads(fp.read_text("utf-8"))
+    except Exception as e:
+        return {"ok": False, "error": f"draft parse failed: {e}"[:120]}
+    err = _draft_body_errors(t)
+    if err:
+        return {"ok": False, "error": err}
+    return {"ok": True, "file": safe, "template": t}
+
+
+def create_draft(name: str, template: Any = None, *,
+                 drafts_dir=None) -> Dict[str, Any]:
+    """Create ``<name>.template-draft.json``; refuses to overwrite one."""
+    dd = Path(drafts_dir or DRAFTS_DIR)
+    fname = _draft_filename(name)
+    if not fname:
+        return {"ok": False, "error": "invalid draft name"}
+    t = {} if template is None else template
+    err = _draft_body_errors(t)
+    if err:
+        return {"ok": False, "error": err}
+    t = _as_draft(t, fname)
+    dd.mkdir(parents=True, exist_ok=True)
+    import tempfile
+    fd, tmp = tempfile.mkstemp(dir=dd, prefix=".new-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(t, indent=2))
+        try:
+            os.link(tmp, dd / fname)  # atomic, and fails if the name is taken
+        except FileExistsError:
+            return {"ok": False, "error": "draft already exists"}
+    finally:
+        os.unlink(tmp)
+    return {"ok": True, "created": fname}
+
+
+def update_draft(filename: str, template: Any, *,
+                 drafts_dir=None) -> Dict[str, Any]:
+    """Replace an existing draft's JSON (it stays a draft)."""
+    dd = Path(drafts_dir or DRAFTS_DIR)
+    safe = _safe_name(filename, _DRAFT_SUFFIX)
+    if not safe:
+        return {"ok": False, "error": "invalid draft filename"}
+    fp = dd / safe
+    if not fp.is_file():
+        return {"ok": False, "error": "draft not found"}
+    err = _draft_body_errors(template)
+    if err:
+        return {"ok": False, "error": err}
+    # A temp file of its own per save (not _atomic_write_json's shared
+    # "<name>.tmp"), so two overlapping saves cannot rename each other's.
+    import tempfile
+    fd, tmp = tempfile.mkstemp(dir=dd, prefix=".edit-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(_as_draft(template, safe), indent=2))
+        os.replace(tmp, fp)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+    return {"ok": True, "updated": safe}
+
+
+def delete_draft(filename: str, *, drafts_dir=None) -> Dict[str, Any]:
+    """Delete a draft file. Reviewed templates are never deleted here."""
+    dd = Path(drafts_dir or DRAFTS_DIR)
+    safe = _safe_name(filename, _DRAFT_SUFFIX)
+    if not safe:
+        return {"ok": False, "error": "invalid draft filename"}
+    try:
+        (dd / safe).unlink()
+    except FileNotFoundError:
+        return {"ok": False, "error": "draft not found"}
+    return {"ok": True, "deleted": safe}
