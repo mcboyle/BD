@@ -125,7 +125,8 @@ def test_bulk_retry_does_not_leave_the_cleared_message_searchable(clean_workdir)
     assignment, so a predicate keyed on `= ?` does not see it.
     """
     db.db_init()
-    rid = _seed(message="alpha marker text", status="error")
+    # dsq-batch-ops F1 option B: a live retry resets only failed/needs_review/dead_letter rows.
+    rid = _seed(message="alpha marker text", status="failed")
     assert _search("alpha") == [rid], "fixture: index must start in sync"
 
     out = batch_ops.bulk_retry({"id_in": [rid]}, dry_run=False)

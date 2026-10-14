@@ -46,7 +46,15 @@ interface BatchDeleteResult {
   dry_run?: boolean;
   sample?: DeleteSampleRow[];
   total_size_gb?: number;
+  requeued?: number;
+  not_requeued?: number;
 }
+// r3 (T281c eject): the reset statuses /api/batch/retry accepts, in the server's order
+// (batch_ops.RETRY_STATUSES, pinned equal by tests/test_dsq_batch_ops.py). The input stays
+// free text; typing it as these words-or-text gives the body-contract probe a real member
+// to send, where a bare string made it send a placeholder the server's guard refuses.
+const RETRY_STATUSES = ["pending", "needs_review"] as const;
+type RetryStatus = (typeof RETRY_STATUSES)[number];
 interface ReloginAction {
   site_id?: string;
   reason?: string;
@@ -80,7 +88,7 @@ export function BatchOps() {
   const [preview, setPreview] = useState<BatchDeleteResult | null>(null);
   const [delConfirm, setDelConfirm] = useState(false);
   // v3.66.728: the other three /api/batch/* endpoints. All CONTROL-class and dark until now.
-  const [resetTo, setResetTo] = useState("pending");
+  const [resetTo, setResetTo] = useState<RetryStatus | (string & {})>(RETRY_STATUSES[0]);
   const [retryPreview, setRetryPreview] = useState<BatchDeleteResult | null>(null);
   const [retryConfirm, setRetryConfirm] = useState(false);
   const [targetDir, setTargetDir] = useState("");
@@ -95,23 +103,53 @@ export function BatchOps() {
   const [siText, setSiText] = useState("");
   const [siConfirm, setSiConfirm] = useState(false);
 
+  // dsq-batch-ops F4: a number field takes digits only. It was `Number.isInteger(Number(x))`
+  // then `parseInt(x)`, so "1e2" passed the check and was sent as 1, and text that failed the
+  // check was DROPPED from the filter -- which widens a delete instead of narrowing it.
+  // r2 (cx219): a digit string past 2^53 is not a whole number either -- 400 digits
+  // parse to Infinity, which JSON sends as null, and a null filter field is no filter.
+  const wholeNumber = (v: string): number | null | undefined =>
+    !v.trim() ? undefined
+      : /^\d+$/.test(v.trim()) && Number.isSafeInteger(Number(v.trim())) ? Number(v.trim()) : null;
+  const olderThanN = wholeNumber(olderThan);
+  const limitN = wholeNumber(limit);
+  const filterError =
+    olderThanN === null ? "older_than_days must be a whole number" :
+    limitN === null ? "limit must be a whole number" : "";
+
+  // r2 (cx219 R1): an invalid number field blocked Preview/Execute delete and retry, but
+  // Move still called buildFilter(), which DROPPED the field: age=1e2 moved recent files too.
+  // buildFilter now throws on an invalid field, so no caller can send a widened filter, and
+  // every control that would send one is disabled while filterError is set.
   const buildFilter = () => {
+    if (filterError) throw new Error(filterError);
     const f: Record<string, unknown> = {};
     if (siteId.trim()) f.site_id = siteId.trim();
     if (status.trim()) f.status = status.trim();
-    if (olderThan.trim() && Number.isInteger(Number(olderThan))) f.older_than_days = parseInt(olderThan, 10);
+    if (typeof olderThanN === "number") f.older_than_days = olderThanN;
     if (msgContains.trim()) f.message_contains = msgContains.trim();
-    if (limit.trim() && Number.isInteger(Number(limit))) f.limit = parseInt(limit, 10);
+    if (typeof limitN === "number") f.limit = limitN;
     return f;
   };
+  // F4: Execute acts only on the filter that was previewed. A preview remembers the filter it
+  // sent; editing any field afterwards un-previews it (Execute disabled until a new preview).
+  const filterKey = filterError ? "(invalid filter)" : JSON.stringify(buildFilter());
+  // r3 (T281c eject): a preview sends its key parsed back into the filter buildFilter() built.
+  // Typed as that filter, so the body-contract probe judges the same object body as the live
+  // call; a bare JSON.parse is `any`, and the probe could not judge delete or retry at all.
+  const filterFromKey = (key: string): Record<string, unknown> => JSON.parse(key);
+  const [previewKey, setPreviewKey] = useState("");
+  const [retryPreviewKey, setRetryPreviewKey] = useState("");
 
   // dry_run=true PREVIEW (non-destructive)
-  const previewMut = useMutation<BatchDeleteResult, Error, void>({
-    mutationFn: () =>
-      apiPost<BatchDeleteResult>("/api/batch/delete", { filter: buildFilter(), dry_run: true }),
-    onSuccess: (r) => {
+  // The filter is passed as its key at click time: what was sent is what the preview vouches for.
+  const previewMut = useMutation<BatchDeleteResult, Error, string>({
+    mutationFn: (key) =>
+      apiPost<BatchDeleteResult>("/api/batch/delete", { filter: filterFromKey(key), dry_run: true }),
+    onSuccess: (r, key) => {
       setOutput(r);
       setPreview(r);
+      setPreviewKey(key);
       if (r.ok === false) toast.error(r.error || "preview failed");
       else if ((r.candidates_matched ?? 0) === 0) toast.message("No matching history rows");
       else toast.success(`Preview: ${r.candidates_matched} row(s), ${r.total_size_gb ?? 0} GB`);
@@ -143,16 +181,17 @@ export function BatchOps() {
   // default it to True, and a control that relies on a default it cannot see is one
   // refactor away from silently going live.
 
-  const retryPreviewMut = useMutation<BatchDeleteResult, Error, void>({
-    mutationFn: () =>
+  const retryPreviewMut = useMutation<BatchDeleteResult, Error, string>({
+    mutationFn: (key) =>
       apiPost<BatchDeleteResult>("/api/batch/retry", {
-        filter: buildFilter(),
+        filter: filterFromKey(key),
         dry_run: true,
         reset_to_status: resetTo,
       }),
-    onSuccess: (r) => {
+    onSuccess: (r, key) => {
       setOutput(r);
       setRetryPreview(r);
+      setRetryPreviewKey(key);
       if (r.ok === false) toast.error(r.error || "preview failed");
       else toast.success(`Preview: ${r.candidates_matched ?? 0} row(s) would be retried`);
     },
@@ -170,7 +209,10 @@ export function BatchOps() {
       setOutput(r);
       setRetryPreview(null);
       if (r.ok === false) toast.error(r.error || "retry failed");
-      else toast.success(`Requeued ${r.processed ?? 0} row(s) as ${resetTo}`);
+      // F1: processed counts history rows relabelled; requeued counts jobs a runner took back.
+      else if (r.requeued !== undefined)
+        toast.success(`Reset ${r.processed ?? 0} row(s) to ${resetTo}; requeued ${r.requeued}, not requeued ${r.not_requeued ?? 0}`);
+      else toast.success(`Reset ${r.processed ?? 0} row(s) to ${resetTo}`);
     },
     onError: (e) => toast.error(e.message),
   });
@@ -214,11 +256,13 @@ export function BatchOps() {
   // deliberately NO confirm gate -- a confirmation in front of a call that mutates nothing
   // is safety theatre, and theatre is how operators learn to click through the real ones.
   const dedupMut = useMutation<BatchDeleteResult, Error, void>({
+    // r2: the shared limit field is digits only here too ("1e2" was scanned as 1); the
+    // button is disabled while it is invalid.
     mutationFn: () =>
       apiPost<BatchDeleteResult>("/api/batch/dedup_scan", {
         site_id: siteId.trim() || undefined,
         min_file_size_mb: parseInt(dedupMinMb, 10) || 50,
-        limit: parseInt(limit, 10) || 5000,
+        limit: limitN || 5000,
       }),
     onSuccess: (r) => {
       setOutput(r);
@@ -256,8 +300,8 @@ export function BatchOps() {
     },
   });
 
-  const previewCount = preview?.candidates_matched ?? 0;
-  const retryPreviewCount = retryPreview?.candidates_matched ?? 0;
+  const previewCount = previewKey === filterKey ? preview?.candidates_matched ?? 0 : 0;
+  const retryPreviewCount = retryPreviewKey === filterKey ? retryPreview?.candidates_matched ?? 0 : 0;
   const thresholdOk = Number.isInteger(Number(threshold)) && Number(threshold) >= 0 && Number(threshold) <= 100;
 
   // import site: parse the pasted JSON; valid when it is a non-null object.
@@ -317,18 +361,22 @@ export function BatchOps() {
             <input type="checkbox" checked={deleteFiles} onChange={(e) => setDeleteFiles(e.target.checked)} />
             also delete files on disk
           </label>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => previewMut.mutate()}>
+          <Button size="sm" variant="outline" disabled={busy || !!filterError} onClick={() => previewMut.mutate(filterKey)}>
             Preview (dry run)
           </Button>
           <Button
             size="sm"
             variant="destructive"
-            disabled={busy || previewCount === 0}
+            disabled={busy || !!filterError || previewCount === 0}
             onClick={() => { setDelConfirm(true); }}
           >
             Execute delete
           </Button>
         </div>
+        {filterError && <p className="mt-2 text-xs text-red-400" role="alert">{filterError}</p>}
+        {preview && previewKey !== filterKey && !filterError && (
+          <p className="mt-2 text-xs text-ink-3">The filter changed since the preview. Preview again to execute.</p>
+        )}
         {preview && (preview.sample?.length ?? 0) > 0 && (
           <div className="mt-3 max-h-56 overflow-auto rounded border border-hairline">
             <table className="bd-table w-full text-xs">
@@ -439,12 +487,12 @@ export function BatchOps() {
             placeholder="reset_to_status (pending)"
             aria-label="reset to status"
           />
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => retryPreviewMut.mutate()}>
+          <Button size="sm" variant="outline" disabled={busy || !!filterError} onClick={() => retryPreviewMut.mutate(filterKey)}>
             Preview (dry run)
           </Button>
           <Button
             size="sm"
-            disabled={busy || retryPreviewCount === 0}
+            disabled={busy || !!filterError || retryPreviewCount === 0}
             onClick={() => setRetryConfirm(true)}
           >
             Execute retry
@@ -470,7 +518,7 @@ export function BatchOps() {
           <Button
             size="sm"
             variant="outline"
-            disabled={busy || !targetDir.trim()}
+            disabled={busy || !!filterError || !targetDir.trim()}
             onClick={() => movePreviewMut.mutate()}
           >
             Preview (dry run)
@@ -478,7 +526,7 @@ export function BatchOps() {
           <Button
             size="sm"
             variant="destructive"
-            disabled={busy || !targetDir.trim()}
+            disabled={busy || !!filterError || !targetDir.trim()}
             onClick={() => setMoveConfirm(true)}
           >
             Execute move
@@ -499,7 +547,7 @@ export function BatchOps() {
             placeholder="min_file_size_mb (50)"
             aria-label="minimum file size in MB"
           />
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => dedupMut.mutate()}>
+          <Button size="sm" variant="outline" disabled={busy || limitN === null} onClick={() => dedupMut.mutate()}>
             Scan for duplicates
           </Button>
         </div>
@@ -511,7 +559,7 @@ export function BatchOps() {
             <DialogTitle>Requeue the matched history rows?</DialogTitle>
             <DialogDescription>
               Resets the {retryPreviewCount} previewed history row(s) matching the filter
-              <code> {JSON.stringify(buildFilter())}</code> to status
+              <code> {filterKey}</code> to status
               <code> {resetTo || "(none)"}</code>.
             </DialogDescription>
           </DialogHeader>
