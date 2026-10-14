@@ -447,11 +447,20 @@ def apply_pending(
 
 
 def _backup_db_before_migration():
-    """ROB-2: copy the live DB file aside before migrations mutate it, returning
+    """ROB-2: copy the live DB aside before migrations mutate it, returning
     the backup path (``<db>.premigration.bak``) or None if there is no DB file /
-    the copy failed. Best-effort and safe at boot (single-threaded, pre-workers):
-    checkpoints WAL first so the copied file is self-contained."""
-    import shutil
+    the copy failed. Best-effort and safe at boot.
+
+    migrations-integrity-fix r2: the copy used to be wal_checkpoint(TRUNCATE) +
+    shutil.copy2 of the main file. An open reader makes that checkpoint busy (its
+    rc was swallowed), so commits still in <db>-wal were missing from the .bak and
+    a restore discarded them. The pages now come through SQLite's online backup
+    API, which reads the committed state including the WAL, into a temp file that
+    replaces the .bak only once complete.
+
+    r3 (train-4 eject): the copy is VACUUM INTO on a db.db_conn() lease -- the same
+    committed-state read, but the history DB is opened only through the MOD-3 seam
+    and nothing but the history DB is ever handed to sqlite3.connect."""
     try:
         from . import db as _db
         src = _db._resolve_db_path()
@@ -460,31 +469,61 @@ def _backup_db_before_migration():
     if not src or not os.path.exists(src):
         return None
     dst = src + ".premigration.bak"
+    tmp = dst + ".tmp"
     try:
-        try:
-            with _db.db_conn() as cx:
-                cx.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        except Exception:
-            pass
-        shutil.copy2(src, dst)
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        with _db.db_conn() as cx:
+            # A handle that is not the history file (inmemory_sqlite's shared-cache
+            # DB) has nothing of src to copy; the restore would then retry forever.
+            opened = cx.execute("PRAGMA database_list").fetchone()[2]
+            if not opened or not os.path.samefile(opened, src):
+                raise sqlite3.OperationalError("seam handle is not %s" % src)
+            cx.execute("VACUUM INTO ?", (tmp,))
+        os.replace(tmp, dst)
         return dst
     except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
         return None
 
 
 def _restore_db_from_backup(bak: str) -> bool:
-    """ROB-2: restore the live DB from a pre-migration backup. Returns True on a
-    successful copy-back. Best-effort; safe at boot."""
-    import shutil
+    """ROB-2: restore the live DB from a pre-migration backup. Returns True only
+    when the live DB's schema reads back as the backup's. Best-effort; safe at boot.
+
+    staging-integrity F3: a file copy over the live DB left <db>-wal/-shm behind and
+    their frames won, so the migrated schema and ledger survived a reported restore.
+    The pages now go through SQLite's online backup API (the live DB's own journal),
+    after the pooled handles that saw the migrated state are closed.
+
+    r3 (train-4 eject): the live DB is a db.db_conn() lease; only the .bak is opened
+    directly."""
     try:
         from . import db as _db
-        src = _db._resolve_db_path()
-        if bak and os.path.exists(bak) and src:
-            shutil.copy2(bak, src)
-            return True
+        if not (bak and os.path.exists(bak)):
+            return False
+        _db.close_all_pooled_connections()
+        schema = "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        source = sqlite3.connect(bak)
+        try:
+            # backup() retries SQLITE_LOCKED forever, so a source that resolves to the
+            # live DB (inmemory_sqlite's shared cache) would hang boot. Only the .bak.
+            opened = source.execute("PRAGMA database_list").fetchone()[2]
+            if not opened or not os.path.samefile(opened, bak):
+                return False
+            with _db.db_conn() as live:
+                # The backup API needs the sqlite3 handle; _DualWriteConn proxies one.
+                source.backup(getattr(live, "_cx", live))
+                # The seam's row_factory is sqlite3.Row, which never equals a tuple.
+                return ([tuple(r) for r in live.execute(schema).fetchall()]
+                        == source.execute(schema).fetchall())
+        finally:
+            source.close()
     except Exception:
-        pass
-    return False
+        return False
 
 
 def _snapshot_schema(cx) -> dict:
@@ -704,9 +743,11 @@ def _m5(cx):
     if "library_id" not in cols:
         cx.execute(
             "ALTER TABLE history ADD COLUMN library_id INTEGER DEFAULT NULL")
-        cx.execute(
-            "CREATE INDEX IF NOT EXISTS idx_history_lib "
-            "ON history(library_id)")
+    # staging-integrity F6: outside the column guard -- a run killed between the
+    # ALTER and the index would otherwise skip the index on every later run.
+    cx.execute(
+        "CREATE INDEX IF NOT EXISTS idx_history_lib "
+        "ON history(library_id)")
 
 
 @migration(version=6, name="add_history_removed_at")
