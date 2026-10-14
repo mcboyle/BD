@@ -40,9 +40,12 @@ def normalize_egress_ip(value) -> str:
     if value is None:
         return UNKNOWN_EGRESS
     try:
-        return str(ipaddress.ip_address(str(value).strip()))
+        ip = ipaddress.ip_address(str(value).strip())
     except ValueError:
         return UNKNOWN_EGRESS
+    # ::ffff:1.2.3.4 is the IPv4 exit 1.2.3.4 seen through a dual-stack socket: one exit, one stamp.
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return str(mapped if mapped is not None else ip)
 
 
 def observe_egress_ip(carrier: Optional[str], ip) -> str:

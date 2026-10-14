@@ -52,8 +52,20 @@ _OPEN_DURATION = 120  # seconds to stay open before half-open probe
 _HALF_OPEN_HEAL_THRESHOLD = 3  # consecutive successes to close again
 
 
+def _expire_open(host: str, now: float) -> str:
+    """Current state of `host`; call with _lock held. An "open" circuit
+    whose cool-down has passed IS half-open, whoever looks first: the
+    product only calls observe(), so waiting for allow() to make this
+    step left a host open for good."""
+    state = _states.get(host, "closed")
+    if state == "open" and (now - _states.get(host + "::opened_at", 0)) >= _OPEN_DURATION:
+        state = _states[host] = "half_open"
+        _states.pop(host + "::probe_at", None)
+    return state
+
+
 def _host_of(url: str) -> Optional[str]:
-    """Extract scheme+host[+port] as the cache key. Same site on
+    """The hostname is the cache key (no scheme, no port). Same site on
     different schemes/ports of the same host share one breaker — if
     blacked.com:443 is failing, blacked.com:80 is almost certainly
     failing too (different reverse-proxy hop, same backend)."""
@@ -83,8 +95,10 @@ def observe(url: str, *, success: bool):
         # Trim old observations
         while dq and (now - dq[0][0]) > _WINDOW:
             dq.popleft()
-        state = _states.get(host, "closed")
+        state = _expire_open(host, now)
         if state == "half_open":
+            # This observation is a probe's result: the next probe may go.
+            _states.pop(host + "::probe_at", None)
             if success:
                 # Count consecutive successes since half-open
                 successes = 0
@@ -96,6 +110,7 @@ def observe(url: str, *, success: bool):
                 if successes >= _HALF_OPEN_HEAL_THRESHOLD:
                     _states[host] = "closed"
                     _states.pop(host + "::opened_at", None)
+                    _states.pop(host + "::probe_at", None)
             else:
                 # Failed probe; re-open
                 _states[host] = "open"
@@ -119,18 +134,19 @@ def allow(url: str) -> bool:
         return True
     now = time.time()
     with _lock:
-        state = _states.get(host, "closed")
+        state = _expire_open(host, now)
         if state == "closed":
             return True
-        opened_at = _states.get(host + "::opened_at", 0)
         if state == "open":
-            if (now - opened_at) >= _OPEN_DURATION:
-                # Transition to half-open; allow this caller as probe
-                _states[host] = "half_open"
-                return True
             return False
-        # half_open: caller is the probe; allow but next callers wait
-        return False
+        # half_open: one probe at a time. The probe ends when observe()
+        # reports it; a probe that never reports stops counting after one
+        # cool-down, so a lost caller cannot hold the circuit shut.
+        probe_at = _states.get(host + "::probe_at")
+        if probe_at is not None and (now - probe_at) < _OPEN_DURATION:
+            return False
+        _states[host + "::probe_at"] = now
+        return True
 
 
 def state(url: str) -> str:
@@ -139,7 +155,7 @@ def state(url: str) -> str:
     if not host:
         return "closed"
     with _lock:
-        return _states.get(host, "closed")
+        return _expire_open(host, time.time())
 
 
 def report() -> dict:
@@ -154,7 +170,7 @@ def report() -> dict:
                 continue
             n = len(dq)
             errs = sum(1 for _ts, ok in dq if not ok)
-            st = _states.get(host, "closed")
+            st = _expire_open(host, now)
             opened_at = _states.get(host + "::opened_at", 0)
             # Count streaks from the most recent observation backward.
             # `consecutive_successes` = length of the trailing run of
@@ -193,6 +209,7 @@ def reset(host: Optional[str] = None):
             _observations.pop(host, None)
             _states.pop(host, None)
             _states.pop(host + "::opened_at", None)
+            _states.pop(host + "::probe_at", None)
 
 
 # ─── TCP socket tuning ────────────────────────────────────────────────
