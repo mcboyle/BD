@@ -328,11 +328,19 @@ def _cursor_position(cx, cursor, sort: str, col: str) -> tuple[object, int]:
     legacy row id, read live; a deleted one raises rather than guess."""
     s = str(cursor)
     if s.isdigit():
+        # int() refuses some isdigit() strings (past the interpreter's digit
+        # limit, or digits like "²"); both are unusable cursors, never "end".
+        try:
+            row = int(s)
+        except ValueError:
+            raise BrowseCursorError("cursor_invalid") from None
+        if row not in _SQLITE_INT:
+            raise BrowseCursorError("cursor_invalid")
         r = cx.execute(f"SELECT {col} FROM library WHERE id=?",
-                       (int(s),)).fetchone()
+                       (row,)).fetchone()
         if r is None:
             raise BrowseCursorError("cursor_expired")
-        return r[0], int(s)
+        return r[0], row
     try:
         key, v, row_id = json.loads(
             base64.urlsafe_b64decode(s + "=" * (-len(s) % 4)))
@@ -519,7 +527,9 @@ def library_delete(library_id: int, *, also_delete_file: bool = False) -> dict:
 
     LIB-6: when also_delete_file is set we ALSO remove the item's thumbnail
     artifacts in the same operation (the sidecar `<base>.jpg` and any stored
-    `cover_thumb`) so a hard delete doesn't orphan them on disk. The count is
+    `cover_thumb`) so a hard delete doesn't orphan them on disk. The sidecar is
+    only removed when the row records a cover_thumb (O1789 hl-library F2: an
+    unrecorded `<base>.jpg` may be the operator's own file). The count is
     reported as `thumbs_removed`. The sidecar path is derived inline (no
     thumbnail_gen import — keeps the dependency graph edge-neutral); parallel-
     mode thumbs are covered by unlinking the stored cover_thumb.
@@ -549,13 +559,15 @@ def library_delete(library_id: int, *, also_delete_file: bool = False) -> dict:
                 # LIB-6: cascade the item's thumbnail artifacts. Sidecar mode
                 # is <media-base>.jpg next to the file (thumbnail_gen's default);
                 # cover_thumb is the actually-stored path (covers parallel mode).
+                # A same-named .jpg is only taken as ours when the row records
+                # a thumbnail; otherwise it may be the operator's own poster.
                 _candidates = []
-                try:
-                    _base, _ = os.path.splitext(str(file_path))
-                    _candidates.append(_base + ".jpg")
-                except Exception:
-                    pass
                 if cover_thumb:
+                    try:
+                        _base, _ = os.path.splitext(str(file_path))
+                        _candidates.append(_base + ".jpg")
+                    except Exception:
+                        pass
                     _candidates.append(str(cover_thumb))
                 _seen = set()
                 for _tp in _candidates:
