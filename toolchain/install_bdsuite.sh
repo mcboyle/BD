@@ -8,6 +8,13 @@
 #   BD_WORK_TREE       checkout to publish from       (default: this script's repo)
 set -u
 
+# The installer takes no arguments; an unrecognised flag (e.g. a hoped-for
+# --dry-run) must refuse before anything is published.
+case "${1-}" in
+  -h|--help) sed -n '2,8p' "$0"; exit 0;;
+esac
+[ "$#" -eq 0 ] || { echo "ERROR: install_bdsuite.sh: unknown arg '$1' (see --help)" >&2; exit 2; }  # early-exit-ok
+
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)" || exit 2
 DEST="${BD_SUITE_BIN:-$HOME/.local/bin}"
 # IA-06: a fresh box's ordinary user cannot write /usr/local/bin, and the
@@ -130,12 +137,13 @@ done < <(printf '%s\n' "$HERE"/bin/* | LC_ALL=C sort)
 # target under DEST alone is not ownership evidence: operators may deliberately
 # keep aliases into the suite.
 OLD_PUBLIC_NAMES=()
+OLD_SOURCE_NAMES=()  # early-exit-ok
 if [ -e "$DEST/.bdsuite-manifest.json" ] || [ -L "$DEST/.bdsuite-manifest.json" ]; then
   [ -f "$DEST/.bdsuite-manifest.json" ] && [ ! -L "$DEST/.bdsuite-manifest.json" ] || {
     echo "ERROR: prior suite manifest is not a regular file" >&2
     exit 2
   }
-  old_public="$(python3 - "$DEST/.bdsuite-manifest.json" <<'PY'
+  old_roster="$(python3 - "$DEST/.bdsuite-manifest.json" <<'PY'  # early-exit-ok
 import json
 from pathlib import Path
 import sys
@@ -153,10 +161,19 @@ if any(not isinstance(n, str) or not n or Path(n).name != n or
     raise SystemExit("invalid prior public command roster")
 if len(names) != len(set(names)):
     raise SystemExit("duplicate prior public command")
-print("\n".join(names))
+sources = value.get("source_basenames", [])  # early-exit-ok
+if not isinstance(sources, list) or any(  # early-exit-ok
+        not isinstance(n, str) or not n or Path(n).name != n or "\n" in n for n in sources):  # early-exit-ok
+    raise SystemExit("invalid prior source roster")  # early-exit-ok
+print("\n".join(["P " + n for n in names] + ["S " + n for n in sources]))  # early-exit-ok
 PY
   )" || { echo "ERROR: invalid prior suite manifest" >&2; exit 2; }
-  while IFS= read -r name; do [ -z "$name" ] || OLD_PUBLIC_NAMES+=("$name"); done <<< "$old_public"
+  while IFS= read -r name; do  # early-exit-ok
+    case "$name" in  # early-exit-ok
+      "P "*) OLD_PUBLIC_NAMES+=("${name#P }");;  # early-exit-ok
+      "S "*) OLD_SOURCE_NAMES+=("${name#S }");;  # early-exit-ok
+    esac
+  done <<< "$old_roster"  # early-exit-ok
 elif [ -d "$DEST" ] && [ -d "$LINK_DEST" ]; then
   # Compatibility with an install predating manifests: only basename-preserving
   # bd command links are attributable to the old installer.
@@ -182,6 +199,22 @@ for name in "${PUBLIC_NAMES[@]}"; do
     esac
   fi
 done
+
+# Publication replaces the whole BD_SUITE_BIN directory and deletes the prior
+# generation, so any entry this suite never owned would be destroyed with it.
+# Owned = a prior-manifest or current source name, suite metadata, or the
+# interpreter's __pycache__. Anything else refuses before the first mutation.
+if [ -d "$DEST" ] && [ ! -L "$DEST" ]; then  # early-exit-ok
+  declare -A OWNED_ENTRY=([.bdenv.sh]=1 [.bd-work-tree]=1 [.bdsuite-manifest.json]=1 [__pycache__]=1)  # early-exit-ok
+  for name in "${SOURCE_NAMES[@]}" "${OLD_SOURCE_NAMES[@]}"; do OWNED_ENTRY[$name]=1; done  # early-exit-ok
+  for entry in "$DEST"/* "$DEST"/.[!.]* "$DEST"/..?*; do  # early-exit-ok
+    [ -e "$entry" ] || [ -L "$entry" ] || continue  # early-exit-ok
+    [ -n "${OWNED_ENTRY[${entry##*/}]-}" ] || {  # early-exit-ok
+      echo "ERROR: refusing unrelated file in BD_SUITE_BIN: $entry" "(move it out of $DEST; the install replaces that directory)" >&2  # early-exit-ok
+      exit 2  # early-exit-ok
+    }
+  done
+fi
 
 DEST_PARENT="$(dirname -- "$DEST")"
 mkdir -p -- "$DEST_PARENT" "$LINK_DEST" || exit 2
@@ -277,10 +310,13 @@ for name in "${SOURCE_NAMES[@]}"; do
   cp -p -- "$HERE/bin/$name" "$STAGE/$name" || {
     echo "ERROR: staging copy failed for $name" >&2; exit 2;
   }
+  # A tracked-executable helper module (bdtools_*.py) keeps its x bit: the
+  # installed bd-selfcheck flags any non-executable shebang file it finds.
   case "$name" in
-    bd|bd-*) chmod 755 -- "$STAGE/$name" || { echo "ERROR: staging chmod failed for $name" >&2; exit 2; };;
-    *) chmod 644 -- "$STAGE/$name" || { echo "ERROR: staging chmod failed for $name" >&2; exit 2; };;
+    bd|bd-*) mode=755;;
+    *) if [ -x "$HERE/bin/$name" ]; then mode=755; else mode=644; fi;;
   esac
+  chmod "$mode" -- "$STAGE/$name" || { echo "ERROR: staging chmod failed for $name" >&2; exit 2; }
 done
 cp -p -- "$HERE/bdenv.sh" "$STAGE/.bdenv.sh" || {
   echo "ERROR: staging copy failed for bdenv.sh" >&2; exit 2;
@@ -341,7 +377,8 @@ if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) != expected_dir_
     raise SystemExit("generation directory mode mismatch")
 for name in source_names:
     info = (generation / name).lstat()
-    expected_mode = 0o755 if name in public else 0o644
+    expected_mode = (0o755 if name in public or (source / name).stat().st_mode & stat.S_IXUSR
+                     else 0o644)
     if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != expected_mode:
         raise SystemExit(f"generation file type or mode mismatch: {name}")
 for name, expected_mode in ((".bdenv.sh", 0o644), (".bd-work-tree", 0o600),

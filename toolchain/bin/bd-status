@@ -1,6 +1,6 @@
 #!/bin/bash
 # bd-status -- one-shot health check of the sandbox env + services.
-# Usage: bd-status
+# Usage: bd-status            (no arguments; exits 1 when any check fails)
 # --selftest: this is a bootstrap/orchestration script; a real run IS its test.
 case " $* " in *" --selftest "*)
   echo "SKIP: needs a provisioned session (run it directly to see live status)"
@@ -13,6 +13,10 @@ case " $* " in *" --selftest "*)
 # never loaded. BD_ENV_FILE overrides the location; BD_SKIP_ENV_CHECK=1 is the
 # single documented escape hatch, named in the refusal so it is a gate and not
 # a wall.
+case "${1-}" in  # early-exit-ok
+  -h|--help) sed -n '2,3p' "${BASH_SOURCE[0]}"; exit 0;;
+esac
+_bd_arg="${1-}"   # refused below, after the env check: an absent env is the first verdict  # early-exit-ok
 _bd_tool_file="$(readlink -f "${BASH_SOURCE[0]}")" || exit 2
 _bd_tool_dir="$(CDPATH= cd -- "$(dirname -- "$_bd_tool_file")" && pwd -P)" || exit 2
 if [ -f "$_bd_tool_dir/.bdenv.sh" ]; then
@@ -29,18 +33,39 @@ if [ "${BD_SKIP_ENV_CHECK:-0}" != "1" ]; then
     echo "  Set BD_ENV_FILE=<path>, or BD_SKIP_ENV_CHECK=1 to proceed bare." >&2
     exit 2
   fi
-  . "$BD_ENV_FILE" || exit $?
+  # A command that fails part-way through the env file leaves a half-loaded
+  # session; the file's final status alone would hide it. The ERR trap sees
+  # every unguarded failure while sourcing (no `||` here: that would mask them).
+  _bd_env_failed=  # early-exit-ok
+  trap '_bd_env_failed=1' ERR  # early-exit-ok
+  . "$BD_ENV_FILE"  # early-exit-ok
+  trap - ERR  # early-exit-ok
+  if [ -n "$_bd_env_failed" ]; then  # early-exit-ok
+    echo "BD-UNEVALUABLE: a command in $BD_ENV_FILE failed while loading it." >&2  # early-exit-ok
+    echo "  The environment is only partly loaded; fix the env file, or set" >&2  # early-exit-ok
+    echo "  BD_SKIP_ENV_CHECK=1 to proceed bare." >&2  # early-exit-ok
+    exit 2  # early-exit-ok
+  fi
 fi
+case "$_bd_arg" in  # early-exit-ok
+  '') ;;  # early-exit-ok
+  *) echo "bd-status: unknown arg '$_bd_arg' (see --help)" >&2; exit 2;;  # early-exit-ok
+esac
 
 c_ok=$'\e[32mOK \e[0m'
 c_no=$'\e[31m-- \e[0m'
 c_dim=$'\e[2m'
 c_off=$'\e[0m'
 
+# Every red "--" line is a failed check; the run exits 1 when any failed, so a
+# caller (or `bd-status && ...`) cannot read a broken sandbox as healthy.
+_bd_failed=0  # early-exit-ok
+_bd_fail() { _bd_failed=$((_bd_failed + 1)); }
+
 check_path() {
     local label="$1" path="$2"
     if [ -e "$path" ]; then echo "  $c_ok $label $c_dim($path)$c_off"
-    else echo "  $c_no $label $c_dim($path missing)$c_off"; fi
+    else echo "  $c_no $label $c_dim($path missing)$c_off"; _bd_fail; fi
 }
 
 # Check that at least one of N candidate paths exists. Useful for kits
@@ -57,6 +82,7 @@ check_any_path() {
         fi
     done
     echo "  $c_no $label $c_dim(none of: $first ... missing)$c_off"
+    _bd_fail
 }
 
 # Check that `python3 -c "import X"` succeeds. The right signal for
@@ -68,6 +94,7 @@ check_import() {
         echo "  $c_ok $label $c_dim(import $mod ok)$c_off"
     else
         echo "  $c_no $label $c_dim(import $mod failed)$c_off"
+        _bd_fail
     fi
 }
 
@@ -79,7 +106,7 @@ check_proc() {
         case "$cmd" in *"/bin/sh"*|*"bash -"*) ;; *) echo "$p"; break ;; esac
     done | head -1)
     if [ -n "$pid" ]; then echo "  $c_ok $label $c_dim(PID $pid)$c_off"
-    else echo "  $c_no $label $c_dim(not running)$c_off"; fi
+    else echo "  $c_no $label $c_dim(not running)$c_off"; _bd_fail; fi
 }
 
 check_port() {
@@ -93,7 +120,7 @@ except Exception: sys.exit(1)
 " 2>/dev/null; then ok=1; break; fi
     done
     if [ $ok -eq 1 ]; then echo "  $c_ok $label $c_dim(:$port)$c_off"
-    else echo "  $c_no $label $c_dim(:$port closed)$c_off"; fi
+    else echo "  $c_no $label $c_dim(:$port closed)$c_off"; _bd_fail; fi
 }
 
 echo "=== ENV ==="
@@ -140,8 +167,15 @@ if [ -x "$WORK/venv/bin/python3" ] || [ -x "$WORK/venv/bin/python" ]; then
   printf "  %-24s %s\n" "service venv" "OK (work/venv)"
 else
   printf "  %-24s %s\n" "service venv" "MISSING -- re-running bd-boot/bd-install destroys it. Tools hardcoding venv/bin/python probe NOTHING. FIX: bd-venv"
+  _bd_fail  # early-exit-ok
 fi
 
 echo
 echo "=== DISK ==="
 df -h "$WORK" /tmp 2>/dev/null | tail -2 | awk '{printf "  %-12s %s used, %s free (%s)\n", $6, $3, $4, $5}'
+
+if [ "$_bd_failed" -gt 0 ]; then  # early-exit-ok
+  echo  # early-exit-ok
+  echo "bd-status: $_bd_failed check(s) failed"  # early-exit-ok
+  exit 1  # early-exit-ok
+fi

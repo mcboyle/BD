@@ -150,15 +150,19 @@ def _attribute(traceback_text, tools):
 def cmd_scan(a):
     # ROW 469: state the denominator before any verdict.
     try:
-        _examined = pop.scoped_census(a.bin).examined
-        _analyzed = {os.path.basename(p) for p in _python_tools(a.bin)}
-        _cen = pop.census_from_examined(
-            a.bin, _examined,
-            {n: "not-python-source" for n in _examined if n not in _analyzed})
+        # The census labels each unmeasured member with its own reason, so an
+        # unreadable tool is not mislabelled not-python-source (row 745 / A7).
+        _cen = pop.scoped_census(a.bin, python_analyzer=True)
     except pop.PopulationUnavailable as e:
         sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=UNKNOWN (%s)\n" % (a.bin, e))
         return sec.EXIT_CANNOT_EVALUATE
     if not pop.report(_cen, sys.stderr):
+        return sec.EXIT_CANNOT_EVALUATE
+    _unreadable = sorted(n for n, why in _cen.unmeasured.items() if why == "unreadable")
+    if _unreadable:
+        # A tool nobody can read was never scanned: no verdict, CLEAN or not.
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=UNREADABLE (%s)\n"
+                         % (a.bin, ", ".join(_unreadable)))
         return sec.EXIT_CANNOT_EVALUATE
     tools = _python_tools(a.bin)
     bad = {}
@@ -169,6 +173,7 @@ def cmd_scan(a):
 
     runtime_bad = {}
     slow = {}
+    residual = []
     if a.run:
         # REAL-INVOCATION SMOKE. The static pass cannot see everything (a bad path, a
         # missing binary, an argparse bug). Actually running each tool CAN -- but a naive
@@ -196,8 +201,11 @@ def cmd_scan(a):
         # self, and invoking it would recurse over every tool again.
         runnable = [p for p in tools
                     if os.path.abspath(p) != me and os.path.basename(p) != me_name]
+        # --json owns stdout: the progress narration goes to stderr there.
+        say = sys.stderr if a.json else sys.stdout
         print(f"{DIM}--run: invoking {len(runnable)} tools (self excluded). Work tree is "
-              f"snapshotted and restored. Do NOT change the tree while this runs.{RST}")
+              f"snapshotted and restored. Do NOT change the tree while this runs.{RST}",
+              file=say)
         snap = {}
         if os.path.isdir(WORK):
             for p in _tree_hashes(WORK):
@@ -262,15 +270,17 @@ def cmd_scan(a):
                 residual.append(p)
         if restored or created:
             print(f"{DIM}--run touched the tree; restored {len(restored)} modified, "
-                  f"removed {len(created)} created.{RST}")
+                  f"removed {len(created)} created.{RST}", file=say)
         if residual:
             print(f"{R}RESTORE INCOMPLETE -- {len(residual)} file(s) still differ. The work "
-                  f"tree is DIRTY:{RST}")
+                  f"tree is DIRTY:{RST}", file=say)
             for p in residual[:8]:
-                print(f"    ~ {os.path.relpath(p, WORK)}")
-            print(f"{R}  -> re-extract the source zip and run bd-preflight. Do NOT cut.{RST}")
+                print(f"    ~ {os.path.relpath(p, WORK)}", file=say)
+            print(f"{R}  -> re-extract the source zip and run bd-preflight. Do NOT cut.{RST}",
+                  file=say)
         else:
-            print(f"{G}work tree restored clean{RST} {DIM}(verified byte-for-byte){RST}")
+            print(f"{G}work tree restored clean{RST} {DIM}(verified byte-for-byte){RST}",
+                  file=say)
 
     if a.json:
         print(json.dumps({
@@ -278,10 +288,13 @@ def cmd_scan(a):
             "would_crash": {k: [m for _, m in v] for k, v in bad.items()},
             "runtime_crash": runtime_bad,
             "did_not_complete": slow,
+            "restore_incomplete": sorted(os.path.relpath(p, WORK) for p in residual),
             "note": "did_not_complete is UNKNOWN -- several tools legitimately take "
                     "minutes (bd-tool-lint ~10min), but the run could not verify them. "
                     "UNKNOWN fails --gate rather than being called clean.",
         }, indent=2))
+        if residual:
+            return sec.EXIT_CANNOT_EVALUATE      # the work tree is dirty: no verdict
         return 3 if ((bad or runtime_bad or slow) and a.gate) else 0
 
     print(f"{C}bd-tool-smoke{RST} -- {len(tools)} python tools scanned "
@@ -305,6 +318,8 @@ def cmd_scan(a):
         print(f"\n{Y}Nothing else in the toolchain sees these.{RST} --selftest passes "
               f"(it drives a different code\npath), --help short-circuits, and both "
               f"bd-tool-lint modes report 'toolchain clean'.")
+    if residual:
+        return sec.EXIT_CANNOT_EVALUATE          # the work tree is dirty: no verdict
     if (bad or runtime_bad or slow) and a.gate:
         return 3
     return 0

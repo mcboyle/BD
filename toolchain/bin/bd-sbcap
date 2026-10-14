@@ -45,8 +45,6 @@ for _arg in "$@"; do  # early-exit-ok: only --selftest/--help exit 0 above
         PRINT_DISPLAY_CMDS=1 ;;  # early-exit-ok: only --selftest/--help exit 0 above
     --novnc-public)  # early-exit-ok: only --selftest/--help exit 0 above
         NOVNC_PUBLIC=1 ;;  # early-exit-ok: only --selftest/--help exit 0 above
-    "" )
-        : ;;   # no arg: full provision (documented default)
     * )
         echo "bd-sbcap: unknown arg '${_arg}' (use --check, --print-display-cmds, --novnc-public or --help)" >&2  # early-exit-ok: only --selftest/--help exit 0 above
         exit 2 ;;
@@ -285,6 +283,8 @@ export DISPLAY=:99
 if curl -sS -m2 -o /dev/null "http://127.0.0.1:6080/vnc.html" 2>/dev/null; then
   echo "  display: already up (noVNC answering on :6080) -- skipping re-spawn"
   _sbcap_warn_public_6080  # early-exit-ok: only --selftest/--help exit 0 above
+  # A provision run that printed XX must not exit 0 either (same rule as --check).
+  if [ "$BAD_COUNT" -gt 0 ]; then echo "== bd-sbcap: $BAD_COUNT problem(s) =="; exit 1; fi  # early-exit-ok: XX lines above fail the run
   echo "== bd-sbcap done -- headed OPV checks (A11Y) + notify/soak ready. Run: DISPLAY=:99 bd-opv =="
   exit 0
 fi
@@ -295,4 +295,5 @@ pgrep -x fluxbox >/dev/null 2>&1 || { nohup fluxbox >/tmp/sbcap/fluxbox.log 2>&1
 pgrep -x x11vnc >/dev/null 2>&1 || { setsid "${X11VNC_CMD[@]}" >/tmp/sbcap/x11vnc.log 2>&1 </dev/null & disown; sleep 2; }  # early-exit-ok: only --selftest/--help exit 0 above
 pgrep -f websockify >/dev/null 2>&1 || { setsid "${WEBSOCKIFY_CMD[@]}" >/tmp/sbcap/websockify.log 2>&1 </dev/null & disown; sleep 2; }  # early-exit-ok: only --selftest/--help exit 0 above
 echo "  display: Xvfb=$(pgrep -x Xvfb>/dev/null&&echo up||echo DOWN) fluxbox=$(pgrep -x fluxbox>/dev/null&&echo up||echo DOWN) x11vnc=$(pgrep -x x11vnc>/dev/null&&echo up||echo DOWN) noVNC=$(curl -sS -m2 -o /dev/null -w '%{http_code}' http://127.0.0.1:6080/vnc.html 2>/dev/null) vncpass=$VNC_PASSFILE"  # early-exit-ok: only --selftest/--help exit 0 above
+if [ "$BAD_COUNT" -gt 0 ]; then echo "== bd-sbcap: $BAD_COUNT problem(s) =="; exit 1; fi  # early-exit-ok: XX lines above fail the run
 echo "== bd-sbcap done -- headed OPV checks (A11Y) + notify/soak ready. Run: DISPLAY=:99 bd-opv =="
