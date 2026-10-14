@@ -113,9 +113,22 @@ export function StoreRawSettings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store]);
 
+  // settings-fe-fix F12: the server takes only a top-level object; an array or a
+  // bare value is refused there, so it is not "Valid JSON." here.
+  function notAnObject(): string {
+    const v: unknown = JSON.parse(text);
+    return v === null || typeof v !== "object" || Array.isArray(v)
+      ? "Invalid store: top-level JSON must be an object"
+      : "";
+  }
+
   function validateClientSide(): boolean {
     try {
-      JSON.parse(text);
+      const bad = notAnObject();
+      if (bad) {
+        setError(bad);
+        return false;
+      }
       setError("");
       toast.success("Valid JSON.");
       return true;
@@ -128,7 +141,11 @@ export function StoreRawSettings() {
   async function save() {
     // client-side JSON parse first so an obvious typo never hits the server
     try {
-      JSON.parse(text);
+      const bad = notAnObject();
+      if (bad) {
+        setError(bad);
+        return;
+      }
     } catch (e) {
       setError(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
       return;

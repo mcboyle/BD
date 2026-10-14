@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { parsePathAllowlist } from "@/lib/pathAllowlist";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Save, Search } from "lucide-react";
@@ -71,6 +71,30 @@ const KILL_KEY = "automation.master_off_switch" as const;
 const LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
 // Quiet period after the last AI provider/endpoint edit before POST /api/ai/models.
 const AI_DETECT_DEBOUNCE_MS = 800;
+
+// The two raw-text editors' seed text for a config snapshot.
+const overridesText = (c: GlobalConfigSubset): string =>
+  c.rate_limit_domain_overrides &&
+  Object.keys(c.rate_limit_domain_overrides).length > 0
+    ? JSON.stringify(c.rate_limit_domain_overrides, null, 2)
+    : "";
+const allowlistText = (c: GlobalConfigSubset): string =>
+  (c.path_allowlist ?? []).join("\n");
+
+// settings-fe-fix F11: one per-domain entry as the server stores it (missing
+// fields default to 0 there); a string or a negative is refused here, before
+// the server clamps or rejects it.
+const isDomainLimits = (v: unknown): boolean => {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
+  const { max_concurrent: mc, max_per_sec: mps } = v as Record<string, unknown>;
+  if (mc !== undefined && !(Number.isInteger(mc) && (mc as number) >= 0)) return false;
+  if (
+    mps !== undefined &&
+    !(typeof mps === "number" && Number.isFinite(mps) && mps >= 0)
+  )
+    return false;
+  return true;
+};
 
 // Cut 5 (B1.4): GET /api/global_config/origins response. Provenance only —
 // never a field value. `restart` apply-timing is currently empty server-side
@@ -191,19 +215,40 @@ export function Settings() {
     return Array.isArray(m) ? m.map((x) => String(x)).filter(Boolean) : [];
   })();
 
+  // settings-fe-fix F05: what the form last took from the server (or, after a
+  // save, what it sent). A refetch adopts the server's value only where the form
+  // still holds that baseline, so a background refetch never overwrites an
+  // unsaved edit. savingBaseRef is the form at Save time, promoted on success.
+  type FormBase = { draft: GlobalConfigSubset; overrides: string; allowlist: string };
+  const baselineRef = useRef<FormBase | null>(null);
+  const savingBaseRef = useRef<FormBase | null>(null);
   useEffect(() => {
-    if (data) {
-      setDraft(data);
-      setDomainOverridesRaw(
-        data.rate_limit_domain_overrides &&
-        Object.keys(data.rate_limit_domain_overrides).length > 0
-          ? JSON.stringify(data.rate_limit_domain_overrides, null, 2)
-          : "",
-      );
+    if (!data) return;
+    const base = baselineRef.current;
+    baselineRef.current = {
+      draft: data,
+      overrides: overridesText(data),
+      allowlist: allowlistText(data),
+    };
+    setDraft((d) => {
+      if (!base) return data;
+      const next: Record<string, unknown> = { ...data };
+      const was = base.draft as Record<string, unknown>;
+      for (const [k, v] of Object.entries(d)) {
+        if (JSON.stringify(v) !== JSON.stringify(was[k])) next[k] = v;
+      }
+      return next as GlobalConfigSubset;
+    });
+    if (!base || domainOverridesRaw === base.overrides) {
+      setDomainOverridesRaw(overridesText(data));
       setDomainOverridesError("");
-      setPathAllowlistRaw((data.path_allowlist ?? []).join("\n"));
+    }
+    if (!base || pathAllowlistRaw === base.allowlist) {
+      setPathAllowlistRaw(allowlistText(data));
       setPathAllowlistError("");
     }
+    // Only a new server snapshot re-seeds; the raw texts are read, not watched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   // Sound preference — v3.64.3, via useSyncedSoundPref. Default is
@@ -226,6 +271,7 @@ export function Settings() {
   const saveMut = useMutation<GlobalConfigSubset, Error, GlobalConfigSubset>({
     mutationFn: (patch) => apiPost<GlobalConfigSubset>("/api/global_config", patch),
     onSuccess: () => {
+      if (savingBaseRef.current) baselineRef.current = savingBaseRef.current;
       toast.success("Settings saved");
       qc.invalidateQueries({ queryKey: ["global-config"] });
     },
@@ -235,12 +281,24 @@ export function Settings() {
   const handleSave = () => {
     // Merge domain overrides from textarea into the payload
     let merged = { ...draft };
+    // settings-fe-fix F07: the sound keys belong to useSyncedSoundPref, which
+    // writes them the moment they are toggled; a page Save must not post the
+    // value this form loaded and so revert the toggle.
+    delete merged.sound_on_complete;
+    delete merged.sound_sync_enabled;
     const raw = domainOverridesRaw.trim();
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
-        if (typeof parsed !== "object" || Array.isArray(parsed)) {
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
           setDomainOverridesError("Must be a JSON object: { \"domain\": { max_concurrent, max_per_sec } }");
+          return;
+        }
+        const badDomain = Object.keys(parsed).find((d) => !isDomainLimits(parsed[d]));
+        if (badDomain !== undefined) {
+          setDomainOverridesError(
+            `Limits for "${badDomain}" must be { max_concurrent: whole number >= 0, max_per_sec: number >= 0 }`,
+          );
           return;
         }
         merged = { ...merged, rate_limit_domain_overrides: parsed };
@@ -266,8 +324,15 @@ export function Settings() {
     const needsRestart = changedKeys.some(
       (k) => origins?.fields?.[k]?.apply_timing === "restart",
     );
+    savingBaseRef.current = {
+      draft,
+      overrides: domainOverridesRaw,
+      allowlist: pathAllowlistRaw,
+    };
     saveMut.mutate(merged, {
       onSuccess: () => setSavedSummary({ count: n, needsRestart }),
+      // settings-fe-fix F05: a failed save leaves no "Settings saved" banner.
+      onError: () => setSavedSummary(null),
     });
   };
 
@@ -320,6 +385,7 @@ export function Settings() {
   // Discard: restore the draft + both raw textareas to the saved baseline.
   const discard = () => {
     if (!data) return;
+    setSavedSummary(null);
     setDraft(data);
     setDomainOverridesRaw(
       data.rate_limit_domain_overrides &&
@@ -375,7 +441,9 @@ export function Settings() {
   const setField = <K extends keyof GlobalConfigSubset>(
     k: K,
     v: GlobalConfigSubset[K],
-  ) =>
+  ) => {
+    // settings-fe-fix F05: an edit makes the last "Settings saved" banner stale.
+    setSavedSummary(null);
     // A stored secret arrives as the "<configured>" marker. Typing into its field and
     // then emptying it again is not an edit: put the marker back, so the field still
     // reads "set", no change is counted and no blank is posted for it.
@@ -383,6 +451,7 @@ export function Settings() {
       ...prev,
       [k]: (v as unknown) === "" && data?.[k] === "<configured>" ? data[k] : v,
     }));
+  };
 
   // ── Supervisor rate limits (T19a) ────────────────────────────────────
   // POST /api/supervisor/configure hot-reloads the supervisor's byte-rate
@@ -455,6 +524,11 @@ export function Settings() {
         Array.isArray(parsed)
       ) {
         supPerSiteErr = "must be a JSON object {site: bps}";
+      } else if (
+        // settings-fe-fix F15: each rate is whole bytes/sec, as the box above.
+        !Object.values(parsed).every((v) => Number.isInteger(v) && (v as number) >= 0)
+      ) {
+        supPerSiteErr = "each site's rate must be whole bytes/sec (digits only)";
       } else {
         supPerSiteParsed = parsed as Record<string, number>;
       }
@@ -471,6 +545,16 @@ export function Settings() {
     ? null
     : "whole bytes/sec only: digits, no sign, decimal or exponent";
 
+  // settings-fe-fix F15: after an Apply, the first status fetched from then on
+  // drops the three edits, so the fields follow the server again.
+  const supAppliedAtRef = useRef(0);
+  useEffect(() => {
+    if (!supAppliedAtRef.current || supStatus.dataUpdatedAt < supAppliedAtRef.current) return;
+    supAppliedAtRef.current = 0;
+    setSupEnabledEdit(null);
+    setSupGlobalBpsEdit(null);
+    setSupPerSiteJsonEdit(null);
+  }, [supStatus.dataUpdatedAt]);
   const supMut = useMutation<{ ok: boolean; error?: string }, Error, void>({
     mutationFn: () =>
       apiPost<{ ok: boolean; error?: string }>("/api/supervisor/configure", {
@@ -484,6 +568,8 @@ export function Settings() {
         // The cached status is now stale by construction -- the POST is what
         // changed the live limits. Without this the next mount of this page
         // seeds from a payload that predates the operator's own apply.
+        // settings-fe-fix F15: the status fetched after this point drops the edits.
+        supAppliedAtRef.current = Date.now();
         qc.invalidateQueries({ queryKey: ["supervisor", "status"] });
       } else toast.error(res.error ?? "Apply failed");
     },
@@ -923,6 +1009,7 @@ export function Settings() {
                   onChange={(e) => {
                     setDomainOverridesRaw(e.target.value);
                     setDomainOverridesError("");
+                    setSavedSummary(null);
                   }}
                   rows={4}
                   placeholder={"{\n  \"example.com\": { \"max_concurrent\": 2, \"max_per_sec\": 1.0 }\n}"}
@@ -947,6 +1034,7 @@ export function Settings() {
                   onChange={(e) => {
                     setPathAllowlistRaw(e.target.value);
                     setPathAllowlistError("");
+                    setSavedSummary(null);
                   }}
                   rows={4}
                   placeholder={"/srv/reports\n/mnt/captures"}
@@ -1141,7 +1229,12 @@ export function Settings() {
                   type="number"
                   min={1}
                   value={draft.slow_query_ms ?? 100}
-                  onChange={(e) => setField("slow_query_ms", Number(e.target.value))}
+                  onChange={(e) =>
+                    setField(
+                      "slow_query_ms",
+                      Math.max(1, parseInt(e.target.value, 10) || 100),
+                    )
+                  }
                 />
               }
             />

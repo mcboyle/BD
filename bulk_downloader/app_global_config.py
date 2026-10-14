@@ -488,7 +488,8 @@ def api_global_config():
                 return jsonify({"error":
                     f"{_k} must be {getattr(_exp, '__name__', _exp)}"}), 400
             _choices = _spec.get("choices")
-            if _choices and _v not in _choices:
+            # settings-fe-fix r3 (A1): an unchanged stored value never blocks a save.
+            if _choices and _v not in _choices and _v != _app_cfg.get(_k):
                 return jsonify({"error":
                     f"{_k} must be one of {', '.join(_choices)}"}), 400
             _gc_updates[_k] = _v
