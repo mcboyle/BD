@@ -58,10 +58,17 @@ def api_user_templates_create():
     Stored, it hid that built-in from /api/templates while get() still
     returned the built-in. Only the seeded O1517 built-ins (user_ ids) may be
     overridden by a user entry of the same id.
+
+    qt-m4 M4: a non-string ``id`` is refused (400) and never stored.
     """
     from . import user_templates as _ut
     data = request.json or {}
     tid = data.get("id") or None
+    if tid is not None and not isinstance(tid, str):
+        # qt-m4 M4: a dict/list id was stored as-is, then /api/templates and
+        # import/preview 500ed (unhashable id) and DELETE could not target it.
+        return jsonify({"ok": False, "error":
+                        f"id must be a string, got {type(tid).__name__}"}), 400
     if tid is not None:
         from .site_templates import SEEDED_BUILTIN_IDS, TEMPLATES
         if str(tid) in {t["id"] for t in TEMPLATES} - SEEDED_BUILTIN_IDS:
