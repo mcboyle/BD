@@ -19,7 +19,9 @@ import logging
 import os
 import select
 import socket
+import struct
 import threading
+import time
 from typing import Callable, Optional
 from urllib.parse import urlsplit
 
@@ -36,11 +38,25 @@ _PROXY_ENV_VARS = (
 )
 _HEADER_LIMIT = 65536
 _IO_TIMEOUT_S = 15.0
+# An established tunnel that moves no byte in either direction for this long is dead: the
+# bridge ends it (as an abort, see _handle_client) instead of holding a thread and two sockets.
+_TUNNEL_IDLE_S = 300.0
 
 
-def _recv_exact(sock: socket.socket, size: int) -> bytes:
+def _arm(sock: socket.socket, deadline: float) -> None:
+    """Give the next socket call what is LEFT of one budget. A per-call timeout lets a peer that
+    drips a byte at a time hold the exchange open without end; a deadline does not."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise socket.timeout("exchange exceeded its total time budget")
+    sock.settimeout(left)
+
+
+def _recv_exact(sock: socket.socket, size: int, deadline: Optional[float] = None) -> bytes:
     data = bytearray()
     while len(data) < size:
+        if deadline is not None:
+            _arm(sock, deadline)
         chunk = sock.recv(size - len(data))
         if not chunk:
             raise OSError("SOCKS peer closed during handshake")
@@ -48,8 +64,19 @@ def _recv_exact(sock: socket.socket, size: int) -> bytes:
     return bytes(data)
 
 
+def _port(text: str) -> int:
+    # int() also takes "+443", " 443" and "4_4_3"; a CONNECT port is ASCII digits only.
+    if not (text.isascii() and text.isdigit()):
+        raise ValueError("invalid CONNECT port")
+    return int(text)
+
+
 def _connect_authority(value: str) -> tuple[str, int]:
     text = value.strip()
+    # authority = host [":" port]: no userinfo. "u:p@h:443" would otherwise go to the SOCKS
+    # endpoint as the host NAME "u:p@h", credentials included.
+    if "@" in text or any(ch.isspace() for ch in text):
+        raise ValueError("invalid CONNECT destination")
     if text.startswith("["):
         close = text.find("]")
         if close < 0:
@@ -58,13 +85,13 @@ def _connect_authority(value: str) -> tuple[str, int]:
         suffix = text[close + 1:]
         if suffix and not suffix.startswith(":"):
             raise ValueError("malformed IPv6 CONNECT authority")
-        port = int(suffix[1:]) if suffix.startswith(":") else 443
+        port = _port(suffix[1:]) if suffix.startswith(":") else 443
     else:
         host, marker, port_text = text.rpartition(":")
         if not marker:
             host, port = text, 443
         else:
-            port = int(port_text)
+            port = _port(port_text)
     if not host or not 1 <= port <= 65535:
         raise ValueError("invalid CONNECT destination")
     return host, port
@@ -166,7 +193,9 @@ class SocksHttpConnectBridge:
 
     def _read_connect(self, client: socket.socket) -> tuple[str, int, bytes]:
         payload = bytearray()
+        deadline = time.monotonic() + _IO_TIMEOUT_S  # for the whole header, not per recv
         while b"\r\n\r\n" not in payload:
+            _arm(client, deadline)
             chunk = client.recv(min(8192, _HEADER_LIMIT + 1 - len(payload)))
             if not chunk:
                 raise OSError("HTTP proxy client closed before CONNECT")
@@ -181,11 +210,13 @@ class SocksHttpConnectBridge:
         return host, port, remainder
 
     def _socks_connect(self, host: str, port: int) -> socket.socket:
+        deadline = time.monotonic() + _IO_TIMEOUT_S  # connect + the whole SOCKS negotiation
         upstream = connect_via_egress(
             (self._socks_host, self._socks_port), timeout=_IO_TIMEOUT_S)
         try:
+            _arm(upstream, deadline)
             upstream.sendall(b"\x05\x01\x00")
-            if _recv_exact(upstream, 2) != b"\x05\x00":
+            if _recv_exact(upstream, 2, deadline) != b"\x05\x00":
                 raise OSError("SOCKS endpoint refused no-auth negotiation")
             try:
                 address = ipaddress.ip_address(host)
@@ -196,18 +227,19 @@ class SocksHttpConnectBridge:
                 packed = b"\x03" + bytes([len(encoded)]) + encoded
             else:
                 packed = (b"\x01" if address.version == 4 else b"\x04") + address.packed
+            _arm(upstream, deadline)
             upstream.sendall(b"\x05\x01\x00" + packed + port.to_bytes(2, "big"))
-            reply = _recv_exact(upstream, 4)
+            reply = _recv_exact(upstream, 4, deadline)
             if reply[:2] != b"\x05\x00":
                 raise OSError(f"SOCKS CONNECT failed with reply {reply[1]}")
             lengths = {1: 4, 4: 16}
             if reply[3] == 3:
-                _recv_exact(upstream, _recv_exact(upstream, 1)[0])
+                _recv_exact(upstream, _recv_exact(upstream, 1, deadline)[0], deadline)
             elif reply[3] in lengths:
-                _recv_exact(upstream, lengths[reply[3]])
+                _recv_exact(upstream, lengths[reply[3]], deadline)
             else:
                 raise OSError("SOCKS endpoint returned an unknown address type")
-            _recv_exact(upstream, 2)
+            _recv_exact(upstream, 2, deadline)
             upstream.settimeout(None)
             self._pace_upstream(upstream)
             return upstream
@@ -241,6 +273,7 @@ class SocksHttpConnectBridge:
     def _handle_client(self, client: socket.socket) -> None:
         upstream = None
         connected = False
+        aborted = False
         try:
             host, port, remainder = self._read_connect(client)
             upstream = self._socks_connect(host, port)
@@ -249,15 +282,33 @@ class SocksHttpConnectBridge:
             if remainder:
                 upstream.sendall(remainder)
             client.settimeout(None)
-            peers = (client, upstream)
-            while not self._stop.is_set():
-                readable, _, _ = select.select(peers, (), (), 0.2)
+            reading = [client, upstream]  # the sides that have not sent EOF yet
+            last_byte = time.monotonic()
+            while reading and not self._stop.is_set():
+                readable, _, _ = select.select(reading, (), (), 0.2)
+                if not readable:
+                    if time.monotonic() - last_byte >= _TUNNEL_IDLE_S:
+                        raise socket.timeout("tunnel idle")
+                    continue
                 for source in readable:
                     data = source.recv(65536)
-                    if not data:
-                        return
-                    (upstream if source is client else client).sendall(data)
+                    last_byte = time.monotonic()
+                    other = upstream if source is client else client
+                    if data:
+                        other.sendall(data)
+                        continue
+                    # EOF ends ONE direction. A client that half-closes after its request is
+                    # still owed the response, so pass the EOF on and keep the other way open.
+                    reading.remove(source)
+                    try:
+                        other.shutdown(socket.SHUT_WR)
+                    except OSError:
+                        pass
         except Exception:
+            # Past the 200 there is no status line left to say "failed". If the tunnel just
+            # closed, a reset or stall upstream would read as a normal end of a close-delimited
+            # body, so an aborted tunnel is ended with a reset on both sides (see finally).
+            aborted = connected and not self._stop.is_set()  # stop() is a shutdown, not an abort
             if not connected:
                 try:
                     client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
@@ -266,6 +317,11 @@ class SocksHttpConnectBridge:
         finally:
             for peer in (client, upstream):
                 if peer is not None:
+                    if aborted:
+                        try:
+                            peer.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+                        except OSError:
+                            pass
                     try:
                         peer.close()
                     except OSError:
