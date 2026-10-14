@@ -206,8 +206,13 @@ BODY_TEXT_SELECTOR = "body"
 # is a sale banner, "every 30 days" alone is a release schedule) together with
 # a checked checkbox. Charge language with an unmeasurable box is UNKNOWN and
 # refuses (A2): unavailable evidence is never permission to spend money.
+# The bare-number amount is bounded ({0,63}): unbounded, every ",<digit>" in
+# a long "1,1,1,..." run was a match start that re-scanned the rest of the
+# run -- quadratic on body text (16 KB took 6 s).  Any start within 64 chars
+# of the run's end still reaches the currency word, so only a 65+ digit run
+# with no comma stops counting as an amount.
 RECURRING_CHARGE_LANGUAGE = re.compile(
-    r"(?:(?:[$€£]\s?\d[\d,]*(?:\.\d{2})?|\b\d[\d,]*(?:\.\d{2})?\s?(?:usd|eur|gbp))"
+    r"(?:(?:[$€£]\s?\d[\d,]*(?:\.\d{2})?|\b\d[\d,]{0,63}(?:\.\d{2})?\s?(?:usd|eur|gbp))"
     r"\s*(?:/|per|every|each|a)\s*(?:\d+\s*)?(?:days?|weeks?|months?|years?|mo|yr)\b|"
     r"\buntil you cancel\b|\bwill be (?:charged|billed)\b|\brebills?\b|"
     r"\brecurring (?:charge|billing|payment|subscription)\b)", re.I)
@@ -734,11 +739,21 @@ def _control_same_origin(page: Any, href: Any) -> Optional[bool]:
     """
     if not isinstance(href, str) or not href.strip():
         return True
+    # Read the href the way the browser will follow it (WHATWG): outer
+    # whitespace and inner tab/newline dropped, "\" as "/".  urlsplit alone
+    # saw no host in "https:\\evil.test/join" or "\\evil.test/join", which a
+    # browser opens on evil.test.
+    href = re.sub(r"[\t\n\r]", "", href.strip()).replace("\\", "/")
     try:
         parsed = urlsplit(href)
     except (TypeError, ValueError):
         return None
     if not parsed.netloc:
+        # "https:///evil.test/join": a browser skips the extra slashes and
+        # takes evil.test as the host, so a network scheme with no host
+        # here is not proof of this page.
+        if parsed.scheme.lower() in ("http", "https", "ws", "wss", "ftp"):
+            return False
         return True
     page_url = _page_url(page)
     page_host = None
