@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1856 - train281o: row
+
+T281o-A = train-7 (O3141/O3142 F3: on MAIN 82585d41 = train-5 T281m-B landed; pipelined beside train-6 T281n (D2-D, in flight, 54 paths incl. app.py + SEC-2 r3-restack-c); member list frozen at assembly 18:27Z; 3 members = every BOARDed product cut that is path-disjoint from train-6 and merges clean on main; <=15 per RULING-pm-B-ci-queue-1640Z). Product train; legs BOARD per O1672/BOARDED-for-integration.md; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge (F4). Whichever of train-6/train-7 merges second re-kits on the first one's merge commit (release trio). Waiting for train-8 (train-6 overlaps / conflicts / chain tails; T281g/wait-T281o-A.tsv): ext-route-anchor r2 HIGH, request-capture-redact r2 HIGH, ext-csrf-token r1, pair-admission-proxy r2, plex-error-redact r1, secrets-master-throttle-atomic r1b, fed-input-lows r1, dva-trusted-proxies r1, F017 r2-restack-b, dev-console-lows r1-restack, fed-replay r1-amend2.
+FIX: health-core-fix r2 -- F4 fix-forward of health-core-fix r1: _attach_sites_config_health reads flask.g only inside an app context (S28 bad-site-entry + cookie-file-roots suites green again); + tests/test_o1789_app_core_health_fix.py (S104-A, DONE 18:06Z, dispatch "train FRONT").
+FIX: dev-run-bounds r1 -- MED; app_dev_runtime.py after dev-exec-lows r2 (train-3) and dev-path-inputs r1 (train-5) (R264-B, BOARDED 15:44Z).
+FIX: edge-deploy-fixes r2 -- app_edge_deploy.py + edge_deploy.py + tests/test_bughunt_edge_deploy_fixes.py (S63-A, BOARDED 18:25Z).
+
+
 ## v3.66.1854 - train281m: row
 
 T281m-B = train-5 (O3141/O3142 F3: on MAIN ba4827d9 = train-4 T281l-D landed; member list frozen at assembly 17:45Z; 9 members (F017 r2-restack ejected: gitleaks jwt fixture, EJECT-F017-r2-restack), pairwise path-disjoint, greedy by priority then BOARD age, <=15 per RULING-pm-B-ci-queue-1640Z). Product train; legs BOARD per O1672/BOARDED-for-integration.md; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge (F4). Waiting for train-6 (same-train overlaps / conflicts -> restack row ROW-integrator-train5-restacks): request-capture-redact r2, ext-route-anchor r2, dev-run-bounds r1, ext-csrf-token r1 (chain tail of rcr), plex-error-redact r1 (chain tail of pap r2), secrets-master-throttle-atomic r1b, fed-input-lows r1, pair-admission-proxy r2, dva-trusted-proxies r1.
