@@ -953,6 +953,7 @@
       "module": "app_interop.py",
       "providers": [
         "bulk_downloader/extension_crx.py",
+        "bulk_downloader/global_config.py",
         "bulk_downloader/interop_registry.py"
       ],
       "route_count": 4,
@@ -2280,6 +2281,7 @@
         "bulk_downloader/app.py",
         "bulk_downloader/app_fed.py",
         "bulk_downloader/app_global_config.py",
+        "bulk_downloader/app_interop.py",
         "bulk_downloader/app_kernel.py",
         "bulk_downloader/app_settings_center.py",
         "bulk_downloader/app_store_raw_editor.py",
@@ -2429,7 +2431,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1851,
+    "edge_count": 1854,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3039,6 +3041,7 @@
         "bulk_downloader/app_sites_lifecycle.py",
         "bulk_downloader/app_sites_queue.py",
         "bulk_downloader/app_sites_teach.py",
+        "bulk_downloader/community_scrapers.py",
         "bulk_downloader/cookie_quality.py",
         "bulk_downloader/db.py",
         "bulk_downloader/detect.py",
@@ -3604,6 +3607,7 @@
         "bulk_downloader/app.py",
         "bulk_downloader/app_fed.py",
         "bulk_downloader/app_global_config.py",
+        "bulk_downloader/app_interop.py",
         "bulk_downloader/app_settings_center.py",
         "bulk_downloader/app_stream.py",
         "bulk_downloader/app_template_manager.py",
@@ -4235,6 +4239,7 @@
         "bulk_downloader/playlist_extractor.py",
         "bulk_downloader/rate_limit.py",
         "bulk_downloader/search_extractor.py",
+        "bulk_downloader/spa_media_extract.py",
         "tools/player_struct_embed.py"
       ],
       "bulk_downloader/relogin_predict.py": [
@@ -5769,6 +5774,7 @@
       ],
       "bulk_downloader/app_interop.py": [
         "bulk_downloader/extension_crx.py",
+        "bulk_downloader/global_config.py",
         "bulk_downloader/interop_registry.py"
       ],
       "bulk_downloader/app_jsonapi.py": [
@@ -6376,6 +6382,7 @@
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/community_scrapers.py": [
+        "bulk_downloader/constants.py",
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/config_dryrun.py": [
@@ -7580,6 +7587,7 @@
         "bulk_downloader/traffic_shaper.py"
       ],
       "bulk_downloader/spa_media_extract.py": [
+        "bulk_downloader/registrable_domain.py",
         "bulk_downloader/streaming_manifest.py"
       ],
       "bulk_downloader/sqlite_cdc.py": [

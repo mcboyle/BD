@@ -10,15 +10,15 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1851**
+- internal import edges: **1854**
 - tools: 235 · with internal edge: 135 · with tool→package edge: 75
 - blueprints: 163 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
 
 - `bulk_downloader/db.py`: 126
-- `bulk_downloader/global_config.py`: 60
-- `bulk_downloader/constants.py`: 34
+- `bulk_downloader/global_config.py`: 61
+- `bulk_downloader/constants.py`: 35
 - `bulk_downloader/ssrf_transport.py`: 30
 - `bulk_downloader/app.py`: 25
 - `bulk_downloader/plugins.py`: 23
@@ -26,10 +26,10 @@ Graph version: 1
 - `bulk_downloader/secrets_store.py`: 20
 - `bulk_downloader/capture_ingest.py`: 17
 - `bulk_downloader/cloak.py`: 17
+- `bulk_downloader/registrable_domain.py`: 17
 - `bulk_downloader/runner.py`: 17
 - `bulk_downloader/aiassist.py`: 16
 - `bulk_downloader/capture_artifact_redact.py`: 16
-- `bulk_downloader/registrable_domain.py`: 16
 - `bulk_downloader/capture_redact.py`: 15
 - `bulk_downloader/ffmpeg_bin.py`: 15
 - `bulk_downloader/site_editor.py`: 15
@@ -108,7 +108,7 @@ Graph version: 1
 - **i18n** (`app_i18n.py`) — routes 4, providers 1
 - **import** (`app_import.py`) — routes 5, providers 1
 - **integrations** (`app_integrations.py`) — routes 1, providers 1
-- **interop** (`app_interop.py`) — routes 4, providers 2
+- **interop** (`app_interop.py`) — routes 4, providers 3
 - **jobs** (`app_jobs.py`) — routes 1, providers 0
 - **jsonapi** (`app_jsonapi.py`) — routes 1, providers 1
 - **knowledge** (`app_knowledge.py`) — routes 4, providers 2
@@ -206,7 +206,7 @@ Graph version: 1
 ## Config stores → reader / writer modules
 
 - **app_settings_center** — readers 8, writers 0
-- **global_config** — readers 80, writers 4
+- **global_config** — readers 81, writers 4
 - **site_editor** — readers 23, writers 0
 - **vpn_config** — readers 17, writers 2
 - **widgets_config** — readers 4, writers 1
