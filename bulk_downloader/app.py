@@ -1629,6 +1629,10 @@ _SITES_FILE_LAST_AUTO_OBJECT = SITES_FILE
 _SITES_FILE_RUNTIME_PUBLISHED_OBJECT = None
 _SITES_FILE_EXISTED_AT_PUBLICATION = None
 _SITES_CONFIG_REACHABILITY = None
+# s28: the raw entries of sites the last load skipped, bound to the file they
+# came from: {"path": str, "sites": {sid: raw entry}}.  They never reach
+# s_cfg, so _save_sites_config writes them back untouched.
+_SITES_CONFIG_SKIPPED = {"path": "", "sites": {}}
 
 
 def _sites_file_for_boot() -> Path:
@@ -1743,6 +1747,13 @@ def _save_sites_config():
                 for _k in [k for k in _entry if isinstance(k, str)
                            and k.startswith("_")]:
                     _entry.pop(_k, None)
+        # s28: a site the loader skipped is not in s_cfg; without this the
+        # first save after such a start would erase it (credentials and all)
+        # from the same file.  Written back exactly as read (after the
+        # _-key strip above, which is for live entries); a live site id wins.
+        if _SITES_CONFIG_SKIPPED["path"] == str(SITES_FILE):
+            for _sid, _raw in list(_SITES_CONFIG_SKIPPED["sites"].items()):
+                payload.setdefault(_sid, _raw)
         content = json.dumps(payload, indent=2, ensure_ascii=False)
         tmp = SITES_FILE.with_suffix(".json.tmp")
         tmp.write_text(content, encoding="utf-8")
@@ -1800,9 +1811,14 @@ def _load_sites_config():
     Each runner's __init__ rehydrates its queue from the SQLite queue table.
     A path absent at its first runtime publication is a first run. A path that
     existed when first published and later vanished is UNKNOWN because its
-    configured contents are unavailable. Malformed files remain distinct."""
-    global _SITES_CONFIG_REACHABILITY
+    configured contents are unavailable. Malformed files remain distinct.
+
+    s28: one site that fails to load is skipped, logged and listed
+    under ``skipped_sites`` of the reachability state (/api/health
+    ``sites_config``); every other site and runner still loads."""
+    global _SITES_CONFIG_REACHABILITY, _SITES_CONFIG_SKIPPED
     path = str(SITES_FILE)
+    _SITES_CONFIG_SKIPPED = {"path": path, "sites": {}}
     try:
         SITES_FILE.stat()
     except FileNotFoundError:
@@ -1847,7 +1863,13 @@ def _load_sites_config():
     except Exception as e:
         sys.stderr.write(f"  ! sites_config.json malformed, ignoring: {e}\n")
         return
-    for sid, cfg_in in data.items():
+    if not isinstance(data, dict):
+        sys.stderr.write(
+            "  ! sites_config.json malformed, ignoring: top level is "
+            f"{type(data).__name__}, not an object\n")
+        return
+
+    def _load_one_site(sid, cfg_in):
         cfg = {k: cfg_in.get(k, DEFAULTS.get(k, "")) for k in CFG_FIELDS}
         cfg["name"] = cfg_in.get("name", f"Site {sid}")
         # tpl95-restart-2: the applied-template marker (POST /templates/apply,
@@ -1986,7 +2008,62 @@ def _load_sites_config():
                     f"  cookie file load failed for {sid}: "
                     f"{type(_cookie_err).__name__}: {_cookie_err}\n"
                 )
-    sys.stderr.write(f"  ↺ restored {len(data)} site(s) from {SITES_FILE.name}\n")
+    # s28 (S02-C finding S28): one bad entry (a PUT that stored "accounts" as
+    # a string) raised out of this loop, and the boot caller then retired every
+    # runner: 0 sites after a restart.  A site fails alone, whatever it raised
+    # (PM order s28 r2: an account cookie_file the OS refuses is an OSError and
+    # no restart cures it).  The error that is listed and logged is the
+    # exception class and the code line, never the message: a message can
+    # echo a value of the entry.  If the skipped site's runner was
+    # already published (the cookie-path block runs after that), its
+    # scheduler / auto-retry / worker generations are live: that ONE runner is
+    # retired first, and only a runner proved stopped is dropped -- otherwise
+    # the old all-or-nothing rule holds and the boot caller rolls back.
+    skipped = []
+    for sid, cfg_in in data.items():
+        try:
+            _load_one_site(sid, cfg_in)
+        except Exception as site_error:
+            _published = runners.get(sid)
+            if _published is not None:
+                _deadline = time.monotonic() + _SITE_RUNTIME_RETIRE_TIMEOUT_S
+                for _retire in ("retire_scheduler", "retire_auto_retry",
+                                "retire_workers"):
+                    if getattr(_published, _retire)(timeout=max(
+                            0.0, _deadline - time.monotonic())) is not True:
+                        raise
+                with _watch_registry_lock:
+                    runners.pop(sid, None)
+                try:
+                    from . import account_pool as _ap_skip
+                    _ap_skip.remove_pool(sid)
+                except Exception:
+                    pass
+            s_cfg.pop(sid, None)
+            s_meta.pop(sid, None)
+            _SITES_CONFIG_SKIPPED["sites"][sid] = cfg_in
+            _tb = site_error.__traceback__
+            while _tb is not None and _tb.tb_next is not None:
+                _tb = _tb.tb_next
+            _where = (f"{Path(_tb.tb_frame.f_code.co_filename).name}:"
+                      f"{_tb.tb_lineno} {_tb.tb_frame.f_code.co_name}"
+                      if _tb is not None else "?")
+            skipped.append({
+                "id": str(sid),
+                "error": f"{type(site_error).__name__} at {_where}",
+            })
+            sys.stderr.write(
+                f"  ! site {sid} NOT loaded, skipped: {skipped[-1]['error']}\n")
+    if skipped:
+        _SITES_CONFIG_REACHABILITY = dict(
+            _SITES_CONFIG_REACHABILITY, skipped_sites=skipped)
+        sys.stderr.write(
+            f"  ! WARNING: {len(skipped)} of {len(data)} site(s) in "
+            f"{SITES_FILE.name} could not be loaded and are not running: "
+            f"{', '.join(s['id'] for s in skipped)}. Their entries stay in the "
+            f"file; fix them there and restart.\n")
+    sys.stderr.write(
+        f"  ↺ restored {len(data) - len(skipped)} site(s) from {SITES_FILE.name}\n")
 
 def _init_vpn_runtime():
     """Initialize VPN mappings after configured sites have been restored."""
