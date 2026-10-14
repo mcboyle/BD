@@ -697,8 +697,28 @@ _TRANSIENT_DOWNLOAD_ERROR_RE = re.compile(
     r"connection reset|connection aborted|broken pipe|"
     r"remote end closed connection|incomplete(?: chunked)? read|"
     r"read timed? ?out|readtimeout|connecttimeout|\btimed out\b|"
-    r"eof occurred|protocol error|forcibly closed|peer closed connection",
+    r"eof occurred|protocol error|forcibly closed|peer closed connection|"
+    # bughunt ddt-fix F2: curl_cffi (the default client) words the same
+    # mid-body disconnect as curl (18) and a stall as curl (28).
+    r"bytes missing|transfer closed with outstanding read data|"
+    r"operation too slow",
     re.I)
+
+
+def _content_length(value):
+    """Content-Length as an int (missing -> 0). bughunt ddt-fix F4: curl_cffi
+    joins repeated header lines, so two identical Content-Length lines read
+    "N, N"; RFC 9110 8.6 lets a recipient treat that as the single value N.
+    Differing values are a conflicting length and refuse; any other
+    malformed value still raises from int() exactly as before."""
+    text = str(value if value is not None else "").strip()
+    if "," in text:
+        values = {v.strip() for v in text.split(",")}
+        if len(values) != 1:
+            raise _HTTPDownloadFailed(
+                f"conflicting Content-Length values ({text!r}); refusing")
+        text = values.pop()
+    return int(text or 0)
 
 
 def _is_transient_download_error(exc):
@@ -4406,7 +4426,11 @@ class TransportMixin:
                     # User stop / rate limit / quota — propagate. Anything else
                     # we treat as "parallel didn't work, try sequential".
                     msg = str(e).lower()
-                    if "stopped" in msg or "rate" in msg or "disk" in msg:
+                    # bughunt ddt-fix F6: ENOSPC reads "[Errno 28] No space
+                    # left on device" -- no "disk" in it -- and a full disk
+                    # fails the sequential retry the same way.
+                    if ("stopped" in msg or "rate" in msg or "disk" in msg
+                            or "no space left on device" in msg):
                         raise
                     sys.stderr.write(f"  parallel failed ({str(e)[:80]}), falling back to sequential\n")
                     self.log_event("parallel_fallback",
@@ -4508,6 +4532,29 @@ class TransportMixin:
                 resume_validator = meta.get("etag") or meta.get("last_modified")
             except Exception:
                 resume_validator = None
+        # bughunt ddt-fix F5 (r2, F5-REG): RFC 9110 13.1.5 -- a weak entity
+        # tag never goes in If-Range (it never matches, so a conforming origin
+        # re-sends everything), the same section forbids a date once a tag is
+        # known, and a weak tag does not promise equal bytes, so it cannot
+        # vouch for a 206 either: a plain Range stitched a replaced resource
+        # onto the old .part. A .part vouched for only by a weak tag cannot be
+        # validated: discard it and start at byte 0. If it cannot be discarded,
+        # refuse -- a later 206 from byte 0 would be appended to it.
+        if str(resume_validator or "").startswith("W/"):
+            try:
+                tmp_path.unlink(missing_ok=True)
+                meta_path.unlink(missing_ok=True)
+            except OSError as e:
+                raise _HTTPDownloadFailed(
+                    f"weak ETag {resume_validator} cannot validate the .part "
+                    f"and it could not be discarded ({e}); not resuming")
+            self.log_event(
+                "resume",
+                f"weak ETag {resume_validator} cannot validate the "
+                f"{resume_from}-byte .part; discarded it, restarting from byte 0",
+                url=page_url)
+            resume_from = 0
+            resume_validator = None
         if resume_from>0:
             headers["Range"]=f"bytes={resume_from}-"
             # If-Range: server returns 200 (full) when validator no longer
@@ -4663,7 +4710,7 @@ class TransportMixin:
                     raise _HTTPDownloadFailed("HTTP 416 with no resume position")
                 if resp.status_code==206:  # partial content — resume worked
                     content_range = re.fullmatch(
-                        r"\s*bytes\s+(\d+)-(\d+)/(?:\d+|\*)\s*",
+                        r"\s*bytes\s+(\d+)-(\d+)/(\d+|\*)\s*",
                         resp.headers.get("Content-Range", ""), re.IGNORECASE,
                     )
                     # No Range was sent for a fresh download (resume_from 0); a
@@ -4676,10 +4723,26 @@ class TransportMixin:
                         raise _HTTPDownloadFailed(
                             "HTTP 206 Content-Range does not match requested offset")
                     mode="ab"; downloaded=resume_from
-                    total=resume_from+int(resp.headers.get("Content-Length",0))
+                    total=resume_from+_content_length(
+                        resp.headers.get("Content-Length"))
+                    # bughunt ddt-fix F1: the range must run to the resource's
+                    # complete-length. A capped range (CDN) is refused before
+                    # a byte is appended, so the staged .part survives; a full
+                    # range is gated against the complete-length, not against
+                    # resume_from + Content-Length (absent -> short promoted).
+                    if (content_range is not None
+                            and content_range.group(3) != "*"):
+                        complete_len = int(content_range.group(3))
+                        range_end = int(content_range.group(2)) + 1
+                        if range_end != complete_len:
+                            raise _HTTPDownloadFailed(
+                                f"HTTP 206 short range: Content-Range ends at "
+                                f"byte {range_end} of {complete_len}; not the "
+                                f"whole file, not promoting it")
+                        total = complete_len
                 elif resp.status_code==200:  # full content; if we tried to resume, we restart
                     mode="wb"; downloaded=0
-                    total=int(resp.headers.get("Content-Length",0))
+                    total=_content_length(resp.headers.get("Content-Length"))
                     # Phase 62: validator mismatch (or no validator) → restart.
                     # If we had a .part from a stale resource, drop it now.
                     if resume_from > 0:
@@ -4879,6 +4942,20 @@ class TransportMixin:
         # promote helper which does a real cross-device move + tracks the
         # release in the reservation table. Otherwise an atomic same-device
         # os.replace via the integrity helper.
+        #
+        # bughunt ddt-fix F3 (the ah-fix F11 class on this path): an empty
+        # body is not a file. The size gate fails open on total 0, so refuse
+        # here and leave no 0 B .part or claim behind.
+        if downloaded == 0:
+            for _p in (_ramdisk_staging_path, tmp_path, meta_path):
+                if not _p:
+                    continue
+                try: Path(_p).unlink(missing_ok=True)
+                except Exception: pass
+            staging_claim.release(tmp_path, identity)
+            staging_claim.release(reserved_staging_path, identity)
+            raise _HTTPDownloadFailed(
+                "empty response body (0 bytes); not a file, not promoting it")
         if _ramdisk_staging_path:
             if not TransportMixin._integrity_size_ok(downloaded, total):
                 for _p in (_ramdisk_staging_path, tmp_path, meta_path):
