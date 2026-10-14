@@ -97,6 +97,13 @@ def chat(payload: Dict[str, Any], *, config: Optional[Dict[str, Any]] = None,
         return _resp(True, response=res.value or "", model=res.model,
                      provider=res.provider, latency_ms=res.latency_ms,
                      image_included=bool(image_b64))
+    error = res.error or res.status
+    if res.status == "timeout":
+        # F042: the first question after the model was unloaded cold-loads it,
+        # which on CPU outlasts the cap; the load keeps going, so a resend works.
+        error = (f"No answer from {res.model or 'the model'} within "
+                 f"{spec.timeout:g}s. The model is probably still loading after "
+                 f"being idle; wait a few seconds and send again. ({error})")
     return _resp(False, model=res.model, provider=res.provider,
                  latency_ms=res.latency_ms, image_included=bool(image_b64),
-                 error=res.error or res.status)
+                 error=error)

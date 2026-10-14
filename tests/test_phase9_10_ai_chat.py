@@ -119,3 +119,48 @@ def test_route_wired_disabled_returns_200():
     finally:
         aiassist._config.clear()
         aiassist._config.update(saved)
+
+
+def _provider_call(endpoint):
+    # the real Ollama transport (urlopen + error_kind mapping), not a fake result
+    from bulk_downloader.ai_provider import OllamaProvider
+    p = OllamaProvider(endpoint=endpoint, model_text="bd-text-small")
+
+    def _c(prompt, image_b64=None, max_tokens=1024, temperature=0.1, timeout=60.0):
+        return p.generate(prompt, max_tokens=max_tokens, temperature=temperature,
+                          timeout=timeout)
+    return _c
+
+
+def test_cold_load_timeout_is_actionable():
+    # F042: a model still loading accepts the connection but sends nothing until
+    # the cap; the operator saw only the raw "TimeoutError: timed out".
+    import socket
+    srv = socket.socket()
+    try:
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)  # kernel completes the handshake; nobody ever answers
+        ep = "http://127.0.0.1:%d" % srv.getsockname()[1]
+        out = ai_chat.chat({"prompt": "hello"}, config=_cfg(chat_timeout=0.5),
+                           _call=_provider_call(ep))
+    finally:
+        srv.close()
+    assert out["ok"] is False
+    err = out["error"]
+    assert "bd-text-small" in err and "within 0.5s" in err, err
+    assert "still loading" in err and "send again" in err, err
+    assert "TimeoutError" in err, err       # the raw cause stays visible
+
+
+def test_unreachable_provider_not_called_loading():
+    # negative control: a refused connection is "down", not "slow"
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    out = ai_chat.chat({"prompt": "hello"}, config=_cfg(chat_timeout=0.5),
+                       _call=_provider_call("http://127.0.0.1:%d" % port))
+    assert out["ok"] is False
+    assert "network" in out["error"], out["error"]
+    assert "still loading" not in out["error"], out["error"]
