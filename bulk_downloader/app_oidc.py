@@ -66,7 +66,8 @@ def api_oidc_callback():
         return redirect("/?sso_error=exchange", code=302)
     token = _ua.issue_session(username)
     resp = redirect("/", code=302)
-    resp.set_cookie(_COOKIE, token, httponly=True, samesite="Lax", max_age=12 * 3600)
+    resp.set_cookie(_COOKIE, token, httponly=True, samesite="Lax", max_age=12 * 3600,
+                    secure=request.scheme == "https")   # as app_pair bd_session: never sent over plain http
     session.pop("oidc_state", None)
     session.pop("oidc_nonce", None)
     return resp
