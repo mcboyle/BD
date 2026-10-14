@@ -38,6 +38,12 @@ _HOST_IPS = {
 # Hand-audited from the canonical imports and calls, not derived from a result
 # under test. A new runtime consumer must be classified here rather than
 # silently broadening or escaping the census.
+# A TRAIN'S RE-PIN IS DERIVED, NEVER HAND-SUMMED (T281i 39 -> 41): run
+#   ./venv/bin/python toolchain/bin/bd-census-delta --census rowssrf-consumers \
+#       --base <base-wt> --member NAME=<cut-wt> ... --head <train-wt>
+# It measures with _consumer_census below, rewrites only this dict, and prints
+# every entry it changes with the member that changed it. It refuses on any
+# escape and never rewrites the hand-maintained _NONCANONICAL_SAME_NAME_CALLS.
 _EXPECTED_RUNTIME_CONSUMERS = {
     "bulk_downloader/app.py": {"_is_safe_public_host": 1},
     "bulk_downloader/app_flaresolverr.py": {"_is_safe_public_host": 1},
