@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1858 - train281p: row
+
+T281p-E = train-8 (O3141/O3142 F3: on MAIN 1e334559 = train-6 T281n-F landed; lane C per RULING-pm-B2-B-integrators-1905Z + ANSWER-dispatch-B-integrator-A-trainnum-1925Z; member list frozen at assembly; 2 members (migrations-integrity-fix r3, BD-BACKUP-LIST r3 refresh, row875-latency-isolation r1, sl-dns r3 dropped: ALREADY LANDED in train-6; BD-SEC-2 r3-restack-c dropped: 3 gitleaks findings in its test fixtures, ejected from train-6 for the same reason (T281n/EJECT-sec2-r3-restack-c-1830Z.md) -- restack-d (DONE 19:52Z, lens pending) rides the next train FRONT), pairwise path-disjoint, greedy by priority then BOARD age, <=15). Product train; legs BOARD per O1672/BOARDED-for-integration.md; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge (F4); gates off-hub (gates-remote.sh). Waiting for train-9+ (T281g/wait-T281p-A.tsv): request-capture-redact r2 HIGH, ext-route-anchor r2 HIGH, dev-console-lows r1-restack, dss-type-500s r3 (all app.py vs SEC-2), ext-csrf-token r1 (chain tail of rcr), retention-path-dedupe r3 (group hold).
+FIX: secrets-master-throttle-atomic r1c -- MED SEC; clean carry of r1b on ba4827d9 after dva-auth r4 (S70-D, BOARDED 19:14Z).
+FIX: inspect-pick-bounds r2 -- MED; r1 ejected from train-3 (gitleaks fixture), r2 fixes the fixture; guards.json pin merged by resolve script, 7 guard shas re-verified (S90-B, BOARDED 18:35Z).
+
+
 ## v3.66.1857 - train281n: row875
 
 T281n-F (train-6, integrator D2-D) on main 94fe25bd (train-7 T281o merged) (5 members; product train; legs BOARD per O1672/BOARDED-for-integration.md). Members path-disjoint (26 paths). Intake T281n/INTAKE-train6-1800Z.md. Ejected at kit: BD-SEC-2 r3-restack-c (gitleaks), F017 r2-restack-b (body-contract ratchet).

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6349,
+  "edge_count": 6358,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2924,6 +2924,11 @@
       "bulk_downloader/queue_templates.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_bughunt_secrets_master_throttle.py": [
+      "bulk_downloader/app_secrets.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/secrets_store.py"
+    ],
     "tests/test_bughunt_sri_recorder_state.py": [
       "bulk_downloader/live_recorder.py"
     ],
@@ -4718,6 +4723,14 @@
     "tests/test_inmemory_sqlite_fixture.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/migrations.py"
+    ],
+    "tests/test_inspect_pick_bounds_r1.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/dom_recorder.py",
+      "bulk_downloader/element_pick.py",
+      "bulk_downloader/inspect_pick.py",
+      "bulk_downloader/netlog_classify.py",
+      "tools/capture_session.py"
     ],
     "tests/test_integration_wiring.py": [
       "bulk_downloader/app_cockpit_home.py",
