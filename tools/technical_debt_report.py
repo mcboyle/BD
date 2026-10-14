@@ -15,6 +15,8 @@ from collections import Counter, defaultdict
 _ROOTS = ["bulk_downloader", "tools"]
 _MARKER = re.compile(r"\b(TODO|FIXME|XXX|HACK|DEPRECATED|TEMP HACK|WORKAROUND)\b")
 _SHIM = re.compile(r"\b(shim|compat|backward[- ]?compat|legacy|deprecated)\b", re.I)
+# this scanner's own source names every marker (docstring + _MARKER): never debt
+_SELF = os.path.join("tools", "technical_debt_report.py")
 
 
 def _walk_py(root, roots):
@@ -34,6 +36,8 @@ def scan(root=".", roots=None):
     func_locations = defaultdict(list)
     for p in _walk_py(root, roots):
         rel = os.path.relpath(p, root)
+        if rel == _SELF:
+            continue
         try:
             text = open(p, encoding="utf-8", errors="replace").read()
         except OSError:
@@ -85,7 +89,12 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default="."); ap.add_argument("--outdir", default="reports")
     ap.add_argument("--json", action="store_true")
-    a = ap.parse_args(argv); d = scan(a.root)
+    a = ap.parse_args(argv)
+    if not any(os.path.isdir(os.path.join(a.root, r)) for r in _ROOTS):
+        # a wrong --root is a usage error, never a clean "0 markers" report
+        print(f"error: --root {a.root} has none of {_ROOTS}", file=sys.stderr)
+        return 2
+    d = scan(a.root)
     if a.json:
         print(json.dumps(d, indent=2)); return 0
     p = _RC.write_report(a.outdir, "technical_debt.md", _md(d))

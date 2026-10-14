@@ -11,6 +11,12 @@ import report_core as _RC  # shared write/render helpers
 import argparse, glob, json, os, re, sys
 
 
+# a file reference token: optional URL scheme, then a path ending in a known
+# extension; the lookbehind keeps it from starting mid-token (inside a URL).
+_REF = re.compile(r"(?<![A-Za-z0-9_./:-])((?:[A-Za-z][A-Za-z0-9+.-]*://)?"
+                  r"[A-Za-z0-9_./-]+\.(?:zip|whl|sh|json|txt))")
+
+
 def _find(root, patterns):
     hits = []
     for pat in patterns:
@@ -32,9 +38,14 @@ def report(root="."):
             text = open(p, encoding="utf-8", errors="replace").read()
         except OSError:
             continue
-        for m in re.findall(r"(?:\./|/)?([A-Za-z0-9_./-]+\.(?:zip|whl|sh|json|txt))", text):
+        for tok in _REF.findall(text):
+            # exemptions judge the whole token (scheme / leading / kept); the
+            # existence check stays on the root-relative form
+            if tok.startswith(("http", "/tmp", "/mnt")):
+                continue
+            m = tok[2:] if tok.startswith("./") else tok.lstrip("/")
             cand = os.path.join(root, m)
-            if "/" in m and not os.path.exists(cand) and not m.startswith(("http", "/tmp", "/mnt")):
+            if "/" in m and not os.path.exists(cand):
                 if len(missing_refs) < 40:
                     missing_refs.append({"script": ins, "ref": m})
     return {"wheels": wheels, "npm_assets": npm, "vendor_assets": vendor[:50],

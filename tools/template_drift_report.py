@@ -34,6 +34,31 @@ def _load(path):
         return json.load(fh)
 
 
+def _shape_error(doc):
+    """Why `doc` is not a template object this report can read, or None. Absent /
+    empty blocks are fine (treated as empty); a present block of the wrong type
+    is a usage error (exit 2), not a crash and not per-character drift."""
+    if not isinstance(doc, dict):
+        return f"root is {type(doc).__name__}, expected an object"
+    sel = doc.get("selectors")
+    if sel and not isinstance(sel, dict):
+        return f"'selectors' is {type(sel).__name__}, expected an object"
+    dl = (sel or {}).get("download")
+    if dl and not isinstance(dl, dict):
+        return f"'selectors.download' is {type(dl).__name__}, expected an object"
+    rows = (dl or {}).get("row_selectors")
+    if rows and not isinstance(rows, list):
+        return f"'selectors.download.row_selectors' is {type(rows).__name__}, expected a list"
+    api = doc.get("api")
+    if api and not isinstance(api, dict):
+        return f"'api' is {type(api).__name__}, expected an object"
+    for k in ("resolutions", "network_patterns"):
+        v = doc.get(k)
+        if v and not isinstance(v, list):
+            return f"'{k}' is {type(v).__name__}, expected a list"
+    return None
+
+
 def _canon(x):
     """Stable string form for set comparison of patterns (str or dict)."""
     if isinstance(x, (dict, list)):
@@ -167,6 +192,10 @@ def main(argv=None):
     except (OSError, ValueError) as e:
         print(f"error: cannot read candidate {args.candidate}: {e}", file=sys.stderr)
         return 2
+    bad = _shape_error(cand)
+    if bad:
+        print(f"error: malformed candidate {args.candidate}: {bad}", file=sys.stderr)
+        return 2
 
     gold_path = args.gold or _default_gold(cand)
     if not gold_path:
@@ -176,6 +205,10 @@ def main(argv=None):
         gold = _load(gold_path)
     except (OSError, ValueError) as e:
         print(f"error: cannot read gold {gold_path}: {e}", file=sys.stderr)
+        return 2
+    bad = _shape_error(gold)
+    if bad:
+        print(f"error: malformed gold {gold_path}: {bad}", file=sys.stderr)
         return 2
 
     host = cand.get("host") or gold.get("host") or "?"

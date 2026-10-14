@@ -18,9 +18,17 @@ Usage:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# repo root on sys.path so the documented `python tools/redaction_dial_report.py`
+# imports bulk_downloader like its sibling tools do.
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 
 def dial_delta(profile: Dict[str, Any], defaults: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -52,9 +60,15 @@ def build_report(profile: Optional[Dict[str, Any]] = None,
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    argv = argv if argv is not None else sys.argv[1:]
+    ap = argparse.ArgumentParser(description="Redaction-dial report (X-RED-1).")
+    ap.add_argument("--check", action="store_true",
+                    help="exit 1 if redaction is reduced below safe defaults")
+    ap.add_argument("--json", action="store_true")
+    # parse before reading the profile: a typo (--chek) must be a usage error
+    # (exit 2), never a silent rc=0 that turns the --check gate off.
+    args = ap.parse_args(argv)
     rep = build_report()
-    if "--json" in argv:
+    if args.json:
         print(json.dumps(rep, indent=2, sort_keys=True, default=str))
     else:
         verdict = ("REDUCED below safe defaults -- captures are LOCAL-ONLY, "
@@ -64,7 +78,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"  {d['category']}: active={d['active']!r} default={d['default']!r}")
         if not rep["deltas"]:
             print("  (no dial deviates from defaults)")
-    if "--check" in argv and rep["reduced_redaction"]:
+    if args.check and rep["reduced_redaction"]:
         return 1
     return 0
 

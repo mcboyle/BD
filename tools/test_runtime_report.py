@@ -23,6 +23,10 @@ class ReportEvidenceError(ValueError):
     """The report cannot truthfully render its skip authority."""
 
 
+class SummaryError(ValueError):
+    """An explicit --summary path that is missing, unreadable or unparseable."""
+
+
 def _skip_baseline(root):
     p = os.path.join(root, "tests", "SKIP_BASELINE.json")
     try:
@@ -37,11 +41,20 @@ def build(root=".", summary=None):
     cov = TC.catalog(root)
     base = _skip_baseline(root)
     run = None
-    if summary and os.path.isfile(summary):
-        m = _SUM.search(open(summary).read())
-        if m:
-            run = dict(zip(("total", "passed", "failed", "skipped"),
-                           map(int, m.groups())))
+    if summary:
+        # an explicit path that cannot be read/parsed is an error, never
+        # rendered as "no SUMMARY.txt provided"
+        try:
+            with open(summary, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError as exc:
+            raise SummaryError(f"cannot read --summary {summary}: {exc}") from exc
+        m = _SUM.search(text)
+        if not m:
+            raise SummaryError(f"--summary {summary} has no "
+                               "'Total: N | Passed: N | Failed: N | Skipped: N' line")
+        run = dict(zip(("total", "passed", "failed", "skipped"),
+                       map(int, m.groups())))
     return {"inventory": inv, "coverage": cov, "skip_baseline": base, "last_run": run}
 
 
@@ -75,7 +88,11 @@ def main(argv=None):
     ap.add_argument("--root", default="."); ap.add_argument("--summary")
     ap.add_argument("--outdir", default="reports")
     a = ap.parse_args(argv)
-    d = build(a.root, a.summary)
+    try:
+        d = build(a.root, a.summary)
+    except SummaryError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     p = _RC.write_report(a.outdir, "test_health.md", _md(d))
     print("wrote", p)
     return 0
