@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1851 - train281i: row
+
+T281i-B (train-2, integrator D2-D) on main 44640c61 (T281h-D merged) (18 members; product train; legs BOARD per O1672/BOARDED-for-integration.md; O3122 auto promote+deploy on green). Members path-disjoint (ORDER-pm-B-landing-throughput-1412Z item 3); selection T281i/SELECT-train2-1450Z.md.
+FIX: queue-headers-redact r1 -- queue GET routes mask custom_headers values; templates; backup sensitive member (HIGH).
+FIX: ssrf-public-literal r1 -- ssrf_transport PUBLIC_ONLY refuses non-public IP literals + redirect hop (HIGH).
+FIX: health-core-fix r1 -- app core health/build_identity + operator-credential helper.
+FIX: spa-extract-fix r1 -- spa_media_extract F2 F5 F7 F10.
+FIX: scrapers-fix r2 -- plugins-exec-surface community scrapers + tool_bridge; F8 closed.
+FIX: pair-admission r1 -- pair-code mint/redeem admission (HIGH).
+FIX: detect-misc-fix r1 -- deep_detect F3 F4 ReDoS, F6, F8 local-host manifest variants, F9 same-origin.
+FIX: interop-fix r2 -- interop containment + CRX extraction; R196-D F1 closed.
+FIX: cli-dash-fix r2 -- cli dashboard/terminal + scrapling legacy bound; R201-C F1 F2 closed.
+FIX: cli-tools-fix r1 -- toolchain, 12 findings incl. install_bdsuite.sh F1.
+FIX: templates-fix r1 -- template-manager HTML injection F8, drift-report path F9, inventory 500 F10.
+FIX: widgets-fix r1 -- app-core widgets store.
+FIX: player-config-redos r1 -- player_config linear call-head scan + shared per-call budget (MED ReDoS).
+FIX: ext-routing r1 -- extension lookup/route_urls F2-F8.
+FIX: login-flow-scrub r1 -- macro_recorder scrubs pass|pwd|secret|token selectors; flow files 0600 (MED).
+FIX: stream-token r1 -- app_stream/stream_relay token scope (R231-C, R232-D, R240-D).
+FIX: session-misc-fix r2 -- session/auth/capture misc; R210-D F22 closed (R245-D).
+FIX: search-extractor-bounds r1 -- search_extractor bounds (LOW, R246-C).
+
+
 ## v3.66.1850 - train281h: row
 
 T281h-D on main 88ea4929 (T281g-B merged) (13 members; product train; legs BOARD per O1672/BOARDED-for-integration.md; O3122 auto promote+deploy on green). No path overlap between members or with T281g-A members.

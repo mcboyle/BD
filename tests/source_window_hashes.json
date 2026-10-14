@@ -307,12 +307,12 @@
     {
       "bytes": 6012,
       "key": "tests/test_v3_43_46_audit.py::test_x_bd_token_header_accepted_as_bearer::src[pos:pos + 6000]::1",
-      "sha256": "638854454e1a947ce7811514262de6436faa1d6ee74ebfc378768d52498dbc86"
+      "sha256": "80d75c89aade18d274a2842fce1bf7dc143200e43938934fb8694cdf0477a122"
     },
     {
       "bytes": 6012,
       "key": "tests/test_v3_43_46_audit.py::test_x_bd_token_matches_authorization_bearer_semantics::src[pos:pos + 6000]::1",
-      "sha256": "638854454e1a947ce7811514262de6436faa1d6ee74ebfc378768d52498dbc86"
+      "sha256": "80d75c89aade18d274a2842fce1bf7dc143200e43938934fb8694cdf0477a122"
     },
     {
       "bytes": 400,
