@@ -298,7 +298,9 @@ export function Home() {
         // width; WidthProvider injects it via ResizeObserver. The grid
         // CSS does its own margins; we strip our outer padding to let
         // the grid breathe correctly.
-        <div className={cn("dashboard-grid", editMode && "dashboard-grid-edit")}>
+        // F059: WidthProvider paints its first frame at a 1280px default before it measures; clipping x keeps
+        // that frame from scrolling a 390px phone sideways when the dashboard data arrives after first paint.
+        <div className={cn("dashboard-grid overflow-x-clip", editMode && "dashboard-grid-edit")}>
           <ResponsiveGridLayout
             layouts={layouts}
             breakpoints={BREAKPOINTS}
