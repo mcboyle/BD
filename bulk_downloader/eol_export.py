@@ -33,6 +33,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from .exports import csv_cells as _csv_cells
+
 
 def full_export(dest_dir: str, *,
                s_cfg: Optional[dict] = None,
@@ -92,7 +94,7 @@ def full_export(dest_dir: str, *,
         w.writerow(["id", "site_id", "site_name", "url", "status",
                     "filename", "file_size", "ts", "message"])
         for r in rows:
-            w.writerow([str(r[i] or "") for i in range(9)])
+            w.writerow(_csv_cells([r[i] or "" for i in range(9)]))
         data = buf.getvalue().encode("utf-8")
         path.write_bytes(data)
         out["files_written"].append(str(path))
@@ -118,7 +120,7 @@ def full_export(dest_dir: str, *,
         w.writerow(["id", "ts", "site_id", "source_url",
                     "final_filename", "file_size", "sha256"])
         for r in rows:
-            w.writerow([str(r[i] or "") for i in range(7)])
+            w.writerow(_csv_cells([r[i] or "" for i in range(7)]))
         data = buf.getvalue().encode("utf-8")
         path.write_bytes(data)
         out["files_written"].append(str(path))

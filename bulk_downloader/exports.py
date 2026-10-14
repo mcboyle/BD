@@ -42,6 +42,13 @@ def _csv_neutralize(cell: str) -> str:
     return cell
 
 
+def csv_cells(values) -> list:
+    """One CSV row's cells as text, each neutralized: None -> "", anything
+    else ``str(value)``. Every history / ledger CSV writer builds its rows
+    with this so a site-controlled cell is never emitted raw."""
+    return [_csv_neutralize("" if v is None else str(v)) for v in values]
+
+
 def to_csv(filter_dict: Optional[dict] = None,
           *, columns: Optional[list] = None,
           rows: Optional[list] = None) -> bytes:
@@ -121,6 +128,12 @@ def to_m3u(filter_dict: Optional[dict] = None,
 
 # ─── OPML ─────────────────────────────────────────────────────────────
 
+def _xml_attr(value) -> str:
+    """Text for a double-quoted XML attribute: & < > " escaped."""
+    return (str(value).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
 def to_opml(s_cfg: dict) -> bytes:
     """Render configured sites as an OPML 2.0 outline. RSS readers
     can import this to subscribe to each site's "newest" feed (if BD
@@ -138,8 +151,8 @@ def to_opml(s_cfg: dict) -> bytes:
         '  <body>',
     ]
     for sid, cfg in (s_cfg or {}).items():
-        name = (cfg or {}).get("name", sid).replace("&", "&amp;").replace('"', "&quot;")
-        sid_safe = sid.replace("&", "&amp;").replace('"', "&quot;")
+        name = _xml_attr((cfg or {}).get("name", sid))
+        sid_safe = _xml_attr(sid)
         feed_url = f"/api/recent/{sid_safe}.rss"  # speculative — fine
         lines.append(
             f'    <outline type="rss" text="{name}" '

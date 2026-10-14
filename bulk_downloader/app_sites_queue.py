@@ -525,6 +525,11 @@ def api_queue_save_template(sid):
                     "saved": len(urls), "name": name})
 
 
+_HISTORY_EXPORT_COLS = ("url", "status", "filename", "file_size", "message", "ts")
+# Was db_search's default of 200 rows, with nothing saying rows were dropped.
+_HISTORY_EXPORT_MAX_ROWS = 100000
+
+
 @sites_bp.route("/api/sites/<sid>/history/export")
 def api_export(sid):
     runners = _app_runners()
@@ -538,12 +543,24 @@ def api_export(sid):
     # history export must now use /history/export.
     if sid not in runners: return jsonify({"error":"Not found"}),404
     status=request.args.get("status"); fmt=request.args.get("fmt","txt")
+    if fmt not in ("csv","txt"):
+        # was: any other fmt silently answered the txt URL list
+        return jsonify({"error":"fmt must be csv or txt"}),400
     if fmt=="csv":
-        rows=db_search(site_id=sid,status=status)
-        def gen():
-            yield "url,status,filename,file_size,message,ts\n"
-            for r in rows: yield f"{r['url']},{r['status']},{r['filename']},{r['file_size']},{r['message']},{r['ts']}\n"
-        return Response(gen(),mimetype="text/csv",headers={"Content-Disposition":f"attachment;filename={sid}_history.csv"})
+        import csv, io
+        from .exports import csv_cells
+        # one row past the cap tells a full export from a cut one
+        rows=db_search(site_id=sid,status=status,limit=_HISTORY_EXPORT_MAX_ROWS+1)
+        truncated=len(rows)>_HISTORY_EXPORT_MAX_ROWS
+        rows=rows[:_HISTORY_EXPORT_MAX_ROWS]
+        buf=io.StringIO()
+        w=csv.writer(buf,quoting=csv.QUOTE_MINIMAL,lineterminator="\n")
+        w.writerow(_HISTORY_EXPORT_COLS)
+        for r in rows: w.writerow(csv_cells(r.get(c) for c in _HISTORY_EXPORT_COLS))
+        return Response(buf.getvalue(),mimetype="text/csv",headers={
+            "Content-Disposition":f"attachment;filename={sid}_history.csv",
+            "X-BD-Export-Rows":str(len(rows)),
+            "X-BD-Export-Truncated":"1" if truncated else "0"})
     return Response(runners[sid].export_urls(status),mimetype="text/plain",
                     headers={"Content-Disposition":f"attachment;filename={sid}_{status or 'all'}.txt"})
 
