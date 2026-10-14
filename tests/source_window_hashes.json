@@ -112,7 +112,7 @@
     {
       "bytes": 2000,
       "key": "tests/test_v3_43_30_watch_folder.py::test_watch_thread_stopped_on_site_delete::src[del_pos:del_pos + 2000]::1",
-      "sha256": "b2b86f0f34d03044602290a57562ae08bf7181cc4a7113fa20fee916b17fbe0c"
+      "sha256": "dcc58be2a32a903fb8643e050c6aa54ecee204bbd7386e223579bf1419894bf2"
     },
     {
       "bytes": 3007,
@@ -347,7 +347,7 @@
     {
       "bytes": 2006,
       "key": "tests/test_v3_43_49_teach_credentials.py::test_runner_logs_credential_capture::src[pos:pos + 2000]::1",
-      "sha256": "09ef65f18b0d2c436e94eebf4fe9071254f86153dc0744933a7dff70b939c6cd"
+      "sha256": "3e98f347028c59f2236cecd3bdb73d3b049163df1b5da4f482b7d322155428b0"
     },
     {
       "bytes": 1502,

@@ -459,7 +459,9 @@ def test_watch_thread_stopped_on_site_delete():
     src = _APP_SRC()
     del_pos = src.find("def api_delete(sid)")
     assert del_pos > 0
-    del_body = src[del_pos:del_pos + 2000]
+    # T281g plaintext-secret-class r1 inserted ~45 lines (vault handling) right after api_delete in app_sites_id_core.py:
+    # _watch_stops moved from +138 to +2159 chars and .set() from +1353 to +3374; window widened 2000 -> 4000.
+    del_body = src[del_pos:del_pos + 4000]
     assert "_watch_stops" in del_body
     assert ".set()" in del_body  # stop event triggered
 

@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1849 - train281g: row
+
+T281g-B on main 7927017d (11 members; session-jar r1 and reserve-toctou r1 bounced after the T281g-A band; product train after T281f; legs BOARD per O1672/BOARDED-for-integration.md; O3122 overnight product trains auto promote+deploy on green). Members in apply order; the app.py chain and the runner_transport.py chain are kept in one train (sequential merge-tree 0 CONFLICT; dat-retry's _TRANSIENT_DOWNLOAD_ERROR_RE hunk is the UNION of ddt-fix + dat-retry, resolved in place, O1319).
+FIX: q-misc L7 r1 -- bulk_downloader/app.py: JSON 415 errorhandler for /api/ + /cockpit/api/ (R133-C).
+FIX (HIGH SECURITY): cookie-file-roots r4 -- cookie_file / download_dir / spillover_dirs path roots on every write route; app.py, app_config.py, app_sites*.py, user_templates.py (R141-C, R142-A; R113-D F1 + R114-C X1 closed).
+FIX (SECURITY): app-store-fix r1 -- app.py CSRF Referer/csrf_bootstrap admissions removed, session absolute TTL, store-raw vpn secrets via vault (R174-A).
+FIX (SECURITY): plaintext-secret-class r1 -- site/config import + learn vault passwords, reap on delete; app_config.py, app_sites_collection.py, app_sites_id_core.py, runner_auth.py (R188-D).
+FIX: ddt-fix r2 -- runner_transport.py resume/206/transient/CL/ETag/ENOSPC F1-F6 + F5-REG weak-validator discard (R143-C).
+FIX: dat-retry-class r1 -- retry classification F7 F13 F14; retry_policy.py, app_retry_policy.py, runner_transport.py (R165-D; union hunk with ddt-fix).
+FIX (HIGH data loss): recorder-state-fix r1 -- live_recorder.py recordings.json atomic seq-numbered save + .bak/.corrupt recovery + alert (R179-D).
+FIX (SECURITY): shares-oidc-fix r1 -- CSRF guard on shares create/revoke + dev_db wal_checkpoint/sql; OIDC bd_user cookie secure on https (R177-C).
+FIX: captcha-relay-fix r1 -- session-auth-capture relay F5 F6 F9 F15 F16 F18 + F17 half; app_captcha_relay.py, captcha_relay.py (R185-A; band waived by PM, PR CI is the gate).
+FIX: bk-rest r1 -- backup/restore F8-F14; app_backup.py, backup.py, backup_verify.py, db_replication.py (R145-A).
+FIX: dhl-fix r2 -- library.py F1-F14 + F7r preload fix (R148-A; F15 owed to ddr-fix).
+
+
 ## v3.66.1848 - train281f: row
 
 T281f on main 2b7ca835 (5 members; GO-supervisor-T281e-A-deploy-0520Z.md "proceed to T281f intake"; legs BOARD per O1672/BOARDED-for-integration.md 04:45Z/04:48Z/05:05Z/05:15Z x2; pins re-verified at assembly; object-level merge-tree probes clean):

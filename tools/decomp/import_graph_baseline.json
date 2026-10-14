@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6128,
+  "edge_count": 6163,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -644,6 +644,7 @@
       "bulk_downloader/profile_sync.py",
       "bulk_downloader/run_history.py",
       "bulk_downloader/runner.py",
+      "bulk_downloader/secrets_store.py",
       "bulk_downloader/selector_drift.py",
       "bulk_downloader/session_keeper.py",
       "bulk_downloader/site_editor.py"
@@ -2790,6 +2791,12 @@
       "bulk_downloader/ytdlp_extractor.py",
       "bulk_downloader/ytdlp_updater.py"
     ],
+    "tests/test_bughunt_bk_rest.py": [
+      "bulk_downloader/app_backup.py",
+      "bulk_downloader/backup.py",
+      "bulk_downloader/backup_verify.py",
+      "bulk_downloader/db_replication.py"
+    ],
     "tests/test_bughunt_ct_fix.py": [
       "bulk_downloader/capacity.py",
       "bulk_downloader/cli_dashboard.py"
@@ -2801,9 +2808,22 @@
       "bulk_downloader/shares.py",
       "bulk_downloader/user_accounts.py"
     ],
+    "tests/test_bughunt_dat_retry_class.py": [
+      "bulk_downloader/app_retry_policy.py",
+      "bulk_downloader/retry_policy.py",
+      "bulk_downloader/runner_transport.py"
+    ],
     "tests/test_bughunt_ddr_fix.py": [
       "bulk_downloader/app_discovery.py",
       "bulk_downloader/discovery.py"
+    ],
+    "tests/test_bughunt_ddt_fix.py": [
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_bughunt_dhl_fix.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/library.py"
     ],
     "tests/test_bughunt_dva_accounts.py": [
       "bulk_downloader/user_accounts.py"
@@ -2833,6 +2853,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/queue_templates.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_bughunt_sri_recorder_state.py": [
+      "bulk_downloader/live_recorder.py"
     ],
     "tests/test_build_identity_is_current.py": [
       "bulk_downloader/app_health.py"
@@ -5565,6 +5588,12 @@
       "bulk_downloader/pipeline_orchestrator.py",
       "bulk_downloader/runner_transport.py"
     ],
+    "tests/test_plaintext_secret_class_vaulted.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/secrets_store.py"
+    ],
     "tests/test_player_config_extractor.py": [
       "bulk_downloader/player_config.py"
     ],
@@ -5626,6 +5655,10 @@
     "tests/test_q_import_export_fixes.py": [
       "bulk_downloader/app.py"
     ],
+    "tests/test_q_misc_l7_json_415.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
     "tests/test_qb_jd_completions_record_the_largest_media_file.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/library.py",
@@ -5666,6 +5699,13 @@
     ],
     "tests/test_rate_adapter.py": [
       "bulk_downloader/rate_adapter.py"
+    ],
+    "tests/test_raw_editors_app_store_fix.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_store_raw_editor.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/widgets_config.py"
     ],
     "tests/test_reap_orphan_tempdirs.py": [
       "tools/reap_orphan_tempdirs.py"
@@ -7170,6 +7210,10 @@
       "bulk_downloader/vpn_runtime.py",
       "bulk_downloader/watch_folder.py"
     ],
+    "tests/test_sac_captcha_relay_fix.py": [
+      "bulk_downloader/app_captcha_relay.py",
+      "bulk_downloader/captcha_relay.py"
+    ],
     "tests/test_satellite_video_validation.py": [
       "bulk_downloader/integrity.py",
       "bulk_downloader/satellite_video.py",
@@ -7290,6 +7334,17 @@
     ],
     "tests/test_settings_center_wiring.py": [
       "bulk_downloader/app_settings_center.py"
+    ],
+    "tests/test_shares_oidc_csrf_cookie.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_dev.py",
+      "bulk_downloader/app_dev_db.py",
+      "bulk_downloader/app_oidc.py",
+      "bulk_downloader/app_shares.py",
+      "bulk_downloader/oidc.py",
+      "bulk_downloader/shares.py",
+      "bulk_downloader/user_accounts.py"
     ],
     "tests/test_single_use_url_fallback.py": [
       "bulk_downloader/constants.py",

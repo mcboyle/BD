@@ -221,7 +221,7 @@ def test_all_persist_chokepoints_gated_and_hook_wired():
                     for q in [_rdir / "runner.py"] + sorted(_rdir.glob("runner_*.py")))
     expected_guards = [
         # CP1 login takeover
-        "if (learned_count or cred_captured or url_captured) and not self._override_suppresses_persist():",
+        "if (learned_count or cred_captured or url_captured or vault_pass) and not self._override_suppresses_persist():",  # T281g plaintext-secret-class r1 added vault_pass to the trigger list; the gate clause is unchanged
         # CP2 download takeover
         "if learned_count and not self._override_suppresses_persist():",
         # CP3 teach commit
