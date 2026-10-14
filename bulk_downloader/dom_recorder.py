@@ -24,7 +24,13 @@ Both are self-contained global-attaching bundles so they can be injected with
 """
 from __future__ import annotations
 
+import json
+import math
+import os
 import sys
+import tempfile
+import time
+import weakref
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -198,6 +204,7 @@ def attach_dom_recorder(page, capture, *, redact: bool = True):
     :func:`session_capture.capture_via_cdp` (which still wires at attach time).
     """
     _log_local_assets_once()
+    _baseline_state_once()
     return capture
 
 
@@ -251,9 +258,12 @@ _ARM_WARNED = False
 def _note_arm_result(ok: bool) -> None:
     global _ARM_FAIL_STREAK, _ARM_WARNED
     if ok:
-        _ARM_FAIL_STREAK = 0
+        if _ARM_FAIL_STREAK:
+            _ARM_FAIL_STREAK = 0
+            _write_state()
         return
     _ARM_FAIL_STREAK += 1
+    _write_state()
     if _ARM_FAIL_STREAK >= _ARM_FAIL_WARN_AT and not _ARM_WARNED:
         _ARM_WARNED = True
         sys.stderr.write(
@@ -300,27 +310,97 @@ def drain_dom_events(page, capture) -> int:
         return 0
     # v3.66.170 (H1): _DRAIN_JS returns {events, dropped}. Tolerate a bare list
     # too, in case a page armed before this upgrade is drained mid-session.
+    # dom-recorder-bounds r1 (F7): both values are page-chosen. A non-list batch
+    # is empty, and a dropped count that is not a finite number >= 0 counts 0,
+    # so a hostile __bd_dom_dropped can neither raise here (the page buffer is
+    # already cleared, so the whole batch would be lost) nor drive the total
+    # negative.
     if isinstance(result, dict):
-        batch = result.get("events") or []
-        dropped = int(result.get("dropped") or 0)
+        batch = result.get("events")
+        dropped = _page_count(result.get("dropped"))
     else:
-        batch = result or []
+        batch = result
         dropped = 0
-    if dropped:
-        _note_dom_dropped(dropped)
-    if not batch:
-        return 0
+    if not isinstance(batch, list):
+        batch = []
+    # dom-recorder-bounds r1 (F6): the in-page 200k cap is the page's to break,
+    # so Python bounds what it keeps: at most _DRAIN_MAX_EVENTS per drain, and
+    # per capture at most _DOM_LOG_MAX_EVENTS events / _DOM_LOG_MAX_BYTES of
+    # event JSON. Events past a bound are counted as dropped, not stored.
+    used = _capture_usage(capture)
     n = 0
     for event in batch:
+        # Count bounds first, so a flood past them costs no per-event work.
+        if n >= _DRAIN_MAX_EVENTS or _dom_log_len(capture, used) >= _DOM_LOG_MAX_EVENTS:
+            dropped += 1
+            continue
         try:
             kwargs = rrweb_to_record_kwargs(event)
-            if kwargs is not None:
-                capture.record_dom_event(**kwargs)
-                n += 1
+            if kwargs is None:
+                continue
+            size = _event_bytes(event)
+            if used["bytes"] + size > _DOM_LOG_MAX_BYTES:
+                dropped += 1
+                continue
+            capture.record_dom_event(**kwargs)
+            used["events"] += 1
+            used["bytes"] += size
+            n += 1
         except Exception:
             # A single malformed event must never crash the capture.
             pass
+    if dropped:
+        _note_dom_dropped(dropped)
     return n
+
+
+# dom-recorder-bounds r1 (F6): Python-side bounds on page-supplied DOM events.
+# A real rrweb session is far below these; a page forging events hits them and
+# the excess is counted in dom_events_dropped (dom_log TRUNCATED warning).
+_DRAIN_MAX_EVENTS = 20_000
+_DOM_LOG_MAX_EVENTS = 200_000
+_DOM_LOG_MAX_BYTES = 96 * 1024 * 1024
+# A page-reported drop count above this is clamped (it is page-chosen).
+_PAGE_COUNT_MAX = 1 << 31
+
+_USAGE: "weakref.WeakKeyDictionary[Any, Dict[str, int]]" = weakref.WeakKeyDictionary()
+
+
+def _page_count(value) -> int:
+    """A page-chosen count as an int in [0, _PAGE_COUNT_MAX]; 0 for anything
+    that is not a finite real number (str, NaN, Infinity, bool, None)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    if isinstance(value, float) and not math.isfinite(value):
+        return 0
+    return min(max(int(value), 0), _PAGE_COUNT_MAX)
+
+
+def _event_bytes(event) -> int:
+    """Size of one page event as compact JSON (the unit of the byte bound)."""
+    try:
+        return len(json.dumps(event, separators=(",", ":"), default=str))
+    except (TypeError, ValueError, RecursionError):
+        return 0
+
+
+def _capture_usage(capture) -> Dict[str, int]:
+    """The events/bytes this module has stored on ``capture`` so far. A capture
+    that cannot be weakly referenced gets a fresh tally (count bound via
+    ``dom_log`` still applies)."""
+    try:
+        used = _USAGE.get(capture)
+        if used is None:
+            used = {"events": 0, "bytes": 0}
+            _USAGE[capture] = used
+        return used
+    except TypeError:
+        return {"events": 0, "bytes": 0}
+
+
+def _dom_log_len(capture, used: Dict[str, int]) -> int:
+    log = getattr(capture, "dom_log", None)
+    return max(len(log) if isinstance(log, list) else 0, used["events"])
 
 
 # v3.66.170 (H1): a non-zero drop count means the in-page buffer hit its 200k
@@ -334,12 +414,83 @@ _DOM_DROPPED_WARNED = False
 def _note_dom_dropped(dropped: int) -> None:
     global _DOM_DROPPED_TOTAL, _DOM_DROPPED_WARNED
     _DOM_DROPPED_TOTAL += int(dropped)
+    _write_state()
     if not _DOM_DROPPED_WARNED:
         _DOM_DROPPED_WARNED = True
         sys.stderr.write(
-            "  dom_recorder: WARNING in-page DOM buffer hit its cap and dropped "
-            f"{_DOM_DROPPED_TOTAL} event(s) — the captured dom_log is TRUNCATED, "
-            "not complete (drain the buffer more frequently if this recurs)\n")
+            "  dom_recorder: WARNING a DOM event buffer hit its cap (in-page, "
+            f"per-drain or per-capture) and dropped {_DOM_DROPPED_TOTAL} "
+            "event(s) — the captured dom_log is TRUNCATED, not complete (drain "
+            "the buffer more frequently if this recurs)\n")
+
+
+# dom-recorder-bounds r1 (F8): the capture runs as a subprocess (cockpit
+# capture_session task), so these counters live in THAT process; the Flask
+# process serving /api/data/dom_recorder_status only ever saw its own zeros.
+# The capture side writes them to a small state file under BD_HOME (falling
+# back to the cwd, as app.py does) on every change, and get_status reads it.
+# Last writer wins when two captures run at once.
+_STATE_NAME = ".dom_recorder_state.json"
+_STATE_MAX_BYTES = 64 * 1024
+_STATE_BASELINED = False
+
+
+def _state_path() -> Path:
+    return Path(os.environ.get("BD_HOME") or os.getcwd()) / _STATE_NAME
+
+
+def _write_state() -> None:
+    """Capture side: atomically replace the state file. Best-effort; a write
+    failure never disturbs the capture."""
+    try:
+        path = _state_path()
+        body = json.dumps({"pid": os.getpid(), "updated": time.time(),
+                           "dom_events_dropped": _DOM_DROPPED_TOTAL,
+                           "arm_fail_streak": _ARM_FAIL_STREAK})
+        fd, tmp = tempfile.mkstemp(prefix=_STATE_NAME + ".", dir=str(path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    except Exception:
+        pass
+
+
+def _baseline_state_once() -> None:
+    """A new capture process starts its state from its own (zero) counters, so
+    a previous capture's drops do not stand for this one."""
+    global _STATE_BASELINED
+    if _STATE_BASELINED:
+        return
+    _STATE_BASELINED = True
+    _write_state()
+
+
+def _read_state() -> Optional[Dict[str, Any]]:
+    """Flask side: the capture process's counters, or None when there is no
+    readable state file. Values are coerced like page counts."""
+    try:
+        with open(_state_path(), "rb") as fh:
+            raw = fh.read(_STATE_MAX_BYTES + 1)
+        if len(raw) > _STATE_MAX_BYTES:
+            return None
+        data = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return {"dom_events_dropped": _page_count(data.get("dom_events_dropped")),
+            "arm_fail_streak": _page_count(data.get("arm_fail_streak")),
+            "counters_pid": _page_count(data.get("pid")),
+            "counters_updated": (data["updated"] if isinstance(data.get("updated"), (int, float))
+                                 and not isinstance(data.get("updated"), bool)
+                                 and math.isfinite(data["updated"]) else None)}
 
 
 _LOCAL_LOGGED = False
@@ -431,12 +582,20 @@ def snapshot_dom(page, capture=None, *, label: Optional[str] = None):
 def get_status() -> Dict[str, Any]:
     """Introspection for diagnostics: which vendored assets are present, plus
     the v3.66.170 capture-health counters (dropped DOM events at the buffer cap;
-    consecutive arm failures)."""
-    return {
+    consecutive arm failures). The counters come from the capture process's
+    state file when there is one (``counters_source`` "capture"), else from
+    this process (``counters_source`` "process")."""
+    out = {
         "rrweb_present": _RRWEB_JS.is_file(),
         "rrweb_bytes": _RRWEB_JS.stat().st_size if _RRWEB_JS.is_file() else 0,
         "snapdom_present": _SNAPDOM_JS.is_file(),
         "snapdom_bytes": _SNAPDOM_JS.stat().st_size if _SNAPDOM_JS.is_file() else 0,
         "dom_events_dropped": _DOM_DROPPED_TOTAL,
         "arm_fail_streak": _ARM_FAIL_STREAK,
+        "counters_source": "process",
     }
+    state = _read_state()
+    if state is not None:
+        out.update(state)
+        out["counters_source"] = "capture"
+    return out

@@ -8,7 +8,7 @@
     "bulk_downloader/extraction_core.py": "5b6248a5c9e664abdb0cfd27ad1d2e311f4563d450bc20531c4b21ad8a2ceac9",
     "bulk_downloader/session_capture.py": "8923036ff308d7932ab14539e48132fac924c06b5f5f3358fe76dbcc6bad7c6e",
     "bulk_downloader/dom_capture.py": "0559903d0b15916295c2c7f991b7dd02900e096ea485cd078e3f2bd6dcf04879",
-    "bulk_downloader/dom_recorder.py": "1657d0a0e39917ae26ba7aa1629ff3d2672efea84e9a881ec090c292f1cddce5",
+    "bulk_downloader/dom_recorder.py": "b822118329987df517448255917934a9ce85bde96277ba8effea0aa80cc8bc7f",
     "bulk_downloader/capture_bodies.py": "6c7f5c9a87510ccaa79e8babfd57ccbb9cadd92186ef0dd266341c3963d3048a",
     "tools/capture_session.py": "5ef0f9520284a7419b67b38bade17c419e2d9c396886c7e8f67771de570e15a8",
     "tools/build_release.py": "79bf462779333dc4c2d0bcd564aa9375a5e4e384e8e5d9706654d4cf5bd1706c"
@@ -34,6 +34,13 @@
       "new_sha256": "8923036ff308d7932ab14539e48132fac924c06b5f5f3358fe76dbcc6bad7c6e",
       "reason": "O1789 session-misc-fix r2 (S66-D): F22 negative CDP wallTime/timestamp ignored (R210-D REFUTE), on r1 ffd2c6ca",
       "declared_at": "2026-10-14T12:26:48Z"
+    },
+    {
+      "file": "bulk_downloader/dom_recorder.py",
+      "old_sha256": "1657d0a0e39917ae26ba7aa1629ff3d2672efea84e9a881ec090c292f1cddce5",
+      "new_sha256": "b822118329987df517448255917934a9ce85bde96277ba8effea0aa80cc8bc7f",
+      "reason": "dom-recorder-bounds r1 F6/F7/F8",
+      "declared_at": "2026-10-14T12:53:06Z"
     }
   ]
 }
