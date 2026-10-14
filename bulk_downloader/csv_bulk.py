@@ -327,6 +327,16 @@ def _rows_from_records(records):
     return rows, errors
 
 
+def _csv_records(text: str):
+    """Every record a STRICT csv.reader finds in `text` (a cell may span
+    lines); [] when the text is not well-formed CSV — a closing quote not
+    followed by a delimiter, a quote left open, an over-long cell."""
+    try:
+        return list(csv.reader(io.StringIO(text, newline=""), strict=True))
+    except csv.Error:
+        return []
+
+
 def parse_csv(text: str):
     """Parse import CSV text. Returns (rows, errors).
 
@@ -334,20 +344,56 @@ def parse_csv(text: str):
     must be the header and must contain a 'login_url' column. The
     header may appear anywhere — data-first or comments-first templates
     both parse.
+
+    A leading UTF-8 byte-order mark (Excel's "CSV UTF-8") is dropped, and
+    a quoted cell may hold line breaks: lines are gathered until their
+    quotes balance, and when that is exactly one well-formed record it is
+    one row, reported under the line it starts on. Anything else — a quote
+    that is never closed, or stray quotes that do not form one well-formed
+    record — is read one line per row, as before, so no line is lost.
+    Quote parity is carried from line to line, never re-counted: the cost
+    stays linear in the input however long a quote stays open.
     """
+    if text and text.startswith("\ufeff"):
+        text = text[1:]
     if not text or not text.strip():
         return [], [(0, "empty file")]
     records = []
-    for i, raw in enumerate(text.splitlines(), 1):
-        s = raw.strip()
-        if not s or s.startswith("#"):
-            continue
-        vals = next(csv.reader([raw]), [])
+
+    def _add(lineno, vals):
         if not records:
             header = [h.strip().lower() for h in vals]
-            records.append((i, header, vals))
+            records.append((lineno, header, vals))
         else:
-            records.append((i, records[0][1], vals))
+            records.append((lineno, records[0][1], vals))
+
+    def _add_lines(lines):
+        for i, raw in lines:
+            s = raw.strip()
+            if not s or s.startswith("#"):
+                continue
+            _add(i, next(csv.reader([raw]), []))
+
+    pending: list[tuple[int, str]] = []
+    quote_open = False
+    for i, raw in enumerate(text.splitlines(), 1):
+        if not pending:
+            s = raw.strip()
+            if not s or s.startswith("#"):
+                continue
+        pending.append((i, raw))
+        if raw.count('"') % 2:
+            quote_open = not quote_open
+        if quote_open:
+            continue
+        found = (_csv_records("\n".join(line for _, line in pending))
+                 if len(pending) > 1 else [])
+        if len(found) == 1:
+            _add(pending[0][0], found[0])
+        else:
+            _add_lines(pending)
+        pending = []
+    _add_lines(pending)
     return _rows_from_records(records)
 
 
