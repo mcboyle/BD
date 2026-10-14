@@ -24,13 +24,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bulk_downloader.multi_site_benchmark import multi_site_run  # noqa: E402
 
 
+def _wacz_capture_member(names):
+    """archive/capture.json first (dom_analyzer.load_capture's preference),
+    then a member named exactly capture.json; never x_capture.json."""
+    return (next((n for n in names if n.endswith("archive/capture.json")), None)
+            or next((n for n in names if n.rsplit("/", 1)[-1] == "capture.json"),
+                    None))
+
+
 def _load(path):
-    if path.endswith(".wacz"):
+    if path.lower().endswith(".wacz"):
         with zipfile.ZipFile(path) as z:
-            n = [x for x in z.namelist() if x.endswith("capture.json")]
+            n = _wacz_capture_member(z.namelist())
             if not n:
                 raise SystemExit(f"no capture.json inside {path}")
-            return json.loads(z.read(n[0]))
+            return json.loads(z.read(n))
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -44,6 +52,9 @@ def _cmd_run(args):
         # earlier capture pair and the run would cover fewer sites than given
         raise SystemExit(f"duplicate --site name(s) {repeated}: "
                          f"{len(names)} sites given, each needs its own name")
+    if len(names) < 2:
+        # a cross-site confirmation from one site is not one
+        raise SystemExit(f"need >=2 --site to compare sites, got {len(names)}")
     for spec in args.site:
         name, a, b = spec[0], spec[1], spec[2]
         pairs[name] = (_load(a), _load(b))

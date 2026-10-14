@@ -13,7 +13,8 @@ Confirmation criteria (from MULTI_SITE_BENCHMARK_SPEC.md):
   * a reusable_class is CONFIRMED when the same class reproduces on >=2 sites
     with DIFFERENT instances (rule transfers, instance is local).
   * a framework-level method property (e.g. goal_selection being the lone robust
-    sensitivity conclusion) is CONFIRMED when it holds on ALL sites.
+    sensitivity conclusion) is CONFIRMED when it holds on ALL sites, and there
+    are at least 2 of them: one site is a snapshot, not a transfer.
   * a site_specific label is CONFIRMED when the conclusion's OUTCOME differs
     across sites (e.g. goal classification: direct_file here, unknown there) —
     i.e. it correctly did not over-generalize.
@@ -47,22 +48,22 @@ def site_profile(wb_dict: Dict[str, Any]) -> Dict[str, Any]:
     imp = wb_dict.get("impact") or {}
     gen = wb_dict.get("generalization") or {}
     sens = wb_dict.get("sensitivity") or {}
-    slots = sk.get("skeleton_slots", [])
+    slots = [s for s in sk.get("skeleton_slots") or [] if isinstance(s, dict)]
+    classes = [c for c in gen.get("reusable_classes") or [] if isinstance(c, dict)]
     return {
         "goal_host": sk.get("host"),
         "goal_classification": (imp.get("goal_classification") or {}).get("type"),
         "new_provider_required": imp.get("new_provider_required"),
-        "signing_params": [p.get("param") for p in sk.get("signing_params", [])],
+        # a signing entry with no param name is not a marker to compare
+        "signing_params": [p.get("param") for p in sk.get("signing_params") or []
+                           if isinstance(p, dict) and p.get("param")],
         "identity_slot_count": sum(1 for s in slots if s.get("role") == "identity"),
         "rendition_slot_count": sum(1 for s in slots
                                     if s.get("role") == "rendition"),
-        "reusable_classes": [c.get("class") for c in
-                             gen.get("reusable_classes", [])],
+        "reusable_classes": [c.get("class") for c in classes],
         # which instances each class was seen with on this site; None when the
         # workbench output carries only the count (no "instance_ids")
-        "reusable_class_instances": {
-            c.get("class"): _instance_ids(c.get("instance_ids"))
-            for c in gen.get("reusable_classes", [])},
+        "reusable_class_instances": _class_instances(classes),
         "framework_level_count": len(gen.get("framework_level", [])),
         "site_specific_count": len(gen.get("site_specific", [])),
         "sensitivity_robust": list(sens.get("robust_conclusions") or []),
@@ -75,6 +76,22 @@ def _instance_ids(raw: Any) -> Any:
     if not isinstance(raw, list):
         return None
     return sorted(str(i) for i in raw)
+
+
+def _class_instances(classes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Instance ids per class name. A class listed more than once on a site is
+    merged, never last-wins: the union of its ids, or None if any of its
+    entries names no ids (the count alone cannot be merged)."""
+    out: Dict[str, Any] = {}
+    for c in classes:
+        name, ids = c.get("class"), _instance_ids(c.get("instance_ids"))
+        if name not in out:
+            out[name] = ids
+        elif out[name] is None or ids is None:
+            out[name] = None
+        else:
+            out[name] = sorted(set(out[name]) | set(ids))
+    return out
 
 
 def _instance_decision(by_site: Dict[str, Any]) -> str:
@@ -91,11 +108,14 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """Cross-site comparison of the generalization labels. Pure function of the
     per-site profiles."""
     names = list(profiles)
+    # a profile missing a field (partial / hand-built) reads as empty, not a crash
+    classes_of = {n: set(p.get("reusable_classes") or []) for n, p in profiles.items()}
+    ident = {n: p.get("identity_slot_count") or 0 for n, p in profiles.items()}
 
     # reusable_class: reproduced on >=2 sites (confirmed) vs only 1 (site-local)
     cls_count: Counter = Counter()
-    for p in profiles.values():
-        for c in set(p["reusable_classes"]):
+    for cs in classes_of.values():
+        for c in cs:
             cls_count[c] += 1
     reproduced = sorted(c for c, n in cls_count.items() if n >= 2)
     site_local = sorted(c for c, n in cls_count.items() if n == 1)
@@ -104,7 +124,7 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     cls_instances: Dict[str, Dict[str, Any]] = {}
     for c in reproduced:
         by_site = {n: _instance_ids((p.get("reusable_class_instances") or {}).get(c))
-                   for n, p in profiles.items() if c in p["reusable_classes"]}
+                   for n, p in profiles.items() if c in classes_of[n]}
         cls_instances[c] = {"decision": _instance_decision(by_site),
                             "instances_by_site": by_site}
     confirmed = [c for c in reproduced if cls_instances[c]["decision"] == "different"]
@@ -112,22 +132,23 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     undecidable = [c for c in reproduced
                    if cls_instances[c]["decision"] == "undecidable"]
 
-    # framework-level method property: robust on ALL sites (set intersection)
-    robust_sets = [set(p["sensitivity_robust"]) for p in profiles.values()]
-    robust_across = sorted(set.intersection(*robust_sets)) if robust_sets else []
+    # framework-level method property: robust on ALL sites (set intersection),
+    # and "all" needs >=2 sites -- one site's robust set transferred nowhere
+    framework_decidable = len(profiles) >= 2
+    robust_sets = [set(p.get("sensitivity_robust") or []) for p in profiles.values()]
+    robust_across = (sorted(set.intersection(*robust_sets))
+                     if framework_decidable else [])
 
     # segment-role: did identity detection reproduce everywhere? where over-split?
-    seg = {n: {"identity": p["identity_slot_count"],
-               "rendition": p["rendition_slot_count"]}
+    seg = {n: {"identity": ident[n],
+               "rendition": p.get("rendition_slot_count") or 0}
            for n, p in profiles.items()}
     # "reproduced on all sites" needs a site: all() of nothing is not a result
-    role_reproduced_all = bool(profiles) and all(
-        p["identity_slot_count"] >= 1 for p in profiles.values())
-    over_split = {n: p["identity_slot_count"] for n, p in profiles.items()
-                  if p["identity_slot_count"] > _OVER_SPLIT_THRESHOLD}
+    role_reproduced_all = bool(profiles) and all(i >= 1 for i in ident.values())
+    over_split = {n: i for n, i in ident.items() if i > _OVER_SPLIT_THRESHOLD}
 
     # goal classification: site-specific OUTCOME (varies => the local label held)
-    classification = {n: p["goal_classification"] for n, p in profiles.items()}
+    classification = {n: p.get("goal_classification") for n, p in profiles.items()}
     # a site with NO classification (None) has no outcome to differ by; the
     # string "unknown" is an outcome, a missing one is not
     classification_varies = len({c for c in classification.values()
@@ -135,9 +156,10 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
 
     # signing schemes by site — if all distinct, signing-opacity was tested
     # across genuinely different schemes
-    signing = {n: p["signing_params"] for n, p in profiles.items()}
+    signing = {n: [s for s in p.get("signing_params") or [] if s]
+               for n, p in profiles.items()}
     # an unsigned site (no signing params) is not a signing scheme
-    distinct_schemes = len({tuple(sorted(s)) for s in signing.values() if s})
+    distinct_schemes = len({tuple(sorted(map(str, s))) for s in signing.values() if s})
 
     return {
         "sites": names,
@@ -152,6 +174,7 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         "reusable_class_instances": cls_instances,
         # CONFIRMED framework-level method property
         "sensitivity_robust_across_all": robust_across,
+        "framework_level_decidable": framework_decidable,
         # segment-role rule
         "segment_role_reproduced_all_sites": role_reproduced_all,
         "segment_role_slots": seg,
@@ -178,7 +201,7 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
                  "different instances (decided from instance ids; a class whose "
                  "instances a site does not name is undecidable, not confirmed); "
                  "a confirmed framework-level property is "
-                 "robust on ALL sites; a confirmed site_specific label has an "
+                 "robust on ALL of >=2 sites; a confirmed site_specific label has an "
                  "outcome that VARIES across sites (it correctly did not "
                  "over-generalize); an anomaly is a rule that reproduced but "
                  "with wrong granularity. Recognition-only: HLS goals that "
