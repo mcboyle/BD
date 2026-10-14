@@ -25,12 +25,21 @@ Two questions it answers once a later same-title capture exists:
 
   2. SECOND-ORDER STABILITY (needs the original pair + the later capture).
      Re-run the workbench on the later capture and compare to the before
-     workbench. `build_transition` reports, per assumption, whether it stayed
-     STABLE / WEAKENED / STRENGTHENED / CHANGED_CATEGORY, and whether the
-     confidence and sensitivity conclusions themselves held: did a contingent
-     ordering become robust, did a weakest-link confidence move because an
-     inferred assumption became observed. This turns sensitivity from a snapshot
-     into a longitudinal claim.
+     workbench. `build_transition` reports, per assumption, one of
+     ASSUMPTION_TRANSITIONS, and whether the confidence and sensitivity
+     conclusions themselves held (a contingent ordering became robust, a
+     decision's weakest-link band moved, a decision or ordering appeared or
+     disappeared).
+
+     The workbench assigns an assumption's stability band and basis from a fixed
+     table keyed by the assumption's KIND (capture_workbench_impl/_common.py
+     _FRAGILITY/_STAB), not from what a capture observed. So on two workbenches
+     built by the same code a shared assumption is always STABLE; across real
+     captures the outcomes are STABLE, APPEARED (only in the later workbench) and
+     DISAPPEARED (only in the before one). STRENGTHENED / WEAKENED /
+     CHANGED_CATEGORY are reported only when the two inputs carry a different
+     band or basis for the same assumption (e.g. a stored --baseline-json written
+     by an older workbench); UNKNOWN when a band is not one of _BAND_ORDER.
 
 POSTURE (load-bearing): recognition-only. No HTTP, no stream assembly, no value
 synthesis. Signing is reported by marker NAME only; every echoed URL is
@@ -38,6 +47,7 @@ query-stripped. Reads `network_log` URLs for path SHAPE only.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
@@ -56,6 +66,17 @@ STRUCTURAL_DRIFT_CHURN = "structural_drift"
 BREAKAGE = "breakage"
 NO_CHURN = "no_churn"
 IDENTITY_CHANGED = "identity_change_unexpected"  # a title change in a same-title run
+# a diff verdict this taxonomy does not know (absent, None, a new constant):
+# never read as "all held"
+UNCLASSIFIED = "unclassified_verdict"
+_KNOWN_VERDICTS = (HELD, RENDITION_DRIFT, IDENTITY_CHANGE,
+                   IDENTITY_AND_RENDITION_CHANGE, STRUCTURAL_DRIFT, MISSING)
+
+# Every per-assumption transition build_transition can report; each is a
+# summary key (0 when none).
+ASSUMPTION_TRANSITIONS = ("stable", "strengthened", "weakened",
+                          "changed_category", "appeared", "disappeared",
+                          "unknown")
 
 # Stability band ordinal — shared with the confidence layer's notion of order.
 _BAND_ORDER = {"low": 0, "low-medium": 1, "medium": 2, "high": 3}
@@ -65,20 +86,33 @@ _BAND_ORDER = {"low": 0, "low-medium": 1, "medium": 2, "high": 3}
 def _same_shape_on_other_host(template: Dict[str, Any],
                               capture: Dict[str, Any]) -> Optional[str]:
     """If the goal host is gone, look for a request with the SAME path shape
-    (segment count + literal segments) on a DIFFERENT host — that is CDN churn
-    (re-hosted), not breakage. Returns the other host, or None. Query is
+    (segment count, literal segments, and each slot's regex — the same shape
+    test the goal matcher applies on the goal host) on a DIFFERENT host — that
+    is CDN churn (re-hosted), not breakage. A template with no path segments
+    has no shape to find elsewhere. Returns the other host, or None. Query is
     stripped; no signing is read."""
-    goal = template.get("goal", {})
-    t_host, t_segs = _parse_template_path(goal.get("path_template", ""))
+    goal = template.get("goal") or {}
+    t_host, t_segs = _parse_template_path(goal.get("path_template") or "")
+    if not t_segs:
+        return None
+    slot_re = {s.get("name"): s.get("regex")
+               for s in goal.get("slots") or [] if isinstance(s, dict)}
     for e in capture.get("network_log") or []:
-        url = e.get("url") or ""
-        host, segs = _segments(url)
-        if host == t_host or len(segs) != len(t_segs):
+        if not isinstance(e, dict):
             continue
-        # literal segments must still line up; slot positions are free
-        ok = all(observed == val for (kind, val), observed in zip(t_segs, segs)
-                 if kind == "lit")
-        if ok and host:
+        host, segs = _segments(e.get("url") or "")
+        if not host or host == t_host or len(segs) != len(t_segs):
+            continue
+        ok = True
+        for (kind, val), observed in zip(t_segs, segs):
+            if kind == "lit":
+                ok = observed == val
+            else:  # slot: non-empty and matches the slot regex if known
+                rx = slot_re.get(val)
+                ok = bool(observed) and not (rx and not re.fullmatch(rx, observed))
+            if not ok:
+                break
+        if ok:
             return host
     return None
 
@@ -90,7 +124,8 @@ def classify_churn(template: Dict[str, Any],
     churn taxonomy. Pure function of the diff result + capture structure."""
     template = migrate_template(template)
     verdict = diff_result.get("verdict")
-    checks = {c["prediction"]: c for c in diff_result.get("checks", [])}
+    checks = {c.get("prediction"): c for c in diff_result.get("checks") or []
+              if isinstance(c, dict)}
     signing = checks.get("signing", {})
     signing_drifted = signing.get("status") and signing["status"] != HELD
 
@@ -124,6 +159,10 @@ def classify_churn(template: Dict[str, Any],
         categories.append(IDENTITY_CHANGED)
         notes.append("the content identity changed — unexpected in a same-title "
                      "temporal run; verify the capture is the same title.")
+    elif verdict not in _KNOWN_VERDICTS:
+        categories.append(UNCLASSIFIED)
+        notes.append(f"diff verdict {verdict!r} is not one the churn taxonomy "
+                     f"knows — not classified, and not read as held.")
 
     # signing churn is orthogonal: it can co-occur with a held goal shape, and
     # for a healthy temporal capture it is the EXPECTED change (tokens rotate).
@@ -146,7 +185,8 @@ def classify_churn(template: Dict[str, Any],
 
     # is this drift expected (signing rotation only) or a real problem?
     real_drift = any(c in (RENDITION_CHURN, CDN_CHURN, STRUCTURAL_DRIFT_CHURN,
-                           BREAKAGE, IDENTITY_CHANGED) for c in categories)
+                           BREAKAGE, IDENTITY_CHANGED, UNCLASSIFIED)
+                     for c in categories)
     return {
         "verdict": verdict,
         "churn_categories": categories,
@@ -177,8 +217,9 @@ def _index_assumptions(draft_dict: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 def _index_confidence(draft_dict: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     dc = (draft_dict.get("decision_confidence") or {})
     out = {}
-    for d in dc.get("decisions", []):
-        key = d.get("category") or d.get("decision")
+    for i, d in enumerate(dc.get("decisions", [])):
+        # a decision naming neither is still reported, under its position
+        key = d.get("category") or d.get("decision") or f"unnamed#{i}"
         out[key] = d
     return out
 
@@ -228,25 +269,27 @@ def build_transition(before: Dict[str, Any],
     confidence: List[Dict[str, Any]] = []
     for key in sorted(set(b_conf) | set(l_conf)):
         b, l = b_conf.get(key), l_conf.get(key)
-        if b and l:
-            confidence.append({
-                "decision": key,
-                "transition": _band_delta(b.get("confidence"),
-                                          l.get("confidence")),
-                "before_confidence": b.get("confidence"),
-                "later_confidence": l.get("confidence"),
-                "before_capped_by": b.get("capped_by"),
-                "later_capped_by": l.get("capped_by"),
-            })
+        # a decision on one side only is reported, not dropped
+        confidence.append({
+            "decision": key,
+            "transition": (_band_delta(b.get("confidence"), l.get("confidence"))
+                           if b and l else "appeared" if l else "disappeared"),
+            "before_confidence": b.get("confidence") if b else None,
+            "later_confidence": l.get("confidence") if l else None,
+            "before_capped_by": b.get("capped_by") if b else None,
+            "later_capped_by": l.get("capped_by") if l else None,
+        })
 
     # sensitivity: did a contingent ordering become robust (or vice versa)?
     b_sens, l_sens = _index_sensitivity(before), _index_sensitivity(later)
     sensitivity: List[Dict[str, Any]] = []
     for node in sorted(set(b_sens) | set(l_sens)):
         bw, lw = b_sens.get(node), l_sens.get(node)
-        if bw is None or lw is None:
-            continue
-        if bw and lw:
+        if bw is None:
+            t = "appeared"  # an ordering only the later workbench ranks
+        elif lw is None:
+            t = "disappeared"
+        elif bw and lw:
             t = "stayed_robust"
         elif (not bw) and (not lw):
             t = "stayed_contingent"
@@ -257,29 +300,28 @@ def build_transition(before: Dict[str, Any],
         sensitivity.append({"assumption": node, "transition": t,
                             "before_robust": bw, "later_robust": lw})
 
+    summary = {t: sum(1 for a in assumptions if a["transition"] == t)
+               for t in ASSUMPTION_TRANSITIONS}
     return {
         "assumptions": assumptions,
         "confidence": confidence,
         "sensitivity": sensitivity,
         "summary": {
-            "stable": sum(1 for a in assumptions if a["transition"] == "stable"),
-            "strengthened": sum(1 for a in assumptions
-                                if a["transition"] == "strengthened"),
-            "weakened": sum(1 for a in assumptions
-                            if a["transition"] == "weakened"),
-            "changed_category": sum(1 for a in assumptions
-                                    if a["transition"] == "changed_category"),
+            **summary,
             "became_robust": sum(1 for s in sensitivity
                                  if s["transition"] == "became_robust"),
             "became_contingent": sum(1 for s in sensitivity
                                      if s["transition"] == "became_contingent"),
         },
-        "note": ("transition over time: an assumption STRENGTHENS when its "
-                 "stability band rises (e.g. an inferred slot becomes observed "
-                 "across a later capture), WEAKENS when it falls, and CHANGES "
-                 "CATEGORY when its basis kind changes. became_robust means a "
-                 "previously weight-contingent ordering held under perturbation "
-                 "in the later capture — the strongest longitudinal signal."),
+        "note": ("transition over time: bands and basis are fixed per "
+                 "assumption kind by the workbench, so between workbenches of "
+                 "the same code a shared assumption is STABLE and the movement "
+                 "is in which assumptions APPEARED or DISAPPEARED; STRENGTHENED/"
+                 "WEAKENED/CHANGED_CATEGORY appear only when the inputs carry "
+                 "different bands or basis for one assumption (e.g. an older "
+                 "stored baseline). became_robust means a previously "
+                 "weight-contingent ordering held under perturbation in the "
+                 "later capture — the strongest longitudinal signal."),
     }
 
 
@@ -298,6 +340,9 @@ def temporal_run(template: Dict[str, Any],
     pair is available to synth a later workbench, also produces the second-order
     transition report. Degrades gracefully and names what is missing.
     """
+    if baseline_pair is not None and len(baseline_pair) != 2:
+        raise ValueError("baseline_pair must be the original (capture_a, "
+                         f"capture_b) pair, got {len(baseline_pair)} item(s)")
     template = migrate_template(template)
     diff = diff_template(template, later_capture)
     churn = classify_churn(template, diff, later_capture)

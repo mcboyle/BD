@@ -34,12 +34,18 @@ from bulk_downloader.temporal_benchmark import (  # noqa: E402
 
 def _load_capture(path):
     """Load a capture from a .wacz (archive/capture.json) or a plain .json."""
-    if path.endswith(".wacz"):
+    if path.lower().endswith(".wacz"):
         with zipfile.ZipFile(path) as z:
-            names = [n for n in z.namelist() if n.endswith("capture.json")]
-            if not names:
+            names = z.namelist()
+            # archive/capture.json first (dom_analyzer.load_capture's
+            # preference), then a member named exactly capture.json
+            name = (next((n for n in names if n.endswith("archive/capture.json")),
+                         None)
+                    or next((n for n in names
+                             if n.rsplit("/", 1)[-1] == "capture.json"), None))
+            if not name:
                 raise SystemExit(f"no capture.json inside {path}")
-            return json.loads(z.read(names[0]))
+            return json.loads(z.read(name))
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -59,8 +65,10 @@ def _print_run(res):
         return
     s = t["summary"]
     print(f"\n  ASSUMPTION TRANSITIONS (before -> later):")
-    print(f"     stable={s['stable']} strengthened={s['strengthened']} "
-          f"weakened={s['weakened']} changed_category={s['changed_category']}")
+    print(f"     stable={s['stable']} appeared={s['appeared']} "
+          f"disappeared={s['disappeared']} strengthened={s['strengthened']} "
+          f"weakened={s['weakened']} changed_category={s['changed_category']} "
+          f"unknown={s['unknown']}")
     for a in t["assumptions"]:
         if a["transition"] not in ("stable",):
             print(f"     [{a['transition']:16s}] {a['assumption']}")
@@ -73,7 +81,8 @@ def _print_run(res):
     print(f"     became_robust={s['became_robust']} "
           f"became_contingent={s['became_contingent']}")
     for sv in t["sensitivity"]:
-        if sv["transition"] in ("became_robust", "became_contingent"):
+        if sv["transition"] in ("became_robust", "became_contingent",
+                                "appeared", "disappeared"):
             print(f"     [{sv['transition']:16s}] {sv['assumption']}")
 
 
