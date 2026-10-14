@@ -140,6 +140,15 @@ class StagingIngestPipeline:
         temp_name = self._staging_table_name(target_table)
         cols = self._get_table_columns(target_table)
         col_defs = ", ".join([f'"{col}"' for col in cols])
+        # The temp table outlives this pipeline (it belongs to the connection).
+        # If the target gained a column since this connection first staged for
+        # it (a lazy ALTER in db_init), an EMPTY stale staging table is rebuilt;
+        # otherwise the new column would be "no column named ..." on insert.
+        have = [row[1] for row in self.conn.execute(
+            f"PRAGMA temp.table_info({temp_name})").fetchall()]
+        if have and have != cols and self.conn.execute(
+                f"SELECT count(*) FROM temp.{temp_name}").fetchone()[0] == 0:
+            self.conn.execute(f"DROP TABLE temp.{temp_name}")
         self.conn.execute(f"CREATE TEMP TABLE IF NOT EXISTS {temp_name} ({col_defs})")
         batch = StagingBatch(target_table, temp_name, cols)
         self._active_batches[target_table] = batch
