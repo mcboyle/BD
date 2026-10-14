@@ -50,10 +50,15 @@ def test_direct_http_rejects_short_200(monkeypatch, tmp_path):
     assert runner._do_direct_http_download("https://example.org/page", "https://example.org/video", str(output))
     assert output.read_bytes() == b"abcd"
 
+    # Each call gets its own free name: a claim over an already finished file is refused before any byte is
+    # fetched (reserve-toctou-fix), which would answer False here without ever reaching the length check.
+    short = tmp_path / "short.mp4"
     response[0] = _Response(b"ab")
-    assert not runner._do_direct_http_download("https://example.org/page", "https://example.org/video", str(output))
+    assert not runner._do_direct_http_download("https://example.org/page", "https://example.org/video", str(short))
+    assert not short.exists()
 
     # Content-Length is the encoded size; decoded bytes from a gzip body differ.
+    gzipped = tmp_path / "gzip.mp4"
     response[0] = _Response(b"abcdefgh", {"content-encoding": "gzip"})
-    assert runner._do_direct_http_download("https://example.org/page", "https://example.org/video", str(output))
-    assert output.read_bytes() == b"abcdefgh"
+    assert runner._do_direct_http_download("https://example.org/page", "https://example.org/video", str(gzipped))
+    assert gzipped.read_bytes() == b"abcdefgh"
