@@ -96,6 +96,15 @@ const isDomainLimits = (v: unknown): boolean => {
   return true;
 };
 
+// F015: switches that render `draft.k ?? true` (ON when the key is absent).
+// Every other switch renders `!!draft.k`, so an absent key shows OFF. The
+// dirty count compares against these shown values.
+const SWITCH_DEFAULT_ON: ReadonlySet<string> = new Set([
+  "slow_query_log",
+  "session_keeper_use_cloakbrowser",
+  "hud_overlay",
+]);
+
 // Cut 5 (B1.4): GET /api/global_config/origins response. Provenance only —
 // never a field value. `restart` apply-timing is currently empty server-side
 // (all fields immediate), but the shape is honored for forward-compat.
@@ -353,7 +362,10 @@ export function Settings() {
       if (k === "rate_limit_domain_overrides" || k === "path_allowlist") return; // raw below
       const a = (draft as Record<string, unknown>)[k];
       const b = (data as Record<string, unknown>)[k];
-      if (JSON.stringify(a) !== JSON.stringify(b)) out.push(k);
+      // F015: an absent baseline renders as the switch's fallback, so toggling
+      // a switch back to what the page loaded showing is a clean round trip.
+      const shown = b == null && typeof a === "boolean" ? SWITCH_DEFAULT_ON.has(k) : b;
+      if (JSON.stringify(a) !== JSON.stringify(shown)) out.push(k);
     });
     const doSaved =
       data.rate_limit_domain_overrides &&

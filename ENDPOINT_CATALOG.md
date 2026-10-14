@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (827)
+## /api/* routes (831)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -764,6 +764,10 @@ POST    /api/template/sandbox                                  CSRF: yes  — Fe
 POST    /api/template/test_extract                             CSRF: yes  — B2 (v3.66.240): set/clear a per-site DRAFT-TEST OVERRIDE and trigger one
 GET     /api/template_manager                                  CSRF: no   — #10 — Template Manager: list reviewed + draft templates with status,
 POST    /api/template_manager/disable                          CSRF: yes  — #10 — Disable a reviewed template (status -> disabled, so it is no longer
+DELETE  /api/template_manager/draft                            CSRF: yes  — F017 — delete a draft. Query: ?file=<name>.template-draft.json.
+GET     /api/template_manager/draft                            CSRF: no   — F017 — one draft's JSON for the edit form. Query: ?file=<name>.template-draft.json.
+POST    /api/template_manager/draft                            CSRF: yes  — F017 — create a draft. Body: {"name": "<host>", "template"?: {...}}.
+PUT     /api/template_manager/draft                            CSRF: yes  — F017 — replace a draft's JSON. Body: {"file": "...", "template": {...}}.
 GET     /api/template_manager/drift                            CSRF: no   — Read-only drift of a draft/candidate vs its reviewed gold. ?file=<name>.
 GET     /api/template_manager/inventory                        CSRF: no   — Rich, read-only inventory of all four template dirs.
 POST    /api/template_manager/promote                          CSRF: yes  — #10 — Promote a draft to a reviewed template (explicit operator action).

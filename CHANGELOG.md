@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1870 - train282d: row
+
+T282d-A = train-19 (O3142 F3: on MAIN ae29838b = train-17 merge; member list frozen at assembly; disjoint from train-17/18 paths). Product train; BOARD per O1672; PR opens only after train-18's merge is on main (rule a), release re-kitted then; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub.
+FIX: APPFEAT F017 r2-restack-c -- template manager (S140-A; replaces r2-restack-b after integrator EJECT; BOARDED 22:42Z R329-A; 13 paths).
+FIX: dl95-reddit-1 r2 -- scene crawler reddit links (S146-A; BOARDED 23:03Z; 2 paths).
+FIX: APPFEAT F015 -- /settings toggle+revert leaves page clean (S37-C; 3 paths).
+FIX: o1670-r2-testguard gen-4 RACE r5 -- test guard race (S41-C; 1 path).
+
+
 ## v3.66.1869 - train282c: row
 
 T282c-B = train-17 (re-kit on MAIN 10936265 = train-16 merge, rule a; T282c-A d25bb79d was the staged kit; member list frozen at assembly; disjoint from D2-D train-16 (12 paths, no overlap)). Product train; BOARD per O1672; PR opens only after train-16's merge is on main (GO-pm-A4-A-harness-batch2-2229Z rule a), release re-kitted then; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub.

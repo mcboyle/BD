@@ -137,6 +137,17 @@ def _secrets_store_state_is_test_owned(monkeypatch):
 # response; seeding a dead-letter fixture whose url matches the probe's generated
 # body would touch the probe's value-filling internals and is out of scope here.
 UNKNOWN_BASELINE = 139  # T281h (dsq-batch-ops r3): +1, NAMED below
+# F017 r2-restack-c (template-manager draft CRUD, main 82585d41 -> cut): +0.
+# The four new mutating sites (TemplateAuthoringSection.tsx apiPost and
+# TemplateManager.tsx apiPost/apiPut /api/template_manager/draft, apiDelete
+# /api/template_manager/draft?file=${}) are JUDGED, not NAMED: the fixture
+# world now owns a real draft (tools/body_contract_fixtures.py _drafts +
+# PATH_VALUES), so all four replay OK -- without it the DELETE read DEAD and
+# the other three UNKNOWN (141). Identified by diffing the UNKNOWN sets keyed
+# by (file, fn, path) between main (139) and the cut tree: none added. The
+# regenerated artifact also moves BatchOps.tsx apiPost /api/batch/retry
+# (T281h-D below) from UNKNOWN to OK (its sample now carries a real
+# reset_to_status), so the cut measures 138; the baseline stays 139.
 # T281h-D (dsq-batch-ops r3, S58-C; main 88ea4929 -> train): +1, NAMED -- BatchOps.tsx apiPost
 # /api/batch/retry. F4/F6 make a filter the server cannot read a 400 instead of 200 "matched 0";
 # the probe fills {filter: {}, reset_to_status: "x"} with two keys UNRESOLVED by fixtures, so
@@ -816,6 +827,10 @@ def test_ensure_resets_global_config_and_drops_probe_created_sites():
     saved_cfg = dict(A._app_cfg)
     saved = (dict(A.s_cfg), dict(A.s_meta), dict(A.runners))
     home = tempfile.mkdtemp(prefix="bd_fx_iso_")
+    # F017: build() redirects template_manager.DRAFTS_DIR under `home`; an
+    # in-process world hands the module default back to later tests.
+    import bulk_downloader.template_manager as tm
+    saved_drafts_dir = tm.DRAFTS_DIR
     try:
         A.s_cfg.clear(); A.s_meta.clear(); A.runners.clear()
         fx = bcf.Fixtures(A, A.app.test_client(), home).build()
@@ -832,6 +847,7 @@ def test_ensure_resets_global_config_and_drops_probe_created_sites():
             "ensure() left a probe-created site behind; later verdicts "
             "would see a world an earlier probe built")
     finally:
+        tm.DRAFTS_DIR = saved_drafts_dir
         A._app_cfg.clear(); A._app_cfg.update(saved_cfg)
         A.s_cfg.clear(); A.s_cfg.update(saved[0])
         A.s_meta.clear(); A.s_meta.update(saved[1])
@@ -871,6 +887,10 @@ def test_the_fixture_world_owns_an_open_vault_and_ensure_reopens_it():
     saved = (dict(A.s_cfg), dict(A.s_meta), dict(A.runners))
     was_unlocked = backend.is_unlocked()
     home = tempfile.mkdtemp(prefix="bd_fx_vault_")
+    # F017: build() redirects template_manager.DRAFTS_DIR under `home`; an
+    # in-process world hands the module default back to later tests.
+    import bulk_downloader.template_manager as tm
+    saved_drafts_dir = tm.DRAFTS_DIR
     try:
         A.s_cfg.clear(); A.s_meta.clear(); A.runners.clear()
         fx = bcf.Fixtures(A, A.app.test_client(), home).build()
@@ -907,6 +927,7 @@ def test_the_fixture_world_owns_an_open_vault_and_ensure_reopens_it():
             "ensure() left an escalating back-off counter behind; a control "
             "probed later would be refused for what an earlier probe spent")
     finally:
+        tm.DRAFTS_DIR = saved_drafts_dir
         A._app_cfg.clear(); A._app_cfg.update(saved_cfg)
         A.s_cfg.clear(); A.s_cfg.update(saved[0])
         A.s_meta.clear(); A.s_meta.update(saved[1])

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6452,
+  "edge_count": 6458,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2384,6 +2384,7 @@
     "bulk_downloader/template_manager.py": [
       "bulk_downloader/affordance_learning.py",
       "bulk_downloader/bad_terms.py",
+      "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/dry_run.py",
       "bulk_downloader/lifecycle_drift.py",
       "bulk_downloader/pattern_hygiene.py",
@@ -3942,6 +3943,10 @@
       "bulk_downloader/cloak.py",
       "bulk_downloader/scene_crawler.py"
     ],
+    "tests/test_dl95_reddit_1_r2_scene_links.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/scene_crawler.py"
+    ],
     "tests/test_dl95_reddit_2_bot_wall_is_not_page_shape.py": [
       "bulk_downloader/challenge_classify.py",
       "bulk_downloader/constants.py",
@@ -4318,6 +4323,10 @@
     "tests/test_extraction_core_characterization.py": [
       "bulk_downloader/capture_template.py",
       "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_f017_template_draft_crud.py": [
+      "bulk_downloader/app_template_manager.py",
+      "bulk_downloader/template_manager.py"
     ],
     "tests/test_f020_backup_list.py": [
       "bulk_downloader/app_backup.py",
@@ -10414,6 +10423,7 @@
       "bulk_downloader/app.py",
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/secrets_store.py",
+      "bulk_downloader/template_manager.py",
       "tools/body_contract.py",
       "tools/body_contract_fixtures.py",
       "tools/onboard_site_template.py"

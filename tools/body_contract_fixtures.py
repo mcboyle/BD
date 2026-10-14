@@ -30,12 +30,17 @@ state instead of laundering a guess into a verdict.
 from __future__ import annotations
 
 import importlib
+import json as _json
 import os
 import uuid
 
 # Every attribute the stub had to invent. Reported, never silent.
 _FABRICATED = set()
 
+
+# F017 -- the fixture draft the template-manager draft probes address.
+DRAFT_FILE = "fx-draft.template-draft.json"
+DRAFT_TEMPLATE = {"host": "fx-draft.example.com", "status": "draft"}
 
 class _StubRunner:
     """A runner the app can actually SERIALIZE.
@@ -180,6 +185,7 @@ class Fixtures:
         self.unresolved = set()
         self._cfg0 = None
         self.vault_backend = None
+        self.draft_file = None
 
     # ---------------------------------------------------------------- build
     def build(self):
@@ -207,6 +213,7 @@ class Fixtures:
         # that has nothing to do with the body under judgement.
         self._secrets()
         self._api_resources()
+        self._drafts()
         self._value_map()
         return self
 
@@ -245,6 +252,7 @@ class Fixtures:
         self._history()
         self._resources()
         self._knowledge()
+        self._drafts()
         self._value_map()
         return self
 
@@ -372,6 +380,31 @@ class Fixtures:
         self.res = {"history_id": self.history_id, "library_id": self.library_id,
                     "tag_id": self.tag_id}
 
+    def _drafts(self):
+        """A REAL draft template on disk, under the scratch home.
+
+        F017's draft routes address a draft by FILENAME and refuse any other
+        name with 400 "invalid draft filename" -- identically for {} and for
+        every body -- so the no-keys apiDelete control read DEAD against the
+        site-id placeholder, and the POST/PUT sites read UNKNOWN on an
+        unresolved `template`. DRAFTS_DIR is PROJECT_ROOT-relative: point it
+        under the fixture home so no probe writes into the checkout, and
+        rebuild it on every ensure() so the DELETE probe's removal (and the
+        draft a POST probe created) never reach the next call site.
+        """
+        tm = importlib.import_module("bulk_downloader.template_manager")
+        dd = os.path.join(self.home, "template_drafts")
+        tm.DRAFTS_DIR = type(tm.DRAFTS_DIR)(dd)
+        os.makedirs(dd, exist_ok=True)
+        for name in os.listdir(dd):
+            if name != DRAFT_FILE:
+                os.unlink(os.path.join(dd, name))
+        fp = os.path.join(dd, DRAFT_FILE)
+        if not os.path.isfile(fp):
+            with open(fp, "w", encoding="utf-8") as fh:
+                fh.write(_json.dumps(dict(DRAFT_TEMPLATE), indent=2))
+        self.draft_file = DRAFT_FILE
+
     def _knowledge(self):
         """A real knowledge note -> a real <int:nid> for the DELETE probe.
 
@@ -403,6 +436,9 @@ class Fixtures:
             (r"^/api/knowledge/notes/", lambda: self.knowledge_note_id),
             (r"^/api/user_templates/", lambda: self.user_template_id),
             (r"^/api/vpn/tunnels/", lambda: self.tunnel_id),
+            # F017: the draft routes take the draft by FILENAME (`?file=` on
+            # DELETE/GET), never by site id.
+            (r"^/api/template_manager/draft", lambda: self.draft_file),
         )
         for pat, fn in table:
             if _re.match(pat, path):
@@ -510,6 +546,19 @@ class Fixtures:
         # Row 374: one bounded crawl request.  These values exercise body
         # acceptance without launching an unbounded traversal or using an
         # invalid placeholder URL.
+        # F017 (template-manager draft CRUD): `name` is a NEW draft's host-like
+        # name and must not collide with the fixture draft (the store answers
+        # 409 to a name already taken); `file` is the FIXTURE draft that
+        # _drafts() keeps on disk; `template` is a draft BODY and must be a
+        # JSON object -- the type-directed "x" is refused 400 "template must be
+        # a JSON object" before any key is looked at. Per-path, never global:
+        # `template` on /api/template/test_extract is a different thing and
+        # must keep being reported UNRESOLVED.
+        "/api/template_manager/draft": {
+            "name": "fx-draft-new",
+            "file": DRAFT_FILE,
+            "template": dict(DRAFT_TEMPLATE),
+        },
         "/api/discovery/scenes/start": {
             "listing_url": "https://example.com/gallery",
             "newest_n": 1,
