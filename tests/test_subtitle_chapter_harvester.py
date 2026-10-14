@@ -60,11 +60,16 @@ def _fake_httpx_get(status_code, body_bytes):
     mock_response = MagicMock()
     mock_response.status_code = status_code
     mock_response.content = body_bytes
+    # download_track streams the body (client.stream + iter_bytes)
+    mock_response.iter_bytes = MagicMock(side_effect=lambda: iter([body_bytes]))
+    mock_response.__enter__ = MagicMock(return_value=mock_response)
+    mock_response.__exit__ = MagicMock(return_value=None)
 
     mock_client = MagicMock()
     mock_client.__enter__ = MagicMock(return_value=mock_client)
     mock_client.__exit__ = MagicMock(return_value=None)
     mock_client.get = MagicMock(return_value=mock_response)
+    mock_client.stream = MagicMock(return_value=mock_response)
 
     fake_httpx = MagicMock()
     fake_httpx.Client = MagicMock(return_value=mock_client)
@@ -85,7 +90,7 @@ def test_download_track_saves_sidecar_on_200(tmp_path):
     assert result["error"] is None
     assert Path(result["path"]) == dest
     assert dest.read_bytes() == payload
-    mock_client.get.assert_called_once()
+    mock_client.stream.assert_called_once()
 
 
 def test_download_track_reports_http_error_and_writes_nothing(tmp_path):
