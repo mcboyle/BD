@@ -51,9 +51,9 @@ def test_credential_query_is_redacted_from_api_status(fresh_app):
     payload = fresh_app.get("/api/status").get_json()[sid]
     rendered = json.dumps(payload)
     assert secret not in rendered
-    assert "username=<REDACTED>" in payload["login_status"]
-    assert "password=<REDACTED>" in payload["login_status"]
-    assert "next=home" in payload["login_status"]  # noncredential positive control
+    # BD-SEC-2 ROW 2: free text served to a client carries no URL token at all
+    # (egress_withhold: the '/members', path token too); plain words stay readable.
+    assert payload["login_status"] == "Expected URL contains [url withheld] got [url withheld]"
 
 
 # Row 815: the two tests above leave the runner_auth.py leg unproven. The first

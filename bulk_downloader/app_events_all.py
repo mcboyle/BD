@@ -70,6 +70,10 @@ def api_events_all():
         site_name = (s_meta.get(sid) or {}).get("name") or sid
         for e in evs:
             e = dict(e)
+            # BD-SEC-2 ROW 2: event text carries no URL tokens and an event
+            # url is served only as a plain routing URL (egress_withhold).
+            from .egress_withhold import site_view
+            e = site_view(e)
             e["site_id"] = sid
             e["site_name"] = site_name
             out.append(e)

@@ -240,6 +240,10 @@ def api_global_config():
     from . import aiassist
     if request.method=="POST":
         data=request.json or {}
+        # BD-SEC-2 ROW 2: a withheld view echoed back keeps the stored value.
+        from .egress_withhold import restore_withheld
+        if isinstance(data, dict):
+            restore_withheld(data, _app_cfg)
         # Reject unknown keys before applying any config or live cap change.
         from .global_config import GLOBAL_CONFIG_SCHEMA as _GCS
         _known = set(_GCS) | _EXPLICIT_BRANCH_KEYS
@@ -517,7 +521,10 @@ def api_global_config():
         if str(out.get(_sk) or "").strip():
             out[_sk] = "<configured>"
     # BD-SEC-1: then every other secret-named field, at any depth.
-    return jsonify(_redact_secrets(out))
+    # BD-SEC-2 ROW 2: notifier URLs, non-plain URL fields and URL tokens in
+    # free text are withheld here too (the API is open on the LAN).
+    from .egress_withhold import site_view
+    return jsonify(site_view(_redact_secrets(out)))
 
 def register_routes(app) -> int:
     app.register_blueprint(global_config_bp)

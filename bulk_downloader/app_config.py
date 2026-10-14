@@ -321,6 +321,11 @@ def api_config_export():
             for _key, _value in c.items():
                 if _key not in SECRET_FIELDS and isinstance(_value, (dict, list)):
                     c[_key] = _redact_nested_export_value(_value, [], _key)
+        if not include_pw:
+            # BD-SEC-2 ROW 2: notifier URLs, non-plain URL fields and URL tokens
+            # in free text leave as withheld markers; import keeps stored values.
+            from .egress_withhold import export_view
+            c = export_view(c)
         c["_id"]=sid  # for round-trip merging
         payload.append(c)
     body=json.dumps({"version":"2.1.1","sites":payload},indent=2)
@@ -392,7 +397,26 @@ def api_config_import():
     # live identity is observed here, so malformed input never stalls normal
     # site routes.  Matching and secret preservation are deliberately deferred
     # until after every stripe is owned and the live dictionaries are
-    # revalidated.
+    # revalidated.  BD-SEC-2 withheld markers are resolved here only on a copy,
+    # to judge it (no lock, no runner); cfg keeps the markers, and they are
+    # resolved again from the live site inside the transaction.
+    def _name_of(c):
+        v = c.get("name") if isinstance(c, dict) else None
+        return (v if isinstance(v, str) else str(v) if v is not None else "").strip().lower()
+
+    import copy
+    from .egress_withhold import is_withheld_marker, restore_withheld
+
+    def _withheld_without_original(cfg, stored):
+        return sorted(k for k, v in cfg.items() if is_withheld_marker(v)
+                      and (stored is None or k not in stored))
+
+    def _no_original_error(site_n, keys):
+        return jsonify({"error": f"site {site_n}: {', '.join(keys)} withheld in "
+                                 "the export and no stored value to keep; "
+                                 "re-enter the value"}), 400
+
+    _stored_by_name = {_name_of(c): c for c in dict(_app_s_cfg()).values()}
     normalized = []
     for raw in sites:
         if not isinstance(raw,dict):
@@ -402,17 +426,30 @@ def api_config_import():
                 else str(_n) if _n is not None else "").strip()
         cfg = {k: raw.get(k, "") for k in CFG_FIELDS}
         cfg["name"] = name or f"Imported {len(normalized) + 1}"
+        # BD-SEC-2 r3-restack r2 (lens R247-D F1): a withheld marker from a
+        # default export keeps the value stored for the site of the same name
+        # (either mode).  The checks below judge a copy resolved from the
+        # stored configs, so they never see the marker shape (export_view
+        # withholds a whole accounts[]).  A marker with no stored original is
+        # refused, never blanked.
+        _same_name = _stored_by_name.get(cfg["name"].lower())
+        _same_name = _same_name if isinstance(_same_name, dict) else None
+        _no_original = _withheld_without_original(cfg, _same_name)
+        if _no_original:
+            return _no_original_error(len(normalized) + 1, _no_original)
+        _judged = copy.deepcopy(cfg)
+        restore_withheld(_judged, _same_name)
         # cookie-file-roots: the cookie_file check of every site write route
         # (site's and accounts[]), on the values this request sends and before
         # the all-site transaction; one refused site refuses the whole import,
-        # so nothing of it is stored.  Values a merge restores from the stored
+        # so nothing of it is stored.  Values a merge restores from the live
         # config below are not re-judged (same rule as PUT).
-        _cf_ok, _cf_err = _validate_cookie_files(cfg)
+        _cf_ok, _cf_err = _validate_cookie_files(_judged)
         if not _cf_ok:
             return jsonify({"error": f"site {len(normalized) + 1}: {_cf_err}"}), 400
         # r2 (lens R58-B F3): a wrongly typed accounts reached the runner
         # constructor and came back as a 503 rollback; it is a bad request.
-        _accts = cfg.get("accounts")
+        _accts = _judged.get("accounts")
         if _accts not in (None, "") and (
                 not isinstance(_accts, list)
                 or not all(isinstance(_a, dict) for _a in _accts)):
@@ -425,12 +462,8 @@ def api_config_import():
     if not normalized:
         return jsonify({"error": "no valid sites in payload"}), 400
 
-    # Phase 41 preflight: defensive coercion against non-string names that
+    # Phase 41 preflight: _name_of (above) coerces non-string names that
     # may exist in s_cfg from before the input validator was added.
-    def _name_of(c):
-        v = c.get("name") if isinstance(c, dict) else None
-        return (v if isinstance(v, str) else str(v) if v is not None else "").strip().lower()
-
     with _all_site_lifecycle_transaction():
         runners = _app_runners()
         s_cfg = _app_s_cfg()
@@ -439,8 +472,20 @@ def api_config_import():
         occupied_ids = set(runners) | set(s_cfg) | set(s_meta)
         update_plan = []
         create_plan = []
+        # Kept in the response for clients; a marker with no stored value is
+        # now refused before the transaction, so nothing is listed here.
+        reenter = []
 
         for _site_n, cfg in enumerate(normalized, 1):
+            # r3-restack-c (lens R284-B F1): withheld markers resolve from the
+            # LIVE same-name site now that every stripe is owned; a site write
+            # that committed while this import waited is what is kept.
+            _live = s_cfg.get(name_to_sid.get(cfg["name"].lower()))
+            _live = _live if isinstance(_live, dict) else None
+            _no_original = _withheld_without_original(cfg, _live)
+            if _no_original:
+                return _no_original_error(_site_n, _no_original)
+            restore_withheld(cfg, _live)
             existing_sid = (name_to_sid.get(cfg["name"].lower())
                             if mode == "merge" else None)
             # Preserve the historical orphan behavior: a config without a
@@ -747,6 +792,7 @@ def api_config_import():
             "imported": len(staged),
             "updated": len(update_plan),
             "mode": mode,
+            "reenter": reenter,
             **({"credentials": credentials} if credentials else {}),
         })
 

@@ -187,7 +187,8 @@ def export_template(
     same secret can verify provenance."""
     if not isinstance(site_cfg, dict):
         raise ValueError("site_cfg must be a dict")
-    cfg_copy = _redact(site_cfg)
+    from .egress_withhold import export_view  # BD-SEC-2 ROW 2 withhold
+    cfg_copy = export_view(_redact(site_cfg))
     if not include_learned:
         cfg_copy.pop("learned", None)
     bundle = {
@@ -282,6 +283,10 @@ def import_template(
                 "signature_check": sig_check}
     cfg = dict(bundle["template"])
     sid = target_site_id or bundle["site_id"]
+    # BD-SEC-2 ROW 2: withheld markers carry no value; leave them blank.
+    from .egress_withhold import restore_withheld
+    for _field in sorted(restore_withheld(cfg, None)):
+        out["warnings"].append(f"{_field} was withheld on export — re-enter it")
     # Warn if any required-but-empty fields
     for path_key in _LOCAL_PATH_KEYS:
         if path_key in cfg and not cfg[path_key]:

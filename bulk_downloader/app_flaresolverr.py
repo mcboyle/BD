@@ -57,12 +57,15 @@ def api_flaresolverr_status():
         endpoint = _flare_client.DEFAULT_ENDPOINT
     # Ping (cheap, ~50ms when up; fails fast when down)
     ping_result = _flare_client.update_ping_stats(endpoint)
-    return jsonify({
+    # BD-SEC-2 ROW 2: the stored endpoint (and anything echoing it) is
+    # served only as a plain routing URL, else <scheme>://***.
+    from .egress_withhold import site_view
+    return jsonify(site_view({
         "ok": True,
         "endpoint": endpoint,
         "ping": ping_result,
         "stats": _flare_client.stats(),
-    })
+    }))
 
 
 @flaresolverr_bp.route("/api/flaresolverr/test", methods=["POST"])
@@ -139,7 +142,8 @@ def api_flaresolverr_sessions():
     if not endpoint:
         endpoint = _flare_client.DEFAULT_ENDPOINT
     sessions = _flare_client.list_sessions(endpoint=endpoint)
-    return jsonify({"ok": True, "endpoint": endpoint, "sessions": sessions})
+    from .egress_withhold import site_view  # BD-SEC-2 ROW 2 (as /status)
+    return jsonify(site_view({"ok": True, "endpoint": endpoint, "sessions": sessions}))
 
 def register_routes(app) -> int:
     app.register_blueprint(flaresolverr_bp)

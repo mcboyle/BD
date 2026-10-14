@@ -40,7 +40,14 @@ def api_sites_export(sid):
         return jsonify({"error": "Not found"}), 404
     include = request.args.get("include_secrets", "") \
         .lower() in ("1", "true", "yes")
-    envelope = _se.export_config(s_cfg[sid], include_secrets=include)
+    cfg = s_cfg[sid]
+    if not include:
+        # BD-SEC-2 ROW 2: notifier URLs, non-plain URL fields and URL tokens in
+        # free text leave as withheld markers; /api/sites/import and a merge
+        # /api/config/import resolve them (egress_withhold.restore_withheld).
+        from .egress_withhold import export_view
+        cfg = export_view(cfg)
+    envelope = _se.export_config(cfg, include_secrets=include)
     # Build a filename from the site name, sanitized
     raw_name = (s_cfg[sid].get("name") or sid)
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(raw_name))[:60]

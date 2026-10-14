@@ -39,9 +39,14 @@ def config_dump(app_cfg=None, site_cfg=None) -> dict:
     """The live app config and per-site config, with any password /
     token / cookie / credential value masked. Caller passes the
     app._app_cfg and app.s_cfg objects."""
+    # BD-SEC-2 ROW 2: notifier URLs, non-plain URL fields and URL tokens in
+    # free text are withheld on top of the secret mask.
+    from ..egress_withhold import site_view
+    sites = _redact(site_cfg or {})
     return {
-        "app_config": _redact(app_cfg or {}),
-        "sites": _redact(site_cfg or {}),
+        "app_config": site_view(_redact(app_cfg or {})),
+        "sites": ({sid: site_view(c) for sid, c in sites.items()}
+                  if isinstance(sites, dict) else sites),
         "site_count": len(site_cfg or {}),
     }
 
