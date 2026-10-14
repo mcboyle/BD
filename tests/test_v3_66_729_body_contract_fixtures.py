@@ -136,7 +136,14 @@ def _secrets_store_state_is_test_owned(monkeypatch):
 # exactly this endpoint. Raising it by 1 with that attribution is the sanctioned
 # response; seeding a dead-letter fixture whose url matches the probe's generated
 # body would touch the probe's value-filling internals and is out of scope here.
-UNKNOWN_BASELINE = 138  # sg-body-contract-regen (O1682): +1, NAMED below
+UNKNOWN_BASELINE = 139  # T281h (dsq-batch-ops r3): +1, NAMED below
+# T281h-D (dsq-batch-ops r3, S58-C; main 88ea4929 -> train): +1, NAMED -- BatchOps.tsx apiPost
+# /api/batch/retry. F4/F6 make a filter the server cannot read a 400 instead of 200 "matched 0";
+# the probe fills {filter: {}, reset_to_status: "x"} with two keys UNRESOLVED by fixtures, so
+# 400 -> UNKNOWN is the honest verdict (OK/200 on main only because the old route accepted an
+# unreadable filter). Identified by diffing the UNKNOWN sets keyed by (file, fn, path) between
+# main 88ea4929 (138) and the train tree (139): exactly this identity added, none removed
+# (harness-work/O1789/T281g/unknown-set-gB.txt vs unknown-set-hD.txt).
 # sg-body-contract-regen (O1682, main 0c936426): +1, NAMED -- ManualLoginPending.tsx
 # apiPost /api/sites/${}/login_manual_${} (row1063, 6d799c02): the action segment is
 # a template variable (done|cancel), so the probe cannot resolve one Flask rule and
