@@ -2911,6 +2911,20 @@ def queue_headers_decode(text) -> dict:
     return headers
 
 
+# queue-headers-redact r1: what a client is shown in place of a header value.
+# Values leave only on the job's own request, never in a JSON body.
+QUEUE_HEADER_MASK = "[REDACTED]"
+
+
+def queue_headers_masked(headers) -> dict:
+    """A NEW dict: the names of ``headers`` with every value QUEUE_HEADER_MASK
+    ({} for anything that is not a header dict). The job's own dict is never
+    touched."""
+    if not isinstance(headers, dict):
+        return {}
+    return {k: QUEUE_HEADER_MASK for k in headers}
+
+
 def queue_headers_entry(url: str, headers) -> str:
     """One load_urls entry, "url<TAB>Name=value...", for a URL and its headers
     (the bare URL when there are none)."""

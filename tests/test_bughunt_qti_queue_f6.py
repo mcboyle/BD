@@ -113,7 +113,8 @@ def test_headers_survive_a_restart(runner):
 def test_headers_are_in_the_export_and_only_on_rows_that_have_them(runner):
     runner.load_urls([TAB1, U2])
     rows = {r["url"]: r for r in _export()}
-    assert rows[U1]["custom_headers"] == HDRS
+    # queue-headers-redact r1: the names ride along, every value masked
+    assert rows[U1]["custom_headers"] == {k: db.QUEUE_HEADER_MASK for k in HDRS}
     assert sorted(rows[U2]) == OLD_KEYS                # a plain row is unchanged
     assert sorted(set(rows[U1]) - {"custom_headers"}) == OLD_KEYS
 
