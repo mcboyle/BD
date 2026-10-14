@@ -17,23 +17,60 @@ def _check_csrf(*_a, **_k):
     return getattr(importlib.import_module("bulk_downloader.app"), "_check_csrf")(*_a, **_k)
 
 
+def _is_master() -> bool:
+    """The request carries the master token (Bearer / X-BD-Token matching
+    app._accepted_tokens) or a logged-in operator session. False when auth
+    is unconfigured: there is no master token then."""
+    import importlib
+    a = importlib.import_module("bulk_downloader.app")
+    toks = a._accepted_tokens()
+    if not toks:
+        return False
+    auth = request.headers.get("Authorization", "")
+    sent = [auth[7:].strip()] if auth.startswith("Bearer ") else []
+    sent.append(request.headers.get("X-BD-Token", "").strip())
+    if any(x and a._token_eq(x, t) for x in sent for t in toks):
+        return True
+    sess = request.cookies.get("bd_session", "")
+    return bool(sess) and a._session_authenticated(sess)
+
+
+def _fed_write_refusal():
+    """fed-auth r1 (F2): when a fed_token is configured, a state-changing fed
+    route needs the fed HMAC (X-BD-Fed-Sig over the raw body) or the master
+    token. Before this, only announce/template_push checked the HMAC, so
+    manual_register / set_trust / claim_url reached the same peer-registry
+    writes without it. No fed_token keeps today's behaviour (auth OFF stays
+    open by design; auth ON is gated by app._check_token). Returns a 401
+    response, or None to proceed."""
+    from . import federation as _fed
+    try:
+        from .global_config import get_config
+        fed_token = (get_config() or {}).get("fed_token") or ""
+    except Exception:
+        fed_token = ""
+    if not fed_token:
+        return None
+    if _fed.verify_request(request.get_data(),
+                           signature=request.headers.get("X-BD-Fed-Sig", ""),
+                           token=fed_token):
+        return None
+    if _is_master():
+        return None
+    return jsonify({"ok": False, "error": "bad signature",
+                    "required": "X-BD-Fed-Sig or master token"}), 401
+
+
 @fed_bp.route("/api/fed/announce", methods=["POST"])
 def api_fed_announce():
     """A peer registers / refreshes. Requires HMAC signature in
-    X-BD-Fed-Sig header when fed_token is configured."""
+    X-BD-Fed-Sig header (or the master token) when fed_token is configured."""
     body = request.json or {}
     try:
         from . import federation as _fed
-        try:
-            from .global_config import get_config
-            fed_token = (get_config() or {}).get("fed_token") or ""
-        except Exception:
-            fed_token = ""
-        if fed_token:
-            sig = request.headers.get("X-BD-Fed-Sig", "")
-            if not _fed.verify_request(request.get_data(),
-                                       signature=sig, token=fed_token):
-                return jsonify({"ok": False, "error": "bad signature"}), 401
+        refused = _fed_write_refusal()
+        if refused:
+            return refused
         ok = _fed.register_peer(
             instance_id=body.get("instance_id", ""),
             base_url=body.get("base_url", ""),
@@ -59,6 +96,9 @@ def api_fed_peers():
 @fed_bp.route("/api/fed/claim_url", methods=["POST"])
 def api_fed_claim():
     _check_csrf()
+    refused = _fed_write_refusal()
+    if refused:
+        return refused
     body = request.json or {}
     try:
         from . import federation as _fed
@@ -99,6 +139,9 @@ def api_fed_manual_register():
     requirement — caller is already authenticated to BD's UI.
     Body: {instance_id, base_url, version?, hostname?}."""
     _check_csrf()
+    refused = _fed_write_refusal()
+    if refused:
+        return refused
     body = request.json or {}
     iid = (body.get("instance_id") or "").strip()
     burl = (body.get("base_url") or "").strip()
@@ -122,6 +165,9 @@ def api_fed_set_trust():
     where tier in blocked|observed|trusted. A blocked peer is refused download
     coordination. Operator-initiated (already authenticated to BD's UI)."""
     _check_csrf()
+    refused = _fed_write_refusal()
+    if refused:
+        return refused
     body = request.json or {}
     iid = (body.get("instance_id") or "").strip()
     tier = (body.get("tier") or "").strip()
@@ -177,16 +223,9 @@ def api_fed_template_push():
     body = request.json or {}
     try:
         from . import federation as _fed
-        try:
-            from .global_config import get_config
-            fed_token = (get_config() or {}).get("fed_token") or ""
-        except Exception:
-            fed_token = ""
-        if fed_token:
-            sig = request.headers.get("X-BD-Fed-Sig", "")
-            if not _fed.verify_request(request.get_data(),
-                                       signature=sig, token=fed_token):
-                return jsonify({"ok": False, "error": "bad signature"}), 401
+        refused = _fed_write_refusal()
+        if refused:
+            return refused
         res = _fed.receive_template(
             from_instance=body.get("instance_id", ""),
             bundle=body.get("bundle") or {})
