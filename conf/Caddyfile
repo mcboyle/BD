@@ -1,5 +1,10 @@
 # Default Caddyfile: front BulkDL with a reverse proxy on :8080.
 # Useful for testing SSL/redirect logic without exposing :5555 directly.
+# Behind this proxy every request reaches the app from 127.0.0.1 with the real client in
+# X-Forwarded-For. To count /api/auth/login back-off per client rather than one shared label
+# for the proxy, set "trusted_proxies": ["127.0.0.1", "::1"] in app_config.json; the app then
+# keys on the right-most X-Forwarded-For hop that is not a trusted proxy. A client-written
+# Forwarded / X-Real-IP that disagrees with it puts the request back on the proxy's shared label.
 :8080 {
     reverse_proxy localhost:5555
 }
