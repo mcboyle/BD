@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1845 - train281b: row
+
+T281b on main 2e984922 (22 members; RULING-pm-A3-A-batch-2010Z.md item 3, GO-pm-A3-A-T281a-G-deploy-2221Z.md AFTER; every leg BOARD on O1672, pins re-verified at assembly):
+SECURITY: ah-fix r5 (adapters-http F1-F14), dss-site-secrets (F2 MED), dss-spa-secrets, qti-sites-csv r3 (F7 MED), qti-user-tpl r2 (F11 MED), das-high (2/2), s28 r2 (2/2).
+FIXES: ab-fix r4, hl-library r2, hl-history-search r3, dat-breaker, dat-bridge, dl-runner r3, qt-validate r2, dbt-fix r2, dn-fix r2, dss-fix r2, qti-csv-export, dah-api-input r2, sc-f9 r5, dah-hls-runtime, qti-queue-meta r3.
+MERGED IN PLACE (integrator, keep-both): dah-api-input r2 x ah-fix r5 youtube id regex (ah-fix F9 form already contains the r2 change); s28 r2 x dss-site-secrets validation blocks in app_sites_id_core (both kept, secret checks first).
+STACKS: dat-bridge over dat-breaker, das-high over dva-accounts (T281a-G), qti-* over T281a-G.
+Ejected (each fails on its own): dat-egress-xport r2 (row706 resolver census 74/43 -> 76/44), dsq-batch-ops r2 (body-contract UNKNOWN 138 -> 139); ejected to restack: dah-vpn (its own tree fails the row703 star-kwargs and row706 resolver census pins), dss-token-rotate (its own tree fails test_security seed_does_not_overwrite_existing_config) with dss-global-secrets stacked on it, dah-probe (fetch_scene/probe_site need a new capped cookie-keeping get). dht-routing r2 is a harness cut (harness train).
+
+
 ## v3.66.1844 - train281a: row
 
 T281a-G on main 03d20465 (18 members; operator O3051 + PM ACK-pm-A3-A-O3051-1822Z.md; PM RULING-pm-A3-A-T281a-eject-1955Z.md ejected 4 after the T281a-F band; every leg BOARD on O1672, pins re-verified at assembly):
