@@ -7,6 +7,7 @@ and operator-signaled session pipeline resumption.
 from __future__ import annotations
 
 import base64
+import itertools
 import zlib
 from collections import deque
 from dataclasses import dataclass, field
@@ -22,37 +23,57 @@ class EncodedFrame:
     sequence: int
 
 
+# Bytes per pixel of each frame format the console can decode.
+_BYTES_PER_PIXEL = {"rgb24": 3, "rgba32": 4}
+# Undrained telemetry is bounded: past this many messages the oldest are dropped.
+_INBOX_MAXLEN = 4096
+
+
 class FrameEncoder:
     def __init__(self) -> None:
-        self._seq = 0
+        # next() on a count is atomic, so concurrent encode() calls never share a sequence.
+        self._seq = itertools.count()
 
     def encode(
         self, pixels: bytes, *, width: int, height: int, fmt: str = "rgb24",
     ) -> EncodedFrame:
-        if width <= 0 or height <= 0:
-            raise ValueError(f"Invalid dimensions: {width}x{height}")
+        if (isinstance(width, bool) or isinstance(height, bool)
+                or not isinstance(width, int) or not isinstance(height, int)
+                or width <= 0 or height <= 0):
+            raise ValueError(f"Invalid dimensions: {width!r}x{height!r}")
+        bpp = _BYTES_PER_PIXEL.get(fmt)
+        if bpp is None:
+            raise ValueError(f"Unknown frame format: {fmt!r}")
+        if len(pixels) != width * height * bpp:
+            raise ValueError(
+                f"Pixel buffer is {len(pixels)} B; {width}x{height} {fmt} needs "
+                f"{width * height * bpp} B")
         compressed = zlib.compress(pixels, level=1)
-        frame = EncodedFrame(
+        return EncodedFrame(
             data=compressed,
             width=width,
             height=height,
             fmt=fmt,
-            sequence=self._seq,
+            sequence=next(self._seq),
         )
-        self._seq += 1
-        return frame
 
 
 class TelemetryChannel:
     def __init__(self) -> None:
-        self._inbox: deque[dict] = deque()
+        self._inbox: deque[dict] = deque(maxlen=_INBOX_MAXLEN)
 
     def send(self, message: dict) -> None:
         self._inbox.append(message)
 
     def receive_all(self) -> List[dict]:
-        msgs = list(self._inbox)
-        self._inbox.clear()
+        # popleft() is atomic: a message sent while draining is either taken
+        # now or left for the next call, never cleared unseen.
+        msgs: List[dict] = []
+        for _ in range(len(self._inbox)):
+            try:
+                msgs.append(self._inbox.popleft())
+            except IndexError:
+                break
         return msgs
 
 
@@ -83,6 +104,14 @@ class ViewportTelemetryBridge:
         self.pause_reason = reason
 
     def resume_pipeline(self, *, admin_id: str) -> dict:
+        if not isinstance(admin_id, str) or not admin_id.strip():
+            # An unattributed resume is refused and the pipeline stays as it was.
+            return {
+                "acknowledged": False,
+                "admin_id": admin_id,
+                "was_paused": self.is_paused,
+                "error": "admin_id required",
+            }
         was_paused = self.is_paused
         self.is_paused = False
         self.pause_reason = ""

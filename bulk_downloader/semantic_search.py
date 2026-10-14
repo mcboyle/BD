@@ -28,6 +28,9 @@ from . import embeddings as _emb
 from . import vector_index as _vi
 
 _DEFAULT_DIMS = 256
+# meta key stamping each stored vector with the embeddings tokenizer version it
+# was built under; an index without the current stamp is rebuilt, never scored.
+_FORMAT_KEY = "tokenizer_version"
 _RERANK_TIMEOUT_S = 0.15
 _RERANK_CANDIDATE_LIMIT = 50
 
@@ -152,7 +155,7 @@ def reindex(captures=None, templates=None,
             vec = _emb.embed(_capture_text(c), dims=dims)
             rows.append((f"capture:{cid}", vec,
                          {"kind": "capture", "id": cid, "summary": _capture_summary(c),
-                          "host": c.get("host", "")}))
+                          "host": c.get("host", ""), _FORMAT_KEY: _emb.TOKENIZER_VERSION}))
         for t in tmpls or []:
             if not isinstance(t, dict):
                 continue
@@ -161,7 +164,8 @@ def reindex(captures=None, templates=None,
                 continue
             vec = _emb.embed(_template_text(t), dims=dims)
             rows.append((f"template:{tid}", vec,
-                         {"kind": "template", "id": tid, "summary": _template_summary(t)}))
+                         {"kind": "template", "id": tid, "summary": _template_summary(t),
+                          _FORMAT_KEY: _emb.TOKENIZER_VERSION}))
         _vi.clear(base_dir=base_dir)
         n = _vi.upsert_many(rows, base_dir=base_dir)
         return {"ok": True, "indexed": n}
@@ -180,6 +184,14 @@ def search(query: str, k: int = 10,
         if not q:
             return {"ok": True, "query": "", "results": []}
         qv = _emb.embed(q, dims=cfg["dims"])
+        if _stale_format(base_dir):
+            # Built by an older tokenizer: its scores are not comparable with this
+            # query vector. Rebuild once before scoring anything.
+            ri = reindex(base_dir=base_dir)
+            if not ri.get("ok") or _stale_format(base_dir):
+                return {"ok": False, "query": query, "results": [],
+                        "error": "index format outdated; reindex failed: "
+                                 + str(ri.get("error", ""))[:150]}
         hits = _vi.search(qv, k=_RERANK_CANDIDATE_LIMIT, base_dir=base_dir)
         results = []
         for h in hits:
@@ -197,6 +209,16 @@ def search(query: str, k: int = 10,
         return {"ok": True, "query": q, "results": results}
     except Exception as e:
         return {"ok": False, "query": query, "results": [], "error": str(e)[:200]}
+
+
+def _stale_format(base_dir: str | os.PathLike | None = None) -> bool:
+    """True when any stored item lacks the current tokenizer stamp (an index
+    written before the stamp existed, or by another tokenizer version)."""
+    for rec in _vi._load(base_dir).values():
+        meta = rec.get("meta") if isinstance(rec, dict) else None
+        if not isinstance(meta, dict) or meta.get(_FORMAT_KEY) != _emb.TOKENIZER_VERSION:
+            return True
+    return False
 
 
 def status(base_dir: str | os.PathLike | None = None) -> dict:
