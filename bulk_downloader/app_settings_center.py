@@ -180,20 +180,21 @@ def _is_proxy_key(k) -> bool:
     return "proxy" in str(k).lower()
 
 
-def _mask_nested(v):
+def _mask_nested(v, secret=None):
     """Recurse a non-secret value so secrets nested inside dicts/lists (e.g.
     accounts[].password) are still presence-masked. Scalars pass through."""
     if isinstance(v, dict):
-        return _mask_secrets(v)
+        return _mask_secrets(v, secret)
     if isinstance(v, list):
-        return [_mask_nested(x) for x in v]
+        return [_mask_nested(x, secret) for x in v]
     return v
 
 
-def _mask_secrets(d: dict) -> dict:
+def _mask_secrets(d: dict, secret=None) -> dict:
+    secret = secret or _is_secret
     out = {}
     for k, v in (d or {}).items():
-        if _is_secret(k):
+        if secret(k):
             out[k] = {"present": bool(v)}
         elif _is_proxy_key(k):
             # B7-B HIGH: the runtime writer masks the userinfo it ECHOES but persists the
@@ -205,14 +206,14 @@ def _mask_secrets(d: dict) -> dict:
                 out[k] = _mask_proxy_userinfo(v)
             elif isinstance(v, list):
                 out[k] = [_mask_proxy_userinfo(x) if isinstance(x, str)
-                          else _mask_nested(x) for x in v]
+                          else _mask_nested(x, secret) for x in v]
             else:
-                out[k] = _mask_nested(v)
+                out[k] = _mask_nested(v, secret)
         else:
             # VR-P02: descend into non-secret containers so a secret keyed inside
             # a nested dict or a list of dicts (account-pool creds) cannot be
             # returned raw. Flat top-level secrets still presence-mask above.
-            out[k] = _mask_nested(v)
+            out[k] = _mask_nested(v, secret)
     return out
 
 
@@ -242,12 +243,21 @@ def _site_effective(sid: str) -> dict:
         return {"ok": True, "sid": sid, "fields": {}, "note": f"read fail-open: {str(e)[:120]}"}
 
 
+def _is_global_secret(k) -> bool:
+    """dss-global-secrets F8: the global store is ALSO masked by the rule GET
+    /api/global_config uses (any *_key/*_secret/*_token name), so the two read views of
+    one store agree. The config SoT alone let master_key / signing_key out in clear."""
+    from .app_global_config import _is_secret_name
+    return _is_secret(k) or _is_secret_name(k)
+
+
 def _global_effective() -> dict:
     try:
         from . import global_config as GC
         cfg = GC.get_config() if hasattr(GC, "get_config") else {}
         known = ["quiet_hours", "wakeup_threshold", "wakeup_cool_down_seconds"]
-        return {"ok": True, "keys": _mask_secrets(cfg if isinstance(cfg, dict) else {}),
+        return {"ok": True, "keys": _mask_secrets(cfg if isinstance(cfg, dict) else {},
+                                                   _is_global_secret),
                 "statically_known_keys": known,
                 "note": "dynamic/file-backed store; full live-key set is host-resolved",
                 "read_only": True}
