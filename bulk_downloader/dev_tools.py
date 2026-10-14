@@ -19,6 +19,7 @@ harness uses and it's the source of truth for skip-vs-fail semantics.
 from __future__ import annotations
 
 import ast
+import collections
 import os
 import shutil
 import signal
@@ -37,6 +38,11 @@ from .subprocess_helpers import kill_process_tree
 _runs_lock = threading.RLock()
 _runs: list = []  # [{run_id, target, state, output, started, finished, returncode}]
 _MAX_HISTORY = 50
+# Live runs are never trimmed from history (that would make them uncancellable),
+# so admission is what bounds them.
+_MAX_CONCURRENT_RUNS = 8
+_OUTPUT_CAP_BYTES = 1_000_000
+_OUTPUT_TAIL_LINES = 500
 _TEST_RUN_CAP_ENV = "TEST_RUN_CAP_SECONDS"
 # Match the existing extracted-release-suite ceiling; this is a whole-run bound,
 # not a claim about any individual test's expected duration.
@@ -282,10 +288,20 @@ def discover_tests() -> dict:
 
 
 def _trim_history():
-    """Keep history bounded — drop oldest when over limit."""
-    global _runs
-    if len(_runs) > _MAX_HISTORY:
-        _runs = _runs[-_MAX_HISTORY:]
+    """Keep history bounded — drop oldest finished runs when over limit.
+
+    A running run is never dropped: its record holds the only cancel handle.
+    Caller holds ``_runs_lock``."""
+    excess = len(_runs) - _MAX_HISTORY
+    if excess <= 0:
+        return
+    kept = []
+    for run in _runs:
+        if excess > 0 and run.get("state") != "running":
+            excess -= 1
+            continue
+        kept.append(run)
+    _runs[:] = kept
 
 
 def start_run(target: str, *, kind: str = "file") -> dict:
@@ -318,6 +334,12 @@ def start_run(target: str, *, kind: str = "file") -> dict:
         "_pidfd": None,
     }
     with _runs_lock:
+        running = sum(1 for r in _runs if r.get("state") == "running")
+        if running >= _MAX_CONCURRENT_RUNS:
+            return {"ok": False,
+                    "error": f"too many concurrent runs ({running} running, "
+                             f"cap {_MAX_CONCURRENT_RUNS}); cancel one or wait",
+                    "target": target}
         _runs.append(run)
         _trim_history()
 
@@ -375,17 +397,26 @@ def start_run(target: str, *, kind: str = "file") -> dict:
 
             # Stream output to the run record line-by-line so the UI's
             # polling sees progress without waiting for the whole run.
+            # Cap at ~1MB (some tests dump massive traces): keep a running
+            # total and check it before appending; past the cap retain only
+            # the tail. Keep reading to EOF so the child never blocks on a
+            # full pipe.
             buf = []
+            total = 0
+            tail = None
             for line in proc.stdout:
-                buf.append(line)
-                # Trim the buffer if it gets crazy (some tests dump
-                # massive traces). Cap at ~1MB.
-                if sum(len(b) for b in buf) > 1_000_000:
+                if tail is None and total + len(line) > _OUTPUT_CAP_BYTES:
+                    tail = collections.deque(buf, maxlen=_OUTPUT_TAIL_LINES)
+                    buf = None
+                if tail is not None:
+                    tail.append(line)
                     with _runs_lock:
                         run["output"] = (
                             "[output truncated to 1MB] ...\n" +
-                            "".join(buf[-500:]))
+                            "".join(tail))
                     continue
+                buf.append(line)
+                total += len(line)
                 with _runs_lock:
                     run["output"] = "".join(buf)
             proc.wait()
