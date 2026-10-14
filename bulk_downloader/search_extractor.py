@@ -74,7 +74,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Optional
-from urllib.parse import quote_plus, urlparse, urlunparse
+from urllib.parse import quote_plus, urlparse, urlsplit, urlunparse
 
 log = logging.getLogger(__name__)
 
@@ -257,6 +257,23 @@ def _looks_like_scene_url(url: str, template: Optional[dict] = None) -> bool:
 
 _TRACKING_PARAMS = ("utm_", "fbclid", "gclid")
 
+# F9: the extraction JS runs in the search page's own world, so a hostile page
+# controls thumb. Only http(s) or page-relative values, bounded, are kept.
+_THUMB_URL_MAX = 2048
+
+
+def _safe_thumb(thumb) -> str:
+    """The page-supplied thumbnail URL, or "" when it is not a string, is
+    longer than _THUMB_URL_MAX, or carries a scheme other than http(s)
+    (javascript:, data:, file: ...). Relative values pass unchanged."""
+    if not isinstance(thumb, str) or len(thumb) > _THUMB_URL_MAX:
+        return ""
+    try:
+        scheme = urlsplit(thumb).scheme.lower()
+    except ValueError:
+        return ""
+    return thumb if scheme in ("http", "https", "") else ""
+
 
 def _hit_key(url: str) -> str:
     """Identity of a search hit: the URL without its #fragment and tracking
@@ -336,6 +353,9 @@ def search_site(
         if len(hits) >= max_results:  # S2: max_results=0 collects nothing
             break
         url = r.get("url", "")
+        title = r.get("title", "")
+        if not isinstance(title, str):  # F9: a bad hit is skipped, not the site
+            continue
         if not url or _hit_key(url) in seen:  # S7: #fragment / utm_* copies are one hit
             continue
         if not _is_same_etld1(url, search_url):
@@ -345,8 +365,8 @@ def search_site(
         seen.add(_hit_key(url))
         hits.append(SearchHit(
             url=url,
-            title=r.get("title", "")[:200],
-            thumbnail_url=r.get("thumb", ""),
+            title=title[:200],
+            thumbnail_url=_safe_thumb(r.get("thumb", "")),
         ))
     return SearchResult(
         ok=True, site_id=site_id, query=query,
