@@ -125,6 +125,20 @@ def _parse_iso_duration(iso_str: str) -> float:
     return (days * 86400.0) + (hours * 3600.0) + (minutes * 60.0) + seconds
 
 
+def _refused_local(url: Optional[str], base_url: str) -> bool:
+    """True when ``url`` names a local host (loopback/private/link-local, encoded
+    IPv4 spellings included) and the manifest at ``base_url`` does not: a public
+    manifest may not point a fetch at the local network.  Same classifier as
+    deep_detect.manifests._local_host; imported lazily (deep_detect is heavy)."""
+    from .deep_detect.manifests import _local_host
+    try:
+        host = urllib.parse.urlsplit(url or "").hostname or ""
+        base_host = urllib.parse.urlsplit(base_url or "").hostname or ""
+    except ValueError:
+        return True
+    return bool(host) and _local_host(host) and not _local_host(base_host)
+
+
 def _dash_children(node: ET.Element, name: str) -> List[ET.Element]:
     return [child for child in node if child.tag.rsplit("}", 1)[-1] == name]
 
@@ -337,9 +351,11 @@ class StreamingManifestParser:
 
         if is_master:
             variants: List[StreamVariant] = []
+            stream_inf_index = -1
             for idx, ln in enumerate(lines):
                 if not ln.startswith("#EXT-X-STREAM-INF:"):
                     continue
+                stream_inf_index += 1
                 attr_str = ln[len("#EXT-X-STREAM-INF:"):].strip()
                 attrs = _parse_hls_attributes(attr_str)
 
@@ -354,6 +370,8 @@ class StreamingManifestParser:
                     resolved_uri = urllib.parse.urljoin(base_url, uri)
                 else:
                     resolved_uri = uri
+                if _refused_local(resolved_uri, base_url):
+                    continue
 
                 try:
                     bw = int(attrs.get("BANDWIDTH", 0) or 0)
@@ -387,7 +405,7 @@ class StreamingManifestParser:
                         frame_rate=fr,
                         audio_group=attrs.get("AUDIO", ""),
                         subtitle_group=attrs.get("SUBTITLES", ""),
-                        master_index=len(variants),
+                        master_index=stream_inf_index,
                     )
                 )
 
@@ -471,6 +489,11 @@ class StreamingManifestParser:
                         resolved_uri = urllib.parse.urljoin(base_url, uri)
                     else:
                         resolved_uri = uri
+                    if any(_refused_local(u, base_url)
+                           for u in (resolved_uri, curr_key_uri, initialization_uri)):
+                        seq += 1
+                        curr_byterange = None
+                        continue
 
                     segments.append(
                         MediaSegment(
@@ -579,6 +602,11 @@ class StreamingManifestParser:
                         nodes.append(adaptation)
                     nodes.append(representation)
                     _dash_resolve_segments(nodes, variant, base_url, period_duration)
+                    addresses = [variant.initialization_uri,
+                                 variant.segment_template.get("base_url")]
+                    addresses += [segment.uri for segment in variant.segments]
+                    if any(_refused_local(u, base_url) for u in addresses):
+                        continue
                     variants.append(variant)
 
         variants.sort(key=lambda variant: variant.bandwidth, reverse=True)
