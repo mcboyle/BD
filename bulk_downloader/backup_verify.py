@@ -450,6 +450,247 @@ def _latest_backup() -> Optional[str]:
     return max(cands, key=os.path.getmtime)
 
 
+_ARCHIVE_TOP = (".zip", ".bdbk")              # BD_HOME (or CWD) top level: a .db there is the live DB
+_ARCHIVE_SUB = (".zip", ".bdbk", ".db")       # BD_HOME/backups/
+
+
+class _Unreadable(Exception):
+    """A store directory that exists but cannot be listed or measured."""
+
+    def __init__(self, rel: str, err):
+        super().__init__(rel)
+        self.rel = rel
+        self.reason = err if isinstance(err, str) else (err.strerror or type(err).__name__)
+
+
+_NOFOLLOW_FD = (os.open in os.supports_dir_fd and os.scandir in os.supports_fd
+                and hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY"))
+_SYMLINK = "symlink not followed"
+
+
+class _Dir:
+    """An open store directory. The configured root (BD_HOME, the DB dir, the project root) is
+    followed as configured; every component BELOW it is opened no-follow (O_NOFOLLOW relative to
+    its parent's fd, or an islink refusal where fds are unavailable), so a symlinked store
+    boundary is never entered -- it is reported, not followed."""
+
+    def __init__(self, path: Path, fd, rel: str):
+        self.path, self.fd, self.rel = path, fd, rel
+
+    @classmethod
+    def root(cls, path: Path, rel: str = "."):
+        """None when absent; _Unreadable when present but not openable."""
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY) if _NOFOLLOW_FD else None
+            if fd is None and not path.is_dir():
+                return None
+            return cls(path, fd, rel)
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        except OSError as e:
+            raise _Unreadable(rel, e)
+
+    def child(self, name: str, rel: str):
+        """Open component `name` without following a symlink; None when absent."""
+        path = self.path / name
+        if _NOFOLLOW_FD:
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=self.fd)
+            except FileNotFoundError:
+                return None
+            except OSError as e:
+                if os.path.islink(path):
+                    raise _Unreadable(rel, _SYMLINK)
+                if isinstance(e, NotADirectoryError):
+                    return None
+                raise _Unreadable(rel, e)
+            return _Dir(path, fd, rel)
+        if os.path.islink(path):
+            raise _Unreadable(rel, _SYMLINK)
+        if not path.is_dir():
+            return None
+        return _Dir(path, None, rel)
+
+    def entries(self) -> list:
+        """Children that are not symlinks (a symlinked entry is never listed or entered)."""
+        try:
+            with os.scandir(self.fd if self.fd is not None else self.path) as it:
+                return sorted((e for e in it if not e.is_symlink()), key=lambda e: e.name)
+        except OSError as e:
+            raise _Unreadable(self.rel, e)
+
+    def close(self):
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+def _tree_size(d: "_Dir") -> int:
+    """Bytes of the regular files under a generation dir, opened no-follow all the way down."""
+    total = 0
+    for e in d.entries():
+        if e.is_dir(follow_symlinks=False):
+            sub = d.child(e.name, f"{d.rel}/{e.name}")
+            if sub is not None:
+                with sub:
+                    total += _tree_size(sub)
+        elif e.is_file(follow_symlinks=False):
+            total += e.stat(follow_symlinks=False).st_size
+    return total
+
+
+def _inventory_row(kind: str, name: str, parent: "_Dir", entry) -> dict:
+    """Metadata only (stat, never contents): a directory's size is the sum of its files."""
+    st = entry.stat(follow_symlinks=False)
+    size = st.st_size
+    if entry.is_dir(follow_symlinks=False):
+        gen = parent.child(entry.name, name)
+        size = 0
+        if gen is not None:
+            with gen:
+                size = _tree_size(gen)
+    created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st.st_mtime))
+    return {"name": name, "size": size, "created": created, "kind": kind, "_mtime": st.st_mtime}
+
+
+def backup_inventory() -> dict:
+    """Every backup BD keeps on disk (F020 "list backups"), newest first.
+
+    kinds -- archive: backup .zip/.bdbk the rehearsal reads (BD_HOME or CWD; in its backups/
+    .db copies count too; a .db at the top level is the live DB, not a backup); premigration:
+    the <db>.premigration.bak migrations write; template_gold: templates/.gold_backups/<host>/<ts>/
+    generations; profile_sync: profiles/<site>/<profile>/.sync_backups/<ts>/ move-asides.
+    Returns {"backups": [{name, size, created, kind}], "errors": [{kind, name, error}]}. An absent
+    store is simply empty; a store directory that exists but cannot be read is reported in errors
+    (name relative to its store, error = the OS reason only) and the rest of the scan continues --
+    never an empty success. Symlinks are neither listed nor followed: below the configured roots
+    (BD_HOME or CWD, the DB dir, the project root) every directory is opened no-follow, and a
+    symlinked store directory is reported as "symlink not followed"."""
+    rows: list = []
+    errors: list = []
+
+    def _guard(kind, fn, *args):
+        try:
+            fn(*args)
+        except _Unreadable as u:
+            errors.append({"kind": kind, "name": u.rel, "error": u.reason})
+        except Exception as e:  # any other store failure: reported by type only, never dropped
+            errors.append({"kind": kind, "name": ".", "error": type(e).__name__})
+
+    def _gen(kind, name, parent, entry):
+        try:
+            rows.append(_inventory_row(kind, name, parent, entry))
+        except _Unreadable as u:
+            errors.append({"kind": kind, "name": u.rel, "error": u.reason})
+        except OSError as e:
+            errors.append({"kind": kind, "name": name, "error": e.strerror or type(e).__name__})
+
+    def _archives():
+        base = _Dir.root(Path(os.environ.get("BD_HOME") or "."))
+        if base is None:
+            return
+        with base:
+            for e in base.entries():
+                if e.is_file(follow_symlinks=False) and e.name.endswith(_ARCHIVE_TOP):
+                    _gen("archive", e.name, base, e)
+            sub = base.child("backups", "backups")
+            if sub is not None:
+                with sub:
+                    for e in sub.entries():
+                        if e.is_file(follow_symlinks=False) and e.name.endswith(_ARCHIVE_SUB):
+                            _gen("archive", f"backups/{e.name}", sub, e)
+
+    def _premigration():
+        from . import db as _db
+        src = _db._resolve_db_path()
+        if not src:
+            return
+        bak = Path(str(src) + ".premigration.bak")
+        parent = _Dir.root(bak.parent)
+        if parent is None:
+            return
+        with parent:
+            for e in parent.entries():
+                if e.name == bak.name and e.is_file(follow_symlinks=False):
+                    _gen("premigration", e.name, parent, e)
+
+    def _template_gold():
+        from . import template_backup as _tb
+        root = _tb._backups_root()  # <project root>/templates/.gold_backups
+        top = _Dir.root(root.parent.parent)
+        if top is None:
+            return
+        with top:
+            tpl = top.child(root.parent.name, root.parent.name)
+            if tpl is None:
+                return
+            with tpl:
+                gold = tpl.child(root.name, root.name)
+                if gold is None:
+                    return
+                with gold:
+                    for host in gold.entries():
+                        if host.is_dir(follow_symlinks=False):
+                            _guard("template_gold", _gold_host, gold, host)
+
+    def _gold_host(gold, host):
+        hd = gold.child(host.name, host.name)
+        if hd is None:
+            return
+        with hd:
+            for gen in hd.entries():
+                if gen.is_dir(follow_symlinks=False):
+                    _gen("template_gold", f"{host.name}/{gen.name}", hd, gen)
+
+    def _profile_sync():
+        cwd = _Dir.root(Path("."))
+        if cwd is None:
+            return
+        with cwd:
+            prof_root = cwd.child("profiles", "profiles")
+            if prof_root is None:
+                return
+            with prof_root:
+                for site in prof_root.entries():
+                    if site.is_dir(follow_symlinks=False):
+                        _guard("profile_sync", _sync_site, prof_root, site)
+
+    def _sync_site(prof_root, site):
+        sd = prof_root.child(site.name, site.name)
+        if sd is None:
+            return
+        with sd:
+            for prof in sd.entries():
+                if not prof.is_dir(follow_symlinks=False):
+                    continue
+                rel = f"{site.name}/{prof.name}"
+                pd = sd.child(prof.name, rel)
+                if pd is None:
+                    continue
+                with pd:
+                    sb = pd.child(".sync_backups", f"{rel}/.sync_backups")
+                    if sb is None:
+                        continue
+                    with sb:
+                        for gen in sb.entries():
+                            if gen.is_dir(follow_symlinks=False):
+                                _gen("profile_sync", f"{rel}/{gen.name}", sb, gen)
+
+    for kind, scan in (("archive", _archives), ("premigration", _premigration),
+                       ("template_gold", _template_gold), ("profile_sync", _profile_sync)):
+        _guard(kind, scan)
+    rows.sort(key=lambda r: r["_mtime"], reverse=True)
+    for r in rows:
+        del r["_mtime"]
+    return {"backups": rows, "errors": errors}
+
+
 def rehearse(*, backup_path: Optional[str] = None) -> dict:
     """Restore the latest backup into a sandbox and report whether it WORKED.
 

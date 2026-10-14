@@ -52,6 +52,7 @@
 /api/backup/create	POST	api_backup_create
 /api/backup/drift	POST	api_backup_drift
 /api/backup/history	GET	api_backup_history
+/api/backup/list	GET	api_backup_list
 /api/backup/preview	POST	api_backup_preview
 /api/backup/restore	POST	api_backup_restore
 /api/backup/smoke_restore	POST	api_backup_smoke

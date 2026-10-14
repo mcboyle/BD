@@ -74,7 +74,10 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # stb-fix F6 r3: re-frozen. ONE route ADDED, none removed or re-pathed: GET /api/daily_budget/history
 # (same view, api_daily_budget_history) taking ?site=<id>, because a path segment cannot carry ".." or
 # "/../x". Baseline 1019 -> 1020 lines with exactly that addition. INTENTIONAL, stated here.
-_BASELINE_SHA = "e96c6dda39d49f354b3b688b2051b65a7a217d65ea87af84a6a282ea723df464"
+# F020 backup list: re-frozen. ONE route ADDED, none removed or re-pathed:
+# GET /api/backup/list (app_backup.api_backup_list), metadata of every backup BD
+# keeps on disk. Baseline 1020 -> 1021 lines with exactly that addition.
+_BASELINE_SHA = "d6bbd1c4f9c204319207ae5bbd7a9bab0e234f3311549b75f8018c25982812da"
 
 
 def _live_snapshot() -> str:
