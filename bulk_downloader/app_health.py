@@ -67,6 +67,7 @@ def _app_sites_config_reachability():
 
 
 _BUILD_IDENTITY_CACHE: dict[str, dict] = {}
+_NOT_A_BUILD: set[str] = set()   # app-core F2: see build_identity
 
 
 def build_identity(install_dir: str | os.PathLike) -> dict:
@@ -109,14 +110,23 @@ def build_identity(install_dir: str | os.PathLike) -> dict:
     indistinguishable from a pre-B1.3 build -- until a restart, the very event
     that created the state. A measurement that failed is not evidence.
 
-    The re-measurement cost is bounded and deliberate: a genuinely non-build
-    install dir pays one refused ``git rev-parse`` per health request rather
-    than caching an answer it never obtained.
+    app-core F2: a failure is still never cached, but a filesystem-confirmed
+    ABSENCE is remembered (_NOT_A_BUILD): git ran and answered "not a git
+    repository" while the root holds neither ``.git`` nor ``build_info.json``.
+    Every request re-checks both, so a deploy that drops either in place is
+    measured again; a refused real work tree (``.git`` present) is never
+    remembered. Before this an unauthenticated /api/health poll spawned
+    ``git rev-parse`` every time.
     """
     root = str(install_dir)
     cached = _BUILD_IDENTITY_CACHE.get(root)
     if cached is not None:
         return cached
+    if root in _NOT_A_BUILD:
+        if _build_markers_absent(root):
+            return {"sha": None, "built_at": None, "source": "unknown"}
+        _NOT_A_BUILD.discard(root)
+    git_refused = False
 
     result = {"sha": None, "built_at": None, "source": "unknown"}
     try:
@@ -129,6 +139,8 @@ def build_identity(install_dir: str | os.PathLike) -> dict:
         # write-mode open outside the owned root as an escaped store write.
         proc = subprocess.run(["git", "rev-parse", "HEAD"], input="", cwd=root,
                               capture_output=True, text=True, timeout=10)
+        git_refused = (proc.returncode != 0
+                       and "not a git repository" in (proc.stderr or ""))
         if proc.returncode == 0 and proc.stdout.strip():
             sha = proc.stdout.strip()
             when = subprocess.run(["git", "log", "-1", "--format=%cI"], input="", cwd=root,
@@ -154,7 +166,23 @@ def build_identity(install_dir: str | os.PathLike) -> dict:
 
     if result["source"] != "unknown":
         _BUILD_IDENTITY_CACHE[root] = result
+    elif git_refused:
+        _NOT_A_BUILD.add(root)   # each read re-checks the markers first
     return result
+
+
+def _build_markers_absent(root: str) -> bool:
+    """app-core F2: neither a git marker nor build_info.json is at ``root``
+    (lstat; any error other than absence counts as present = re-measure)."""
+    for name in (".git", "build_info.json"):
+        try:
+            os.lstat(os.path.join(root, name))
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return False
+        return False
+    return True
 
 
 def _runner_poll_status(runner) -> dict:
@@ -403,6 +431,12 @@ def _attach_sites_config_health(payload: dict) -> None:
     state = _app_sites_config_reachability()
     if state is None:
         return
+    # app-core F1: /api/health is open to callers with no credential (deploy
+    # reads it that way); the absolute config path is shown only to a caller
+    # _check_token saw present one. Unset (auth off, other routes) = full.
+    from flask import g
+    if getattr(g, "bd_health_full", True) is not True:
+        state.pop("path", None)
     payload["sites_config"] = state
     if state.get("ok") is not True:
         payload["ok"] = False
