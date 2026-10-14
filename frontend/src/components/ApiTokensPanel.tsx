@@ -43,6 +43,18 @@ interface ApiTokenCreateResult {
   error?: string;
 }
 
+/** Copy a shown-once token. Says "Copied" only after the clipboard took it: on a
+ *  plain-HTTP origin there is no clipboard, and a write can be refused. */
+export async function copyShownOnceToken(text: string): Promise<void> {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+    await navigator.clipboard.writeText(text);
+    toast.success("Copied");
+  } catch {
+    toast.error("Could not copy — select the token above and copy it by hand.");
+  }
+}
+
 const SCOPES = ["read", "enqueue", "admin"] as const;
 type Scope = (typeof SCOPES)[number];
 
@@ -177,10 +189,7 @@ export function ApiTokensPanel() {
             size="sm"
             variant="ghost"
             className="mt-1"
-            onClick={() => {
-              void navigator.clipboard?.writeText(minted);
-              toast.success("Copied");
-            }}
+            onClick={() => void copyShownOnceToken(minted)}
           >
             Copy
           </Button>
@@ -188,11 +197,19 @@ export function ApiTokensPanel() {
       )}
 
       <div className="mt-3">
-        <div className="mb-1 text-[11px] text-ink-3">
-          {list.data?.tokens?.length
-            ? `${list.data.tokens.length} token(s)`
-            : "No tokens yet"}
-        </div>
+        {list.isError && (
+          <div role="alert" className="mb-1 text-[11px] text-red-300">
+            Could not load API tokens. {list.error?.message}
+          </div>
+        )}
+        {/* A count (or "none") only once the list has actually been read. */}
+        {list.data && !list.isError && (
+          <div className="mb-1 text-[11px] text-ink-3">
+            {list.data.tokens?.length
+              ? `${list.data.tokens.length} token(s)`
+              : "No tokens yet"}
+          </div>
+        )}
         {list.isLoading ? (
           <div className="text-[11px] text-ink-3">Loading…</div>
         ) : (

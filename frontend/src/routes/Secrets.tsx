@@ -22,7 +22,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
-import { ApiTokensPanel } from "@/components/ApiTokensPanel";
+import { ApiTokensPanel, copyShownOnceToken } from "@/components/ApiTokensPanel";
 import { SecretField } from "@/components/SecretField";
 import { StatusPill, type PillTone } from "@/components/StatusPill";
 import { Button } from "@/components/ui/button";
@@ -339,6 +339,12 @@ export function Secrets() {
     revokeMut.isPending;
 
   const s = statusQ.data;
+  // After a failed poll `s` is the LAST answer, not the current one: the vault may
+  // have been locked since. Actions that depend on the status wait for a fresh one.
+  const statusKnown = !!s && !statusQ.isError;
+  // The key Delete would post. A key that a poll has dropped from the list is no
+  // longer selected, whatever the leftover state says.
+  const armedDeleteKey = s?.stored_keys.includes(deleteKey) ? deleteKey : "";
   const isMaster = s?.backend === "master_password";
   const newPwTooShort = newPw.length > 0 && newPw.length < 8;
 
@@ -529,7 +535,7 @@ export function Secrets() {
           <div className="flex flex-wrap items-center gap-2">
             <select
               className="h-8 rounded-sm border border-input bg-background px-2 text-xs text-ink"
-              value={deleteKey}
+              value={armedDeleteKey}
               disabled={busy}
               aria-label="Stored secret key to delete"
               onChange={(e) => setDeleteKey(e.target.value)}
@@ -544,8 +550,8 @@ export function Secrets() {
             <Button
               size="sm"
               variant="destructive"
-              disabled={busy || !deleteKey}
-              onClick={() => deleteMut.mutate(deleteKey)}
+              disabled={busy || !armedDeleteKey}
+              onClick={() => deleteMut.mutate(armedDeleteKey)}
             >
               {deleteMut.isPending ? "Deleting…" : "Delete"}
             </Button>
@@ -635,7 +641,7 @@ export function Secrets() {
             </div>
             <Button
               size="sm"
-              disabled={busy || (isMaster && !s?.is_unlocked)}
+              disabled={busy || !statusKnown || (isMaster && !s?.is_unlocked)}
               onClick={applyImport}
             >
               {importApplyMut.isPending ? "Saving…" : "Apply selected"}
@@ -651,7 +657,7 @@ export function Secrets() {
           Pair a browser extension for autofill. Issuing a pairing token shows it once — paste it
           into the extension's options page within the expiry window.
         </p>
-        <Button size="sm" disabled={busy} onClick={() => pairIssueMut.mutate()}>
+        <Button size="sm" disabled={busy || !statusKnown} onClick={() => pairIssueMut.mutate()}>
           {pairIssueMut.isPending ? "Issuing…" : "Pair extension"}
         </Button>
         {pairingToken && (
@@ -666,10 +672,7 @@ export function Secrets() {
               size="sm"
               variant="ghost"
               className="mt-1"
-              onClick={() => {
-                void navigator.clipboard?.writeText(pairingToken);
-                toast.success("Copied");
-              }}
+              onClick={() => void copyShownOnceToken(pairingToken)}
             >
               Copy
             </Button>
