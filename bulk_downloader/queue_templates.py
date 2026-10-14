@@ -61,6 +61,50 @@ def job_url(raw) -> str:
     return str(raw or "").split("\t", 1)[0].strip()
 
 
+def masked_entry(entry):
+    """queue-headers-redact r1: ``entry`` as a client sees it -- the URL, and
+    each ``Name=value`` after it as ``Name=`` + QUEUE_HEADER_MASK (a part with
+    no name is masked whole). Anything but a str is returned as it is."""
+    if not isinstance(entry, str) or "\t" not in entry:
+        return entry
+    from .db import QUEUE_HEADER_MASK
+    parts = entry.split("\t")
+    return "\t".join(parts[:1] + [
+        (p.split("=", 1)[0] + "=" if "=" in p else "") + QUEUE_HEADER_MASK
+        for p in parts[1:]])
+
+
+def held_header_values(entries) -> dict:
+    """{(job URL, header name): value} written in ``entries`` (stored ones)."""
+    held = {}
+    for e in entries or []:
+        if not isinstance(e, str): continue
+        parts = e.split("\t")
+        for p in parts[1:]:
+            if "=" in p:
+                k, v = p.split("=", 1)
+                held[(parts[0].strip(), k.strip())] = v.strip()
+    return held
+
+
+def unmasked_entry(entry, held: dict):
+    """An entry handed back by a client: a ``Name=`` + QUEUE_HEADER_MASK pair
+    takes the value held for that URL and name, or is dropped when none is --
+    the mask is never stored as a header value."""
+    if not isinstance(entry, str) or "\t" not in entry:
+        return entry
+    from .db import QUEUE_HEADER_MASK
+    parts = entry.split("\t")
+    keep = parts[:1]
+    for p in parts[1:]:
+        k, _, v = p.partition("=")
+        if v.strip() != QUEUE_HEADER_MASK and p.strip() != QUEUE_HEADER_MASK:
+            keep.append(p)
+        elif v and (parts[0].strip(), k.strip()) in held:
+            keep.append(f"{k}={held[(parts[0].strip(), k.strip())]}")
+    return "\t".join(keep)
+
+
 def clean_urls(urls) -> list:
     """Template URL entries: one per line (an entry holding a line break is
     several), stripped, blanks and repeats dropped, order kept."""

@@ -233,6 +233,12 @@ export function Backup() {
 
             <Card className="mt-4 p-4">
               <h2 className="section-head">Create</h2>
+              <p className="mb-2 text-sm text-ink-3">
+                Without a passphrase the backup is plain: it carries everything in
+                clear, including the DB with each queued URL&apos;s custom header
+                values (Authorization, Cookie), the site cookies and the vault
+                file. Set a passphrase to encrypt it.
+              </p>
               <div className="flex flex-wrap items-center gap-2">
                 <SecretField
                   placeholder="passphrase (optional)"
