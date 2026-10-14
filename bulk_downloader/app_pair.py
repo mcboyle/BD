@@ -29,6 +29,21 @@ def _session_create(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_session_create")(*_a, **_k)
 
+def _session_authenticated(*_a, **_k):
+    """Delegate to app._session_authenticated at call time (lazy; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_session_authenticated")(*_a, **_k)
+
+def _accepted_tokens(*_a, **_k):
+    """Delegate to app._accepted_tokens at call time (lazy; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_accepted_tokens")(*_a, **_k)
+
+def _token_eq(*_a, **_k):
+    """Delegate to app._token_eq at call time (lazy; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_token_eq")(*_a, **_k)
+
 def _app_PAIRING_TTL():
     """The live shared PAIRING_TTL from app.py (fetched fresh per call, by reference)."""
     import importlib
@@ -85,11 +100,44 @@ def api_pair_redeem():
                         max_age=SESSION_IDLE_TTL, httponly=True,
                         samesite="Lax", secure=secure)
     return response
+
+
+def _pair_mint_authorized() -> bool:
+    """pair-admission: who may MINT a pairing code. A redeemed pairing is a
+    login (_LOGIN_SESSION_SOURCES), so minting one is granting one. On a box
+    with no token configured _check_token allows every /api call, which left
+    GET /api/pair -> POST /api/pair/redeem as a two-request login for anyone on
+    the network. A code is minted only for:
+      * a loopback peer (the operator on the box itself);
+      * a valid master token (Authorization: Bearer / X-BD-Token);
+      * a caller that already holds a login session (_session_authenticated).
+    Everything else is refused, so a redeem can only ever complete a pairing
+    one of those callers started."""
+    ra = request.remote_addr or ""
+    if ra in ("127.0.0.1", "::1", "localhost"):
+        return True
+    sess = request.cookies.get("bd_session", "")
+    if sess and _session_authenticated(sess):
+        return True
+    toks = _accepted_tokens()
+    if toks:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer ") and any(_token_eq(auth[7:].strip(), t) for t in toks):
+            return True
+        xt = request.headers.get("X-BD-Token", "")
+        if xt and any(_token_eq(xt.strip(), t) for t in toks):
+            return True
+    return False
+
+
 @pair_bp.route("/api/pair")
 def api_pair():
     """Return data for the QR pairing modal: the LAN URL, an optional
     one-time pairing token, and (if the qrcode package is installed) an
     inline SVG QR code rendering."""
+    if not _pair_mint_authorized():
+        return jsonify({"ok": False, "error": "pairing codes are issued only on the box itself, "
+                                              "to a signed-in session, or with a valid token"}), 403
     PAIRING_TTL = _app_PAIRING_TTL()
     _app_cfg = _app__app_cfg()
     _pairing_lock = _app__pairing_lock()
