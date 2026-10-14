@@ -62,6 +62,47 @@ export function useHistory(filters: {
 }
 
 /**
+ * F003: one page of /api/history for the History table. The first page is the
+ * same bare-array request useHistory() makes (so the default mount URL is
+ * unchanged); an older page adds ?cursor=<last id of the previous page> and
+ * reads the {rows, next_cursor} envelope. Both orders are `id DESC`, so the
+ * cursor continues the bare first page. A full first page is assumed to have
+ * an older one, which is the rule db_search_cursor applies itself.
+ */
+export function useHistoryPage(filters: {
+  site_id?: string;
+  status?: string;
+  limit?: number;
+  cursor?: number | null;
+}) {
+  const limit = filters.limit ?? 200;
+  const cursor = filters.cursor ?? null;
+  const params = new URLSearchParams();
+  if (filters.site_id) params.set("site_id", filters.site_id);
+  if (filters.status) params.set("status", filters.status);
+  params.set("limit", String(limit));
+  if (cursor != null) params.set("cursor", String(cursor));
+  const qs = params.toString();
+  return useQuery<HistoryPage>({
+    queryKey: ["history", "page", qs],
+    queryFn: async ({ signal }) => {
+      const body = await apiGet<HistoryRow[] | HistoryPage>(
+        `/api/history?${qs}`,
+        signal,
+      );
+      if (!Array.isArray(body)) {
+        return { rows: body.rows ?? [], next_cursor: body.next_cursor ?? null };
+      }
+      const last = body.length === limit ? body[body.length - 1]?.id : undefined;
+      return { rows: body, next_cursor: last ?? null };
+    },
+    refetchInterval: () => (isStreamConnected() ? STREAM_SAFETY : SLOW),
+    refetchOnWindowFocus: false,
+    retry: 0,
+  });
+}
+
+/**
  * F4.4 (v3.66.219): cursor pagination over /api/history.
  * Uses ?paginate=1 for the first page and ?cursor=<id> for older pages,
  * consuming the {rows, next_cursor} envelope (db_search_cursor). The plain
@@ -155,13 +196,21 @@ export function useLogsClear() {
 
 /** GET /api/search — FTS over history with <mark> snippets. Disabled
  *  until the query is non-empty (the handler returns [] for empty q). */
-export function useSearch(q: string, limit = 100) {
+export function useSearch(
+  q: string,
+  limit = 100,
+  filters: { site_id?: string; status?: string } = {},
+) {
   const query = q.trim();
+  // F003: the site/status filters ride the same GET args the view reads.
+  const extra =
+    (filters.site_id ? `&site_id=${encodeURIComponent(filters.site_id)}` : "") +
+    (filters.status ? `&status=${encodeURIComponent(filters.status)}` : "");
   return useQuery<SearchResponse>({
-    queryKey: ["search", query, limit],
+    queryKey: ["search", query, limit, extra],
     queryFn: ({ signal }) =>
       apiGet<SearchResponse>(
-        `/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+        `/api/search?q=${encodeURIComponent(query)}&limit=${limit}${extra}`,
         signal,
       ),
     enabled: query.length > 0,

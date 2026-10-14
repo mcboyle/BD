@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Download, Inbox, Play, RefreshCw, Trash2 } from "lucide-react";
 
@@ -30,7 +30,7 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useEventStream } from "@/hooks/useEventStream";
 import { SearchFacetsStrip } from "@/components/ui/SearchFacetsStrip";
 import {
-  useHistory,
+  useHistoryPage,
   useHistoryVacuum,
   useSessionHistory,
   useEventsAll,
@@ -46,7 +46,9 @@ import {
   useUiEventPageView,
   downloadUiEventsLog,
 } from "@/hooks/useHistoryData";
+import { apiGet } from "@/lib/api-client";
 import { formatBytes } from "@/lib/format";
+import type { SearchResultRow, StatusSnapshot } from "@/lib/api-types";
 
 // ── T2 history/logs/search (v3.66.206) ──────────────────────────────
 //
@@ -89,16 +91,145 @@ function StatusBadge({ status }: { status?: string }) {
   return <Badge variant={variant}>{s}</Badge>;
 }
 
+// F003 — the statuses db_log() call sites write to the history table. A status
+// outside this list that shows up in a loaded row is offered as well.
+const HISTORY_STATUSES = ["done", "failed", "needs_review", "skipped_duplicate"];
+const PAGE_SIZES = [25, 50, 100, 200];
+const SELECT_CLASS = "hairline rounded-md bg-surface px-2 py-1 text-xs text-ink";
+
+/** The configured sites, for the site filter. `light=1` leaves the per-site
+ *  job lists out of the payload; the list is read once, not polled. */
+function useHistorySites() {
+  return useQuery<StatusSnapshot>({
+    queryKey: ["status", "light"],
+    queryFn: ({ signal }) => apiGet<StatusSnapshot>("/api/status?light=1", signal),
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 0,
+  });
+}
+
+/** Labels for the columns the detail leads with, in reading order. Any other
+ *  key the API returns follows them under its own name: the detail is driven
+ *  by the row, so a stored column cannot be left out by this list. */
+const DETAIL_LEAD: [string, string][] = [
+  ["id", "Id"],
+  ["ts", "When"],
+  ["status", "Status"],
+  ["title", "Website name"],
+  ["title_source", "Name source"],
+  ["url", "URL"],
+  ["filename", "File"],
+  ["file_path", "File path"],
+  ["file_size", "Size"],
+  ["message", "Message"],
+  ["screenshot", "Screenshot"],
+];
+
+const detailLabel = (key: string) => {
+  const words = key.replace(/_/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+const detailText = (v: unknown): string =>
+  typeof v === "object" ? JSON.stringify(v) : String(v);
+
+/** Every populated field of a history row, untruncated, for the detail
+ *  dialog. Values render as TEXT. A field is left out only when it is null or
+ *  empty (a stored 0 is a value); snippet_* is FTS highlight markup, not a
+ *  column, and site_id/site_name share one line. */
+function detailFields(r: SearchResultRow): [string, string][] {
+  const has = (k: string) => r[k] !== null && r[k] !== undefined && r[k] !== "";
+  const out: [string, string][] = [];
+  const done = new Set<string>(["site_id", "site_name"]);
+  const push = (key: string, label: string) => {
+    done.add(key);
+    if (!has(key)) return;
+    const text = detailText(r[key]);
+    out.push([
+      label,
+      key === "file_size" && typeof r[key] === "number"
+        ? `${formatBytes(r[key] as number)} (${text} bytes)`
+        : text,
+    ]);
+  };
+  for (const [key, label] of DETAIL_LEAD.slice(0, 2)) push(key, label);
+  if (has("site_id") || has("site_name")) {
+    out.push(["Site", [r.site_name, r.site_id].filter(Boolean).join(" · ")]);
+  }
+  for (const [key, label] of DETAIL_LEAD.slice(2)) push(key, label);
+  for (const key of Object.keys(r)) {
+    if (done.has(key) || key.startsWith("snippet_")) continue;
+    push(key, detailLabel(key));
+  }
+  return out;
+}
+
 function HistorySearchTab() {
   const [q, setQ] = useState("");
   const debounced = useDebouncedValue(q, 300);
-  const history = useHistory({ limit: 200 });
-  const search = useSearch(debounced);
+  // F003 — site/status filters, paging and the row detail. The filters are
+  // server-side on both lanes. The list lane pages by cursor (each entry of
+  // `cursors` is the last id of the page before it); the FTS lane returns one
+  // capped result set, which is paged here.
+  const [siteId, setSiteId] = useState("");
+  const [status, setStatus] = useState("");
+  const [pageSize, setPageSize] = useState(200);
+  const [cursors, setCursors] = useState<number[]>([]);
+  const [searchPage, setSearchPage] = useState(0);
+  const [detail, setDetail] = useState<SearchResultRow | null>(null);
+  const toFirstPage = () => {
+    setCursors([]);
+    setSearchPage(0);
+  };
+  const sites = useHistorySites();
+  const filters = { site_id: siteId || undefined, status: status || undefined };
+  const history = useHistoryPage({
+    ...filters,
+    limit: pageSize,
+    cursor: cursors.length ? cursors[cursors.length - 1] : null,
+  });
+  const search = useSearch(debounced, 100, filters);
   const searching = debounced.trim().length > 0;
-  const rows: import("@/lib/api-types").SearchResultRow[] = searching
-    ? (search.data?.results ?? [])
-    : (history.data ?? []);
+  const matches = search.data?.results ?? [];
+  const rows: SearchResultRow[] = searching
+    ? matches.slice(searchPage * pageSize, (searchPage + 1) * pageSize)
+    : (history.data?.rows ?? []);
   const loading = searching ? search.isLoading : history.isLoading;
+  const filtered = siteId !== "" || status !== "";
+  // Configured sites first; a site that only survives in loaded history rows
+  // (removed from the config since) is offered too, as is the active choice.
+  const siteNames = new Map<string, string>();
+  for (const [id, v] of Object.entries(sites.data ?? {})) {
+    siteNames.set(id, (v && v.name) || id);
+  }
+  for (const r of rows) {
+    if (r.site_id && !siteNames.has(r.site_id)) {
+      siteNames.set(r.site_id, r.site_name || r.site_id);
+    }
+  }
+  if (siteId && !siteNames.has(siteId)) siteNames.set(siteId, siteId);
+  const siteOptions = [...siteNames]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const statusOptions = [...HISTORY_STATUSES];
+  for (const st of [status, ...rows.map((r) => r.status ?? "")]) {
+    if (st && !statusOptions.includes(st)) statusOptions.push(st);
+  }
+  const pageIndex = searching ? searchPage : cursors.length;
+  const nextCursor = history.data?.next_cursor ?? null;
+  const hasNext = searching
+    ? (searchPage + 1) * pageSize < matches.length
+    : nextCursor != null;
+  const goPrev = () =>
+    searching
+      ? setSearchPage((n) => Math.max(0, n - 1))
+      : setCursors((c) => c.slice(0, -1));
+  const goNext = () => {
+    if (!hasNext) return;
+    if (searching) setSearchPage((n) => n + 1);
+    else if (nextCursor != null) setCursors((c) => [...c, nextCursor]);
+  };
 
   const { isCompact } = useDensity();
   // P6-1 — client-side column sort over the fetched page. Accessors normalize
@@ -124,8 +255,43 @@ function HistorySearchTab() {
           className="max-w-[360px]"
           placeholder="Search history (FTS) — leave empty for recent"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            toFirstPage();
+          }}
         />
+        <select
+          aria-label="Filter by site"
+          value={siteId}
+          onChange={(e) => {
+            setSiteId(e.target.value);
+            toFirstPage();
+          }}
+          className={SELECT_CLASS}
+        >
+          <option value="">All sites</option>
+          {siteOptions.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Filter by status"
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            toFirstPage();
+          }}
+          className={SELECT_CLASS}
+        >
+          <option value="">All statuses</option>
+          {statusOptions.map((st) => (
+            <option key={st} value={st}>
+              {st}
+            </option>
+          ))}
+        </select>
         {searching && (
           <span className="text-xs text-ink-3">
             {search.data?.count ?? 0} matches
@@ -142,11 +308,21 @@ function HistorySearchTab() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={Inbox}
-          title={searching ? "No matches." : "No history yet."}
+          title={
+            searching
+              ? "No matches."
+              : filtered || pageIndex > 0
+                ? "No history rows here."
+                : "No history yet."
+          }
           hint={
             searching
               ? "Try a different search term."
-              : "Completed and failed jobs will be listed here."
+              : filtered
+                ? "No rows match the selected site and status."
+                : pageIndex > 0
+                  ? "There are no older rows."
+                  : "Completed and failed jobs will be listed here."
           }
         />
       ) : (
@@ -166,9 +342,19 @@ function HistorySearchTab() {
             </thead>
             <tbody>
               {sorted.map((r) => (
-                <tr key={r.id} className="border-b border-border/40 align-top">
+                <tr
+                  key={r.id}
+                  className="cursor-pointer border-b border-border/40 align-top hover:bg-surface-2"
+                  onClick={() => setDetail(r)}
+                >
                   <td className={`pr-3 whitespace-nowrap text-xs tabular-nums ${cellPad}`}>
-                    {r.ts ?? ""}
+                    <button
+                      type="button"
+                      className="text-left hover:underline"
+                      aria-label={`Open details for history row ${r.id ?? ""}`}
+                    >
+                      {r.ts ?? ""}
+                    </button>
                   </td>
                   <td className={`pr-3 ${cellPad}`}>{r.site_name || r.site_id || ""}</td>
                   <td className={`pr-3 ${cellPad}`}>
@@ -199,6 +385,65 @@ function HistorySearchTab() {
           </table>
         </div>
       )}
+      {!loading && (rows.length > 0 || pageIndex > 0) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-ink-3">
+          <span role="status">
+            Page {pageIndex + 1} · {rows.length} rows
+            {hasNext ? "" : " · end of list"}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <label className="flex items-center gap-1.5">
+              Rows per page
+              <select
+                aria-label="Rows per page"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  toFirstPage();
+                }}
+                className={SELECT_CLASS}
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button size="sm" variant="outline" disabled={pageIndex === 0} onClick={goPrev}>
+              Previous page
+            </Button>
+            <Button size="sm" variant="outline" disabled={!hasNext} onClick={goNext}>
+              Next page
+            </Button>
+          </div>
+        </div>
+      )}
+      <Dialog open={detail !== null} onOpenChange={(o) => !o && setDetail(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>History row {detail?.id ?? ""}</DialogTitle>
+            <DialogDescription>
+              The recorded outcome of this job, as stored.
+            </DialogDescription>
+          </DialogHeader>
+          {detail && (
+            <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-sm">
+              {detailFields(detail).map(([label, value], i) => (
+                <div key={`${i}-${label}`} className="contents">
+                  <dt className="text-xs text-ink-3">{label}</dt>
+                  <dd className="whitespace-pre-wrap break-all">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetail(null)}>
+              Close details
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
