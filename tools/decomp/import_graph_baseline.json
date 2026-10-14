@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6163,
+  "edge_count": 6206,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2808,10 +2808,28 @@
       "bulk_downloader/shares.py",
       "bulk_downloader/user_accounts.py"
     ],
+    "tests/test_bughunt_dat_egress_xport.py": [
+      "bulk_downloader/egress_transport.py",
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "tests/test_bughunt_dat_retry_class.py": [
       "bulk_downloader/app_retry_policy.py",
       "bulk_downloader/retry_policy.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_bughunt_dbm_reports.py": [
+      "tools/builder_gap_report.py",
+      "tools/capture_quality_report.py",
+      "tools/environment_report.py",
+      "tools/install_report.py",
+      "tools/kb_staleness_report.py",
+      "tools/offline_pack_report.py",
+      "tools/redaction_dial_report.py",
+      "tools/report_core.py",
+      "tools/technical_debt_report.py",
+      "tools/template_drift_report.py",
+      "tools/template_health_report.py",
+      "tools/test_runtime_report.py"
     ],
     "tests/test_bughunt_ddr_fix.py": [
       "bulk_downloader/app_discovery.py",
@@ -2856,6 +2874,11 @@
     ],
     "tests/test_bughunt_sri_recorder_state.py": [
       "bulk_downloader/live_recorder.py"
+    ],
+    "tests/test_bughunt_ssqh_f3.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
     ],
     "tests/test_build_identity_is_current.py": [
       "bulk_downloader/app_health.py"
@@ -4021,6 +4044,12 @@
       "bulk_downloader/global_config.py",
       "bulk_downloader/selector_drift.py"
     ],
+    "tests/test_dsq_batch_ops.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner_queue.py"
+    ],
     "tests/test_dss_fix_settings_save.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/plugins.py",
@@ -5094,6 +5123,15 @@
     "tests/test_o1713_wheelhouse_version_sort.py": [
       "tools/local_wheelhouse.py"
     ],
+    "tests/test_o1789_bench_fix_r1.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_template.py",
+      "bulk_downloader/capture_workbench.py",
+      "bulk_downloader/multi_site_benchmark.py",
+      "bulk_downloader/temporal_benchmark.py",
+      "tools/multi_site_benchmark.py",
+      "tools/temporal_benchmark.py"
+    ],
     "tests/test_o1789_bm_fix_bench_misc.py": [
       "bulk_downloader/capture_synth.py",
       "bulk_downloader/capture_workbench.py",
@@ -5119,6 +5157,14 @@
       "bulk_downloader/hydration_extractor.py",
       "bulk_downloader/playlist_extractor.py",
       "bulk_downloader/search_extractor.py"
+    ],
+    "tests/test_o1789_embed_viewport_fix.py": [
+      "bulk_downloader/embeddings.py",
+      "bulk_downloader/embeddings_client.py",
+      "bulk_downloader/semantic_search.py",
+      "bulk_downloader/vector_index.py",
+      "bulk_downloader/viewport_clipping_filter.py",
+      "bulk_downloader/viewport_telemetry_bridge.py"
     ],
     "tests/test_o1789_hl_history_search.py": [
       "bulk_downloader/app.py",
@@ -5664,6 +5710,11 @@
       "bulk_downloader/library.py",
       "bulk_downloader/migrations.py",
       "bulk_downloader/runner_integrations.py"
+    ],
+    "tests/test_qt_m4_user_template_id.py": [
+      "bulk_downloader/app_templates.py",
+      "bulk_downloader/app_user_templates.py",
+      "bulk_downloader/user_templates.py"
     ],
     "tests/test_qt_validate_fixes.py": [
       "bulk_downloader/app.py",
@@ -7335,6 +7386,10 @@
     "tests/test_settings_center_wiring.py": [
       "bulk_downloader/app_settings_center.py"
     ],
+    "tests/test_settings_cockpit_fix.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py"
+    ],
     "tests/test_shares_oidc_csrf_cookie.py": [
       "bulk_downloader/__init__.py",
       "bulk_downloader/app.py",
@@ -7365,6 +7420,12 @@
     "tests/test_spa_route_detector.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_browser.py"
+    ],
+    "tests/test_spa_tools_fix.py": [
+      "bulk_downloader/ai_chat.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/drift_repair.py",
+      "bulk_downloader/global_config.py"
     ],
     "tests/test_spatial_hit_test_fuzzer.py": [
       "bulk_downloader/spatial_hit_test_fuzzer.py"
