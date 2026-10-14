@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6366,
+  "edge_count": 6369,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5182,6 +5182,9 @@
     "tests/test_o1662_keepalive_launch_failure_is_named.py": [
       "bulk_downloader/session_keeper.py"
     ],
+    "tests/test_o1670_r5_teardown_watcher_not_starved.py": [
+      "bulk_downloader/app.py"
+    ],
     "tests/test_o1671_a04_dsn_no_embedded_creds.py": [
       "bulk_downloader/db_search.py",
       "bulk_downloader/pg_vector.py"
@@ -5368,6 +5371,9 @@
       "bulk_downloader/session_capture.py",
       "bulk_downloader/session_keeper.py",
       "bulk_downloader/takeover.py"
+    ],
+    "tests/test_o1789_streaming_manifest_url_filter_r1.py": [
+      "bulk_downloader/streaming_manifest.py"
     ],
     "tests/test_o1789_tempdir_clean_safety.py": [
       "bulk_downloader/__init__.py",
@@ -5751,6 +5757,7 @@
     ],
     "tests/test_phase9_10_ai_chat.py": [
       "bulk_downloader/ai_chat.py",
+      "bulk_downloader/ai_provider.py",
       "bulk_downloader/aiassist.py",
       "bulk_downloader/app.py"
     ],

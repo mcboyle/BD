@@ -186,6 +186,10 @@ class AIProvider:
     # Some providers (Claude) have a fixed model list — knowing it
     # lets the UI suggest a dropdown rather than a free-text field
     fixed_model_list: Optional[List[str]] = None
+    # _http_post status when the socket timed out before any reply (e.g. Ollama
+    # cold-loading a model on CPU). Kept apart from 0 (network) so a slow
+    # provider is not reported as an unreachable one (F042).
+    STATUS_TIMEOUT = -1
 
     def __init__(self, endpoint: str = "", api_key: str = "",
                   model_vision: str = "", model_text: str = ""):
@@ -246,6 +250,9 @@ class AIProvider:
         except URLError as e:
             ms = int((time.time() - started) * 1000)
             return False, 0, f"network: {e.reason}", ms
+        except TimeoutError as e:  # socket.timeout: connected, no reply in time
+            ms = int((time.time() - started) * 1000)
+            return False, self.STATUS_TIMEOUT, f"{type(e).__name__}: {e}", ms
         except Exception as e:
             ms = int((time.time() - started) * 1000)
             return False, 0, f"{type(e).__name__}: {e}", ms
@@ -257,7 +264,7 @@ class AIProvider:
             return "auth"
         if status == 429:
             return "rate_limit"
-        if status == 408 or status == 504:
+        if status == 408 or status == 504 or status == self.STATUS_TIMEOUT:
             return "timeout"
         if 400 <= status < 500:
             return "bad_request"
