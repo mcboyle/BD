@@ -133,6 +133,129 @@ def _compute_token_signature(token: str, body: bytes) -> str:
     return hmac.new(token.encode("utf-8"), body, hashlib.sha256).hexdigest()
 
 
+# fed-replay r1 (R257-B A2): the body-only HMAC above carries no method, path,
+# time or nonce, so a captured signed request replays as-is, and an announce
+# body replays to manual_register. The request signature now covers
+# METHOD \n path \n X-BD-Fed-Ts \n X-BD-Fed-Nonce \n sha256(body); the receiver
+# refuses |skew| > FED_MAX_SKEW_SECONDS and a nonce already seen inside the
+# window. The nonce cache is in-process, bounded per peer (keyed on the signed
+# body's instance_id) and fails closed when full -- it never evicts a nonce
+# that could still replay.
+import logging  # noqa: E402
+import secrets  # noqa: E402
+import threading  # noqa: E402
+
+FED_MAX_SKEW_SECONDS = 300
+NONCE_CACHE_PER_PEER = 1024
+NONCE_CACHE_PEERS = 256
+_NONCE_OK = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+_nonces: dict = {}   # peer key -> {nonce: expires_at}
+_nonce_lock = threading.Lock()
+_log = logging.getLogger(__name__)
+
+
+def _reset_nonce_cache() -> None:
+    with _nonce_lock:
+        _nonces.clear()
+
+
+def _canonical_request(method: str, path: str, ts: str, nonce: str,
+                       body: bytes) -> bytes:
+    return "\n".join((method.upper(), path, ts, nonce,
+                      hashlib.sha256(body or b"").hexdigest())).encode("utf-8")
+
+
+def sign_request(token: str, method: str, path: str, body: bytes, *,
+                 ts=None, nonce=None) -> dict:
+    """Headers a peer sends: X-BD-Fed-Sig / -Ts / -Nonce."""
+    ts = str(int(time.time()) if ts is None else ts)
+    nonce = secrets.token_hex(16) if nonce is None else nonce
+    sig = hmac.new(token.encode("utf-8"),
+                   _canonical_request(method, path, ts, nonce, body),
+                   hashlib.sha256).hexdigest()
+    return {"X-BD-Fed-Sig": sig, "X-BD-Fed-Ts": ts, "X-BD-Fed-Nonce": nonce}
+
+
+def _nonce_peer_key(body: bytes) -> str:
+    try:
+        obj = json.loads(body or b"{}")
+        iid = obj.get("instance_id") if isinstance(obj, dict) else None
+    except (ValueError, UnicodeDecodeError):
+        iid = None
+    return iid.strip()[:128] if isinstance(iid, str) else ""
+
+
+def _consume_nonce(peer: str, nonce: str, expires_at: float, now: float) -> str:
+    """Record a verified nonce. Returns "ok", "nonce replayed" or
+    "nonce cache full" (fail closed: a full bucket refuses, never evicts)."""
+    def _prune(bucket):
+        for n in [n for n, exp in bucket.items() if exp < now]:
+            del bucket[n]
+
+    with _nonce_lock:
+        bucket = _nonces.get(peer)
+        if bucket is None:
+            if len(_nonces) >= NONCE_CACHE_PEERS:
+                for key in list(_nonces):
+                    _prune(_nonces[key])
+                    if not _nonces[key]:
+                        del _nonces[key]
+                if len(_nonces) >= NONCE_CACHE_PEERS:
+                    return "nonce cache full"
+            bucket = _nonces[peer] = {}
+        _prune(bucket)
+        if nonce in bucket:
+            return "nonce replayed"
+        if len(bucket) >= NONCE_CACHE_PER_PEER:
+            return "nonce cache full"
+        bucket[nonce] = expires_at
+        return "ok"
+
+
+def verify_signed_request(method: str, path: str, body: bytes, header,
+                          token: str) -> tuple:
+    """Verify a replay-bound peer request. ``header(name, default)`` reads a
+    request header. Returns (ok, reason); the nonce is consumed only once the
+    signature and timestamp verify."""
+    sig = header("X-BD-Fed-Sig", "") or ""
+    ts = header("X-BD-Fed-Ts", "") or ""
+    nonce = header("X-BD-Fed-Nonce", "") or ""
+    if not token or not sig:
+        return False, "bad signature"
+    if not (ts.isascii() and ts.isdigit() and len(ts) <= 12):
+        return False, "bad timestamp"
+    if not (16 <= len(nonce) <= 128 and set(nonce) <= _NONCE_OK):
+        return False, "bad nonce"
+    expected = hmac.new(token.encode("utf-8"),
+                        _canonical_request(method, path, ts, nonce, body),
+                        hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected.encode("ascii"),
+                               sig.encode("utf-8", "replace")):
+        return False, "bad signature"
+    now = time.time()
+    if abs(now - int(ts)) > FED_MAX_SKEW_SECONDS:
+        return False, "timestamp skew"
+    res = _consume_nonce(_nonce_peer_key(body), nonce,
+                         int(ts) + FED_MAX_SKEW_SECONDS, now)
+    return res == "ok", res
+
+
+def legacy_sig_enabled() -> bool:
+    """fed_legacy_sig config flag (default OFF): accept the pre-fed-replay
+    body-only signature on announce / template_push during a rollout."""
+    try:
+        from .global_config import get_config
+        return (get_config() or {}).get("fed_legacy_sig") is True
+    except Exception:
+        return False
+
+
+def log_legacy_acceptance(path: str, remote: str) -> None:
+    _log.warning("fed-replay: LEGACY body-only signature accepted on %s from %s "
+                 "(fed_legacy_sig on; upgrade the peer, then turn it off)",
+                 path, remote)
+
+
 def verify_request(body_bytes: bytes, *, signature: str,
                   token: str) -> bool:
     """Verify a peer request's signature. constant-time compare."""
