@@ -3145,12 +3145,14 @@ def _gate_main(argv):
             print("gate: configured-shell failure record was incomplete; "
                   "command did not run", file=sys.stderr)
             return _EXIT_GATE_ABANDONED
+        # Log line BEFORE the close: the close is the launcher's EOF, after
+        # which it reports EXEC_FAILED and the log is read (O1670 R5 flake).
+        print("gate: configured shell could not be executed: %s (%s); command "
+              "did not run" % (user_argv[0], exc), file=sys.stderr)
         try:
             os.close(exec_fd)
         except OSError:
             pass
-        print("gate: configured shell could not be executed: %s (%s); command "
-              "did not run" % (user_argv[0], exc), file=sys.stderr)
         return _EXIT_GATE_ABANDONED
     except Exception as exc:
         _hold_exec_status_unknown(exec_fd, exc)

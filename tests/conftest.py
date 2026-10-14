@@ -230,6 +230,18 @@ def _reset_loaded_app_site_runtime(*, reopen=False):
             with boot_lock:
                 detach_with_watch_lock()
 
+    # Signal the process-global folder watcher before runner retirement, so
+    # its exit overlaps that work instead of starting when the shared budget
+    # is spent (O1670 R5: a healthy watcher judged with ~0s left). The bounded
+    # proof stays at the owner call below.
+    if isinstance(app_mod, ModuleType):
+        signal_watcher = getattr(app_mod, "_stop_watcher", None)
+        if callable(signal_watcher):
+            try:
+                signal_watcher(timeout=0.0, retire=True)
+            except Exception:
+                pass  # the proving call below reports it
+
     verdicts = []
     for runner in captured_runners.values():
         # Lightweight route-contract fakes need only their legacy stop hooks;
