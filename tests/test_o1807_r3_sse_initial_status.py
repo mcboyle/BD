@@ -65,6 +65,7 @@ def test_stream_initial_status_redacts_login_status(fresh_app):
     frames = dict(_initial_events(fresh_app))
     assert _SECRET not in frames["status"]
     login_status = json.loads(frames["status"])[sid]["login_status"]
-    assert "password=<REDACTED>" in login_status
-    assert "next=home" in login_status  # noncredential positive control
+    # BD-SEC-2 ROW 2: free text served to a client carries no URL token at all
+    # (egress_withhold: the '/members', path token too); plain words stay readable.
+    assert login_status == "Expected URL contains [url withheld] got [url withheld]"
     assert login_status == fresh_app.get("/api/status").get_json()[sid]["login_status"]

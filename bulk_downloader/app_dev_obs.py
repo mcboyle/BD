@@ -152,7 +152,10 @@ def api_dev_event_tap():
     try:
         from . import dev_suite as _ds
         limit = request.args.get("limit", "50")
-        return jsonify(_ds.event_tap(limit=limit))
+        # BD-SEC-2 ROW 2: tapped frames carry stored config / event urls.
+        from .egress_withhold import site_view
+        tap = _ds.event_tap(limit=limit)
+        return jsonify(site_view(tap) if isinstance(tap, dict) else tap)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 

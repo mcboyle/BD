@@ -147,6 +147,9 @@ def api_events(sid):
     events = runner.get_events(after_seq=after, limit=limit,
                                 url_filter=url_filter, kind_filter=kind_filter)
     last_seq = runner._event_seq
+    # BD-SEC-2 ROW 2: same withholding as /api/events_all.
+    from .egress_withhold import site_view
+    events = [site_view(e) for e in events]
     return jsonify({"ok": True, "events": events, "last_seq": last_seq})
 
 

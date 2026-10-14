@@ -20,6 +20,7 @@ from .runner import _ts
 from datetime import datetime
 from .db import db_search
 from .db import queue_upsert
+from .egress_withhold import url_value as _withhold_url_value
 from .app_sites import (
     _app_runners,
     _app_s_cfg,
@@ -381,7 +382,8 @@ def api_template_status(sid):
         return jsonify({
             "ok": True,
             "site": sid,
-            "url": url,
+            # BD-SEC-2 ROW 2: a non-plain URL is served as <scheme>://***.
+            "url": _withhold_url_value(url),
             "template": summary,
             "onboarding": onboarding,
             "auto_teach_first_run": cfg.get("auto_teach_first_run", True),

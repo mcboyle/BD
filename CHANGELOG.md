@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1863 - train281y: row
+
+T281y-C = train-13 (O3141/O3142 F3: on MAIN 133387b4 (train-11 landed; T281y-B superseded, PR #1245 closed).
+FIX: BD-SEC-2 withhold r3-restack-d -- LIVE-HIGH PRIORITY secret withholding across app_config/app_dev_*/sse_broker/admin surfaces; restack-d fixes the 3 gitleaks fixture findings that ejected restack-c from train-6 (S123-B, DONE 19:52Z, BOARDED 20:50Z R327-A; carries its new import edges via the release re-freeze).
+
+
 ## v3.66.1862 - train281u: row
 
 T281u-A = train-11 (MAP-1, RULING-pm-A4-A-trainmap-MAP1-2017Z.md; on MAIN 4b3422b4 = train-12 T281w landed (after train-8, train-9); 5 members, BOARDed per O1672/BOARDED-for-integration.md, pins (index tree + PATCH-SHA256) == DONE; cumulative merge-tree on main rc 0). Merge = gh pr merge --auto --merge on green required checks; band post-merge. Whichever merges later re-kits on the earlier merge commit.

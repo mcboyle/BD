@@ -237,7 +237,10 @@ def _site_effective(sid: str) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
         sites = data.get("sites", data) if isinstance(data, dict) else {}
         site = sites.get(sid, {}) if isinstance(sites, dict) else {}
-        fields = {k: v for k, v in site.items() if k in keys}
+        # SEC-2 withhold: the disk store holds the raw values, so URL / free-text / nested
+        # fields get the same served form as every other GET (secret names still presence-mask).
+        from .egress_withhold import value_view
+        fields = {k: v if _is_secret(k) else value_view(k, v) for k, v in site.items() if k in keys}
         return {"ok": True, "sid": sid, "fields": _mask_secrets(fields), "read_only": True}
     except Exception as e:  # noqa: BLE001
         return {"ok": True, "sid": sid, "fields": {}, "note": f"read fail-open: {str(e)[:120]}"}
@@ -256,8 +259,12 @@ def _global_effective() -> dict:
         from . import global_config as GC
         cfg = GC.get_config() if hasattr(GC, "get_config") else {}
         known = ["quiet_hours", "wakeup_threshold", "wakeup_cool_down_seconds"]
-        return {"ok": True, "keys": _mask_secrets(cfg if isinstance(cfg, dict) else {},
-                                                   _is_global_secret),
+        # SEC-2 withhold: the same served form as _site_effective (secret names
+        # still presence-mask).
+        from .egress_withhold import value_view
+        cfg = cfg if isinstance(cfg, dict) else {}
+        cfg = {k: v if _is_global_secret(k) else value_view(k, v) for k, v in cfg.items()}
+        return {"ok": True, "keys": _mask_secrets(cfg, _is_global_secret),
                 "statically_known_keys": known,
                 "note": "dynamic/file-backed store; full live-key set is host-resolved",
                 "read_only": True}

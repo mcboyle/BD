@@ -73,6 +73,7 @@ from collections import OrderedDict
 from typing import Any
 
 from . import dev_events as _dev_events  # import-clean ring-buffer tap
+from .egress_withhold import frame_view as _frame_view  # BD-SEC-2 ROW 2
 
 
 # Per-subscriber queue cap. If a client can't drain this fast,
@@ -217,12 +218,14 @@ class _Broker:
         # Cap length so a 1MB event-name can't blow the wire either
         if len(safe_event_type) > 64:
             safe_event_type = safe_event_type[:64]
-        # Build the SSE-formatted message once; reused for every sub
+        # Build the SSE-formatted message once; reused for every sub.
+        # BD-SEC-2 ROW 2: every frame (and the dev-events tap below) carries
+        # the served form of its payload, the one every GET shows.
         try:
-            payload = json.dumps(data, default=str)
+            payload = json.dumps(_frame_view(data), default=str)
         except Exception:
-            # Non-serializable data — drop silently. Better than
-            # crashing the publisher.
+            # Non-serializable (or unviewable) data — drop silently.
+            # Better than crashing the publisher.
             return None
         return (safe_event_type, payload,
                 f"event: {safe_event_type}\ndata: {payload}\n\n")
