@@ -493,16 +493,137 @@ async function vaultTouch() {
   await chrome.storage.local.set({ bd_vault_last_use_ts: Date.now() });
 }
 
-// Derive eTLD+1 of a URL for the silent-origins allowlist.
+// Public-suffix data for registrableDomain() (O1671 AUDIT-12).
+// BUNDLED, NEVER FETCHED: a security boundary must not depend on a network
+// answer. Two sources, unioned:
+//   - public_suffix_data.js: the Public Suffix List (ICANN + PRIVATE), loaded
+//     below with importScripts(). Where importScripts does not exist (the
+//     node-vm harnesses that run this worker standalone) or the load fails,
+//     the rules are simply absent and registrableDomain() FAILS CLOSED to the
+//     whole host -- it never guesses.
+//   - BD_MULTI_PART_SUFFIXES: the curated set that must equal
+//     _MULTI_PART_SUFFIXES in bulk_downloader/registrable_domain.py
+//     (extension/test_registrable_domain.mjs asserts parity). It adds a few
+//     user-content hosts the list does not carry and keeps the worst cases
+//     separated even with no list loaded.
+try {
+  if (typeof importScripts === "function") importScripts("public_suffix_data.js");
+} catch (e) {
+  console.warn("[bd] public suffix list not loaded; silent-fill keys are per host", e);
+}
+
+const BD_MULTI_PART_SUFFIXES = new Set([
+  // United Kingdom
+  "co.uk", "org.uk", "me.uk", "ltd.uk", "plc.uk", "net.uk", "sch.uk",
+  "ac.uk", "gov.uk", "nhs.uk", "police.uk", "mod.uk",
+  // Australia / New Zealand
+  "com.au", "net.au", "org.au", "edu.au", "gov.au", "asn.au", "id.au",
+  "co.nz", "net.nz", "org.nz", "govt.nz", "ac.nz", "school.nz",
+  // Japan / Korea / China / Taiwan / Hong Kong / Singapore / India
+  "co.jp", "ne.jp", "or.jp", "ac.jp", "go.jp", "ad.jp", "ed.jp", "gr.jp",
+  "co.kr", "or.kr", "ne.kr", "go.kr", "re.kr", "pe.kr",
+  "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "ac.cn",
+  "com.tw", "net.tw", "org.tw", "idv.tw", "gov.tw", "edu.tw",
+  "com.hk", "net.hk", "org.hk", "edu.hk", "gov.hk", "idv.hk",
+  "com.sg", "net.sg", "org.sg", "edu.sg", "gov.sg", "per.sg",
+  "co.in", "net.in", "org.in", "firm.in", "gen.in", "ind.in", "gov.in",
+  // Europe / Americas / Africa
+  "co.za", "org.za", "net.za", "web.za", "gov.za", "ac.za",
+  "com.br", "net.br", "org.br", "gov.br", "edu.br", "art.br", "blog.br",
+  "com.mx", "org.mx", "net.mx", "edu.mx", "gob.mx",
+  "com.ar", "net.ar", "org.ar", "gob.ar", "edu.ar",
+  "co.il", "org.il", "net.il", "ac.il", "gov.il",
+  "com.tr", "net.tr", "org.tr", "gov.tr", "edu.tr",
+  "com.ru", "net.ru", "org.ru", "pp.ru",
+  "com.pl", "net.pl", "org.pl", "gov.pl", "edu.pl",
+  "com.ua", "net.ua", "org.ua", "in.ua", "kiev.ua",
+  "co.id", "web.id", "or.id", "ac.id", "go.id",
+  "com.my", "net.my", "org.my", "edu.my", "gov.my",
+  "com.ph", "net.ph", "org.ph", "gov.ph",
+  "com.vn", "net.vn", "org.vn", "edu.vn", "gov.vn",
+  "co.th", "in.th", "ac.th", "go.th", "or.th",
+  "com.es", "org.es", "nom.es", "gob.es", "edu.es",
+  "com.pt", "org.pt", "edu.pt", "gov.pt",
+  "com.gr", "net.gr", "org.gr", "edu.gr", "gov.gr",
+  // User-content hosts. The security case is sharpest here: two projects on
+  // github.io are unrelated strangers, and the old rule called them one site.
+  "github.io", "gitlab.io", "githubusercontent.com",
+  "pages.dev", "workers.dev", "netlify.app", "vercel.app",
+  "herokuapp.com", "azurewebsites.net", "cloudfront.net",
+  "s3.amazonaws.com", "blogspot.com", "wordpress.com", "tumblr.com",
+  "myshopify.com", "web.app", "firebaseapp.com", "appspot.com",
+  "r2.dev", "b-cdn.net", "sourceforge.io", "readthedocs.io",
+]);
+
+let bdSuffixIndexCache = null;
+
+// exact / wildcard-parent / exception rule sets, built once.
+function bdSuffixIndex() {
+  if (bdSuffixIndexCache) return bdSuffixIndexCache;
+  const exact = new Set(BD_MULTI_PART_SUFFIXES);
+  const wild = new Set();
+  const except = new Set();
+  const text = (typeof BD_PSL === "object" && BD_PSL && typeof BD_PSL.rules === "string")
+    ? BD_PSL.rules : "";
+  for (const rule of text.split(/\s+/)) {
+    if (!rule) continue;
+    if (rule[0] === "!") except.add(rule.slice(1));
+    else if (rule.startsWith("*.")) wild.add(rule.slice(2));
+    else exact.add(rule);
+  }
+  bdSuffixIndexCache = { exact, wild, except };
+  return bdSuffixIndexCache;
+}
+
+// Derive the silent-origins allowlist key of a URL: its registrable domain
+// (public suffix + one label) when the suffix is KNOWN, else the whole host.
+//
+// PUBLIC-SUFFIX AWARE, FAIL CLOSED (O1671 AUDIT-12). The old last-two-labels
+// slice keyed evil.co.uk and bank.co.uk to the same "co.uk", so one
+// registrant's silent allow covered every other registrant under that suffix.
+//   - Public Suffix List matching: an exception rule (!www.ck) wins, else the
+//     longest exact (co.uk) or wildcard (*.ck) rule; key = suffix + one label.
+//   - A host that IS a public suffix (co.uk, github.io) keys only itself.
+//   - A single-label host (localhost) or an IP literal keys only itself.
+//   - NO RULE MATCHED (a TLD or suffix the bundle does not know, or the list
+//     did not load): the key is the WHOLE HOST. There is no last-two-labels
+//     fallback -- that fallback is how an unlisted suffix (bank.co.ke ->
+//     "co.ke") handed one site's consent to every neighbour. The cost of not
+//     knowing is that consent stops at one host; it is never shared wider.
+// DIVERGES from bulk_downloader/registrable_domain.py on purpose: that
+// reference degrades an unknown suffix to last-two-labels and returns "0.1"
+// for 127.0.0.1. Neither is acceptable for a consent key.
 function registrableDomain(url) {
+  let host;
   try {
-    const u = new URL(url);
-    const parts = u.hostname.split(".").filter(Boolean);
-    if (parts.length <= 2) return parts.join(".");
-    return parts.slice(-2).join(".");
+    host = new URL(url).hostname;
   } catch (e) {
     return "";
   }
+  host = String(host || "").toLowerCase().replace(/^\.+|\.+$/g, "");
+  if (!host) return "";
+  if (host.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return host;
+  const labels = host.split(".").filter(Boolean);
+  if (labels.length < 2) return host;
+  const idx = bdSuffixIndex();
+  let suffixLen = 0;
+  for (let n = labels.length; n >= 1; n--) {
+    const cand = labels.slice(-n).join(".");
+    if (idx.except.has(cand)) { suffixLen = n - 1; break; }
+    if (idx.exact.has(cand)) { suffixLen = n; break; }
+    if (n >= 2 && idx.wild.has(labels.slice(-(n - 1)).join("."))) { suffixLen = n; break; }
+  }
+  if (suffixLen < 1 || suffixLen >= labels.length) return host;
+  return labels.slice(-(suffixLen + 1)).join(".");
+}
+
+// The key and current state of the silent toggle for one origin. The popup
+// asks for it instead of deriving its own key, so there is one rule.
+async function vaultSilentKey(origin) {
+  const etld1 = registrableDomain(origin);
+  if (!etld1) return { ok: false, error: "could not derive origin" };
+  const c = await chrome.storage.local.get(["bd_vault_silent_origins"]);
+  return { ok: true, etld1, allowed: !!(c.bd_vault_silent_origins || {})[etld1] };
 }
 
 // ── List entries matching an origin ──────────────────────────────────
@@ -665,6 +786,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "vault_set_silent_for_origin":
       p = vaultOrigin === null ? vaultUntrustedSender()
         : vaultSetSilentForOrigin(vaultOrigin, payload.allow); break;
+    case "vault_silent_key":
+      p = vaultOrigin === null ? vaultUntrustedSender()
+        : vaultSilentKey(vaultOrigin); break;
     case "vault_set_idle_lock":
       p = vaultSetIdleLock(payload.minutes); break;
     // v1.2.0: routing preview / send-to-site / sites-list / send-all
