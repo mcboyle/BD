@@ -18,6 +18,7 @@ They verify:
 """
 from __future__ import annotations
 
+import contextlib
 import re
 import sys
 from unittest.mock import patch, MagicMock
@@ -248,8 +249,12 @@ class TestProbeHigherTiers:
 
     def test_signed_url_rejection_short_circuits(self):
         """A 403 means the URL pattern works but signature doesn't cover
-        the rewritten tier. We should stop probing immediately."""
-        url = "https://cdn.vixen.com/video/mp4_480/foo.mp4"
+        the rewritten tier. We should stop probing immediately.
+
+        dah-probe F6: only a SIGNED url can be rejected that way, so the URL
+        here now carries a signature; on an unsigned one a 403 is an absent
+        tier and the cascade goes on (tests/test_dah_probe_bounded_probes.py)."""
+        url = "https://cdn.vixen.com/video/mp4_480/foo.mp4?Signature=abc&Expires=1"
         fake = _make_httpx_mock({"mp4_4320": 403})  # first probe 403s
         with patch.dict(sys.modules, {"httpx": fake}):
             result = tier_probe.probe_higher_tiers(url, self.PAT)
@@ -295,6 +300,13 @@ class TestProbeHigherTiers:
         mock_client.__exit__ = MagicMock(return_value=None)
         mock_client.head = MagicMock(side_effect=_head)
         mock_client.get = MagicMock(side_effect=_get)
+
+        # dah-probe F2: the Range GET is a stream whose body is never read.
+        @contextlib.contextmanager
+        def _stream(_method, u, headers=None, **_kw):
+            yield _get(u, headers=headers)
+
+        mock_client.stream = MagicMock(side_effect=_stream)
         fake_httpx.Client = MagicMock(return_value=mock_client)
 
         with patch.dict(sys.modules, {"httpx": fake_httpx}):
