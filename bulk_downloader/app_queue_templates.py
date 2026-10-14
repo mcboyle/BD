@@ -21,20 +21,52 @@ def _app_runners():
     return getattr(importlib.import_module("bulk_downloader.app_state"), "runners")
 
 
+# qt-validate (O1789 bughunt queue-templates-io M1 M5 L2 L5): every body field is type-checked before it reaches
+# queue_templates / sqlite. A wrong type is a 400 naming the field -- never a 500, never a silent coercion
+# ("https://x" stored as one URL per character). null = field absent.
+_FIELD_TYPES = {"name": (str, "a string"), "origin_site_id": (str, "a string"), "note": (str, "a string"),
+                "urls": (list, "a list of strings"), "force_set": (list, "a list of strings"),
+                "priority_map": (dict, "an object")}
+
+
+def _field_error(body):
+    """The 400 message for the first mistyped field of a template body, else None."""
+    for key, (kind, what) in _FIELD_TYPES.items():
+        value = body.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, kind) or (kind is list and not all(isinstance(u, str) for u in value)):
+            return f"{key} must be {what}"
+    return None
+
+
+def _template_shape_error(t):
+    """A stored template apply cannot use (written before validation existed), else None. Checked BEFORE
+    mode=replace clears the queue, so a bad template changes nothing."""
+    if not isinstance(t.get("priority_map"), dict):
+        return "template priority_map is not an object; fix it with PUT first"
+    fset = t.get("force_set")
+    if not isinstance(fset, list) or not all(isinstance(u, str) for u in fset):
+        return "template force_set is not a list of strings; fix it with PUT first"   # r2: [[]] / [{..}] too
+    return None
+
+
 @queue_templates_bp.route("/api/queue_templates", methods=["GET", "POST"])
 def api_queue_templates():
     from . import queue_templates as _qt
     if request.method == "GET":
         return jsonify({"ok": True, "templates": _qt.list_all()})
-    body = request.json or {}
+    body = request.json
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
+    err = _field_error(body)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     name = (body.get("name") or "").strip()
     if not name:
         return jsonify({"ok": False, "error": "name required"}), 400
     origin = body.get("origin_site_id") or ""
     urls = body.get("urls") or []
-    if not isinstance(urls, list):
-        return jsonify({"ok": False,
-                        "error": "urls must be a list"}), 400
     tid = _qt.create(
         name=name, origin_site_id=origin, urls=urls,
         priority_map=body.get("priority_map") or {},
@@ -56,7 +88,17 @@ def api_queue_template_one(tid):
         ok = _qt.delete(tid)
         return jsonify({"ok": ok}), (200 if ok else 404)
     # PUT
-    body = request.json or {}
+    body = request.json
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
+    err = _field_error(body)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    if all(body.get(k) is None for k in _FIELD_TYPES if k != "origin_site_id"):
+        return jsonify({"ok": False, "error": "nothing to update: give name, urls, priority_map, force_set "
+                                             "or note"}), 400
+    if not _qt.get(tid):
+        return jsonify({"ok": False, "error": "not found"}), 404
     ok = _qt.update(
         tid,
         name=body.get("name"),
@@ -81,6 +123,12 @@ def api_queue_template_apply(tid, sid):
     if mode not in ("append", "replace"):
         return jsonify({"ok": False, "error":
                         f"unknown mode: {mode}"}), 400
+    shape = _template_shape_error(t)
+    if shape:
+        return jsonify({"ok": False, "error": shape}), 400
+    # r2 (REFUTE cx172 F1): everything derived from the template is built BEFORE replace clears the queue.
+    pmap = t.get("priority_map") or {}
+    fset = set(t.get("force_set") or [])
     runner = runners[sid]
     if mode == "replace":
         with runner._lock:
@@ -96,8 +144,6 @@ def api_queue_template_apply(tid, sid):
         added = result[0] if isinstance(result, tuple) else len(new_urls)
     # Apply priority + force flags from the template
     from .db import queue_upsert
-    pmap = t.get("priority_map") or {}
-    fset = set(t.get("force_set") or [])
     persist = []
     with runner._lock:
         # Append skips URLs already queued, so their metadata stays as it was.
