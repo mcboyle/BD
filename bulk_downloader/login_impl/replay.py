@@ -240,10 +240,21 @@ def write_login_evidence(page, config, final_url, tag):
         directory = _login_evidence_dir(config)
         directory.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-        path = directory / f"{_evidence_slug(tag)}-{stamp}-{os.getpid()}.html"
-        path.write_text(f"<!-- phase: {tag} -->\n"
-                        f"<!-- final_url: {final_url} -->\n{html}",
-                        encoding="utf-8", errors="replace")
+        # Two sites failing the same phase in the same second share this name;
+        # create exclusively and step to -2, -3 ... so neither overwrites the
+        # other. Owner-only: the page may show account details.
+        base = f"{_evidence_slug(tag)}-{stamp}-{os.getpid()}"
+        n = 1
+        while True:
+            path = directory / (f"{base}.html" if n == 1 else f"{base}-{n}.html")
+            try:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                break
+            except FileExistsError:
+                n += 1
+        with os.fdopen(fd, "w", encoding="utf-8", errors="replace") as fh:
+            fh.write(f"<!-- phase: {tag} -->\n"
+                     f"<!-- final_url: {final_url} -->\n{html}")
         # Row 722: the HTML alone cannot show which form was rendered, what
         # a captcha widget did, or an error banner drawn by script. Keep
         # what the browser SHOWED beside what it read; a screenshot that
