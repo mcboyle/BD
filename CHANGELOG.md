@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1853 - train281l: row
+
+T281l-D (train-4, integrator D2-D) on main fe0ef7a9 (train-3 T281k merged) (6 members; product train; legs BOARD per O1672/BOARDED-for-integration.md). Members path-disjoint from each other (ORDER-pm-B-landing-5fix-1620Z F3); list frozen at assembly; intake T281i/t4/INTAKE-train4-1620Z.md.
+FIX: manifest-url-filter r1 -- manifests._local_host encoded loopback + EXT-X-MEDIA through filter (LOW, R217-C).
+FIX: settings-fe-fix r3 -- settings SPA + global_config fixes (R275-B).
+FIX: reserve-toctou-fix r2 -- staging claim no-clobber, hls/runner_transport reserve TOCTOU (HIGH data loss, R262-B).
+TEST: share-scope-status r2 -- all_stats share-token scope tests, refile without key-shaped literals (HIGH, AGY-02).
+FIX: cookie-egress-fix r1 -- cookie scope egress class across extractors/session_keeper/tier_probe (HIGH, R252-B + R253-D).
+FIX: plugins-fix r3 -- plugins-exec-surface allowlisted reinstall F5; eject refile of r2 (AGY-06).
+
+
 ## v3.66.1852 - train281k: row
 
 T281k-A = train-3 (O3141/O3142 F3: on MAIN fd97d96d = train-2 T281i-D landed; member list frozen at assembly 16:30Z; 10 members, pairwise path-disjoint, greedy by BOARD age; no other train in flight). Product train; legs BOARD per O1672/BOARDED-for-integration.md; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge (F4). Ejected earlier: plugins-fix r2 (CI leaker census), inspect-pick-bounds r1 (gitleaks). Waiting for train-4: ddr f8-f11 r2, ext-csrf-token r1 (chain tails), session-jar-integrity r2, request-capture-redact r2 (app.py vs dev-paired), dev-path-inputs r1, dev-run-bounds r1 (app_dev_runtime.py vs dev-exec-lows), dom-recorder-bounds r1 (guards.json pin vs main; resolver ready).
