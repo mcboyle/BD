@@ -44,7 +44,7 @@ Tags:
 Schema version: 2
 
 
-## `bulk_downloader/app.py` (156 entries)
+## `bulk_downloader/app.py` (157 entries)
 
 ```
 - L0039 `_selftest_sites_inputs` `[private]` — Read self-test inputs from the exact config identity boot will load.
@@ -85,124 +85,125 @@ Schema version: 2
 - L1134 `_check_csrf` `[private]` — For state-changing requests (POST/PUT/PATCH/DELETE) under /api/,
 - L1246 `_add_security_headers` `[private]` — Audit 2026-05 / Phase 2C: defense-in-depth response headers.
 - L1300 `_dev_metrics_start` `[private]`
-- L1308 `_dev_metrics_record` `[private]`
-- L1391 `_bootstrap_session` `[private]` — If the request is for the HTML shell (GET /) and there's no
-- L1455 `serve_mobile_view` `GET /m/; GET /m`
-- L1472 `serve_mobile_ops_view` `GET /m/ops/; GET /m/ops`
-- L1503 `_m2_503_node_missing` `[private]` — Uniform 503 response when frontend/dist/ is missing.
-- L1558 `_m2_opt_state` `[private]` — Return one of 'v2', 'v1', or 'default' based on query + cookie.
-- L1574 `_m2_apply_opt_cookie` `[private]` — If the request had `?ui=v2` or `?ui=v1`, persist that as the
-- L1593 `serve_m2_spa` `GET /m2/; GET /m2; GET /m2/<path:subpath>` — Phase 1 root flip (v3.66.203): the D3 SPA moved from /m2 to `/`
-- L1640 `_resolve_sites_file` `[private]` — Where the site config lives.
-- L1697 `_sites_file_for_boot` `[private]` — Resolve a candidate without corrupting a bound runtime on rejection.
-- L1704 `_publish_sites_file_for_runtime` `[private]` — Publish an accepted auto-owned candidate; preserve explicit patches.
-- L1729 `_sites_config_reachability` `[private]` — Return the last load's operator-facing path measurement.
-- L1735 `_save_sites_config` `[private]` — Write current sites to disk. Called on every add/update/delete.
-- L1849 `_sites_config_path_gate` `[private]` — {site id: error} for each live entry about to be written with a path
-- L1927 `_build_meta` `[private]` — Return a copy of cfg with secrets stripped — top-level password
-- L1966 `_load_sites_config` `[private]` — Read sites from disk on startup and instantiate SiteRunners.
-- L2246 `_init_vpn_runtime` `[private]` — Initialize VPN mappings after configured sites have been restored.
-- L2287 `_start_session_keepers` `[private]`
-- L2411 `_heartbeat_to_disk_loop` `[private]`
-- L2451 `_start_watch_folder_threads` `[private]` — Spawn one daemon thread per configured site. The thread's
-- L2536 `_resolved_site_runtime_path` `[private]` — Return the absolute identity of the configured-sites runtime.
-- L2545 `_require_compatible_site_runtime_path` `[private]` — Refuse to bind the process's live runners to a second config file.
-- L2558 `_retire_configured_runtime_runners` `[private]` — Retire every partially loaded runner without losing any handle.
-- L2584 `_retire_configured_runtime_watchers` `[private]` — Signal and prove every configured watch generation quiescent.
-- L2648 `_retire_configured_runtime_dependencies` `[private]` — Quiesce watcher/keeper producers without resetting VPN leaves.
-- L2679 `_retire_configured_runtime_all` `[private]` — Retire all producers, then and only then reset their VPN leaf.
-- L2693 `_clear_configured_runtime_state` `[private]` — Clear a partial load only after every owned generation is dead.
-- L2710 `_activate_configured_runtime_once` `[private]` — Restore configured sites and their dependent services exactly once.
-- L2793 `_resume_sites_running_at_shutdown` `[private]` — Start again every site that was running when the service went down.
-- L2831 `_start_window_scheduler` `[private]`
-- L2900 `_start_storage_tier_scheduler` `[private]`
-- L2923 `_load_app_config` `[private]`
-- L3021 `_save_app_config` `[private]` — Persist global app config. Atomic via .tmp + replace (v3.43.19):
-- L3100 `_start_background_services` `[private]` — Start bg_scheduler + the webhook drain worker. Called from boot_once().
-- L3186 `_routing_config_projection` `[private]` — Return the immutable-by-value inputs used for URL/site scoring.
-- L3197 `_route_urls_internal` `[private]` — Internal helper: same routing logic as /api/route_urls but without
-- L3260 `_saved_search_enqueue_handler` `[private]`
-- L3275 `_score_url_against_sites` `[private]` — v3.43.40: extracted scoring helper used by both routing
-- L3367 `_watcher_loop` `[private]` — Thread body. Polls watch_folder for new .txt files; imports URLs;
-- L3438 `_start_watcher` `[private]` — Idempotent start. Called at explicit boot + whenever app_config
-- L3480 `_stop_watcher` `[private]` — Signal and boundedly prove the process-global watcher generation.
-- L3552 `_explicit_methods_for_path` `[private]` — Methods served by EXPLICIT rules (anything but the serve_spa_root
-- L3570 `_405_with_allow` `[private]`
-- L3578 `_method_not_allowed_parity` `[private]` — Restore pre-flip 404/405 semantics for non-GET requests whose
-- L3611 `serve_spa_root` `GET /; GET /<path:subpath>` — Serve the D3 React SPA from frontend/dist/ at the site root.
-- L3694 `pwa_manifest` `GET /manifest.json`
-- L3710 `pwa_icon_svg` `GET /icon.svg` — Same icon as the favicon — bundled inline so we don't need a static dir.
-- L3823 `pwa_sw` `GET /sw.js`
-- L3843 `_origins_env_locked` `[private]` — A field is env-locked when a BD_<UPPER(field)> env var pins it. Static
-- L3855 `_oi_flagged` `[private]` — Best-effort count of sites whose status looks problematic. Fail-soft:
-- L3881 `_oi_dir_writable` `[private]` — (exists, writable) for a candidate dir — read-only, never creates.
-- L3890 `_oi_default_download_dir` `[private]` — The directory a site downloads into when it names none of its own.
-- L3916 `_chk` `[private]`
-- L4037 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
-- L4072 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
-- L4555 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
-- L4590 `_bd_cookie_dir` `[private]`
-- L4597 `_site_primary_url` `[private]` — Resolve a content URL, retaining an explicit login-first mode.
-- L4695 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
-- L4781 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
-- L4898 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
-- L4911 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
-- L4929 `_m2_latest_login_failed` `[private]` — dl95-vip4k-2: the latest SETTLED login attempt failed and the jar has
-- L4948 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
-- L5012 `_m2_hold_reason` `[private]` — Operator-facing cause of a runner self-hold, or "" when not held.
-- L5030 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
-- L5105 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
-- L5124 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
-- L5151 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
-- L5242 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
-- L5258 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
-- L5300 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
-- L5359 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
-- L5396 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
-- L5526 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
-- L5571 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
-- L5606 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
-- L5631 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
-- L5658 `_cookie_file_cells` `[private]` — (label, account index or None, value) for the site's cookie_file and
-- L5670 `_judge_cookie_file` `[private]` — One cookie_file value -> (ok, error_string).  _validate_path (string,
-- L5698 `_validate_cookie_files` `[private]` — cookie-file-roots (finder R38-B): the ONE cookie_file check, for the
-- L5727 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
-- L5747 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
-- L5844 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
-- L5882 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
-- L5910 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
-- L5960 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
-- L6157 `_gap_fill_builtin_download_template` `[private]` — dl95-xvideos-2b: load-time counterpart of _auto_pick_templates'
-- L6214 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
-- L6250 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
-- L6433 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
-- L6497 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
-- L6637 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
-- L6662 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
-- L6866 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
-- L6879 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
-- L6906 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
-- L6926 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L6959 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
-- L7004 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L7072 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L7214 `serve_ss` `GET /screenshots/<path:filename>`
-- L7523 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7530 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7541 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7556 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7620 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7649 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7657 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7674 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7686 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7709 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7725 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7741 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7758 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7811 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7932 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
-- L7969 `_dev_session_is_paired` `[private]` — True iff the cookie names a live login session minted by pair_redeem.
+- L1308 `_withhold_diagnostic_text` `[private]` — BD-SEC-2 ROW 2: an error / status string the app wrote (a webhook's
+- L1331 `_dev_metrics_record` `[private]`
+- L1414 `_bootstrap_session` `[private]` — If the request is for the HTML shell (GET /) and there's no
+- L1478 `serve_mobile_view` `GET /m/; GET /m`
+- L1495 `serve_mobile_ops_view` `GET /m/ops/; GET /m/ops`
+- L1526 `_m2_503_node_missing` `[private]` — Uniform 503 response when frontend/dist/ is missing.
+- L1581 `_m2_opt_state` `[private]` — Return one of 'v2', 'v1', or 'default' based on query + cookie.
+- L1597 `_m2_apply_opt_cookie` `[private]` — If the request had `?ui=v2` or `?ui=v1`, persist that as the
+- L1616 `serve_m2_spa` `GET /m2/; GET /m2; GET /m2/<path:subpath>` — Phase 1 root flip (v3.66.203): the D3 SPA moved from /m2 to `/`
+- L1663 `_resolve_sites_file` `[private]` — Where the site config lives.
+- L1720 `_sites_file_for_boot` `[private]` — Resolve a candidate without corrupting a bound runtime on rejection.
+- L1727 `_publish_sites_file_for_runtime` `[private]` — Publish an accepted auto-owned candidate; preserve explicit patches.
+- L1752 `_sites_config_reachability` `[private]` — Return the last load's operator-facing path measurement.
+- L1758 `_save_sites_config` `[private]` — Write current sites to disk. Called on every add/update/delete.
+- L1872 `_sites_config_path_gate` `[private]` — {site id: error} for each live entry about to be written with a path
+- L1950 `_build_meta` `[private]` — Return a copy of cfg with secrets stripped — top-level password
+- L1989 `_load_sites_config` `[private]` — Read sites from disk on startup and instantiate SiteRunners.
+- L2269 `_init_vpn_runtime` `[private]` — Initialize VPN mappings after configured sites have been restored.
+- L2310 `_start_session_keepers` `[private]`
+- L2434 `_heartbeat_to_disk_loop` `[private]`
+- L2474 `_start_watch_folder_threads` `[private]` — Spawn one daemon thread per configured site. The thread's
+- L2559 `_resolved_site_runtime_path` `[private]` — Return the absolute identity of the configured-sites runtime.
+- L2568 `_require_compatible_site_runtime_path` `[private]` — Refuse to bind the process's live runners to a second config file.
+- L2581 `_retire_configured_runtime_runners` `[private]` — Retire every partially loaded runner without losing any handle.
+- L2607 `_retire_configured_runtime_watchers` `[private]` — Signal and prove every configured watch generation quiescent.
+- L2671 `_retire_configured_runtime_dependencies` `[private]` — Quiesce watcher/keeper producers without resetting VPN leaves.
+- L2702 `_retire_configured_runtime_all` `[private]` — Retire all producers, then and only then reset their VPN leaf.
+- L2716 `_clear_configured_runtime_state` `[private]` — Clear a partial load only after every owned generation is dead.
+- L2733 `_activate_configured_runtime_once` `[private]` — Restore configured sites and their dependent services exactly once.
+- L2816 `_resume_sites_running_at_shutdown` `[private]` — Start again every site that was running when the service went down.
+- L2854 `_start_window_scheduler` `[private]`
+- L2923 `_start_storage_tier_scheduler` `[private]`
+- L2946 `_load_app_config` `[private]`
+- L3044 `_save_app_config` `[private]` — Persist global app config. Atomic via .tmp + replace (v3.43.19):
+- L3123 `_start_background_services` `[private]` — Start bg_scheduler + the webhook drain worker. Called from boot_once().
+- L3209 `_routing_config_projection` `[private]` — Return the immutable-by-value inputs used for URL/site scoring.
+- L3220 `_route_urls_internal` `[private]` — Internal helper: same routing logic as /api/route_urls but without
+- L3283 `_saved_search_enqueue_handler` `[private]`
+- L3298 `_score_url_against_sites` `[private]` — v3.43.40: extracted scoring helper used by both routing
+- L3390 `_watcher_loop` `[private]` — Thread body. Polls watch_folder for new .txt files; imports URLs;
+- L3461 `_start_watcher` `[private]` — Idempotent start. Called at explicit boot + whenever app_config
+- L3503 `_stop_watcher` `[private]` — Signal and boundedly prove the process-global watcher generation.
+- L3575 `_explicit_methods_for_path` `[private]` — Methods served by EXPLICIT rules (anything but the serve_spa_root
+- L3593 `_405_with_allow` `[private]`
+- L3601 `_method_not_allowed_parity` `[private]` — Restore pre-flip 404/405 semantics for non-GET requests whose
+- L3634 `serve_spa_root` `GET /; GET /<path:subpath>` — Serve the D3 React SPA from frontend/dist/ at the site root.
+- L3717 `pwa_manifest` `GET /manifest.json`
+- L3733 `pwa_icon_svg` `GET /icon.svg` — Same icon as the favicon — bundled inline so we don't need a static dir.
+- L3846 `pwa_sw` `GET /sw.js`
+- L3866 `_origins_env_locked` `[private]` — A field is env-locked when a BD_<UPPER(field)> env var pins it. Static
+- L3878 `_oi_flagged` `[private]` — Best-effort count of sites whose status looks problematic. Fail-soft:
+- L3904 `_oi_dir_writable` `[private]` — (exists, writable) for a candidate dir — read-only, never creates.
+- L3913 `_oi_default_download_dir` `[private]` — The directory a site downloads into when it names none of its own.
+- L3939 `_chk` `[private]`
+- L4060 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
+- L4095 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
+- L4578 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
+- L4613 `_bd_cookie_dir` `[private]`
+- L4620 `_site_primary_url` `[private]` — Resolve a content URL, retaining an explicit login-first mode.
+- L4718 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
+- L4804 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
+- L4921 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
+- L4934 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
+- L4952 `_m2_latest_login_failed` `[private]` — dl95-vip4k-2: the latest SETTLED login attempt failed and the jar has
+- L4971 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
+- L5035 `_m2_hold_reason` `[private]` — Operator-facing cause of a runner self-hold, or "" when not held.
+- L5053 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
+- L5128 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
+- L5147 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
+- L5174 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
+- L5265 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
+- L5281 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
+- L5323 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
+- L5382 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
+- L5421 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
+- L5551 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
+- L5596 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
+- L5631 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
+- L5656 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
+- L5683 `_cookie_file_cells` `[private]` — (label, account index or None, value) for the site's cookie_file and
+- L5695 `_judge_cookie_file` `[private]` — One cookie_file value -> (ok, error_string).  _validate_path (string,
+- L5723 `_validate_cookie_files` `[private]` — cookie-file-roots (finder R38-B): the ONE cookie_file check, for the
+- L5752 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
+- L5772 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
+- L5869 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
+- L5907 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
+- L5935 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
+- L5985 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
+- L6182 `_gap_fill_builtin_download_template` `[private]` — dl95-xvideos-2b: load-time counterpart of _auto_pick_templates'
+- L6239 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
+- L6275 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
+- L6458 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
+- L6522 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
+- L6662 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
+- L6687 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
+- L6891 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
+- L6904 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
+- L6931 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
+- L6951 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
+- L6984 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
+- L7029 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L7097 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L7239 `serve_ss` `GET /screenshots/<path:filename>`
+- L7548 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L7555 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7566 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7581 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7645 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7674 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7682 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7699 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7711 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7734 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7750 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7766 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7783 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7836 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7957 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L7994 `_dev_session_is_paired` `[private]` — True iff the cookie names a live login session minted by pair_redeem.
 ```
 
 
@@ -210,130 +211,130 @@ Schema version: 2
 
 ```
 - L0084 `captcha_egress_disclosure_error` — Return a refusal when a paid solver transition lacks acknowledgement.
-- L0206 `prepare_site_http_egress` — Resolve one site's VPN posture and return an HTTP-capable carrier.
-- L0353 `_trigger_page_metrics` `[private]` — (height, candidate-element count) -- the shape a trigger changes.
-- L0359 `_safe_trigger_metrics` `[private]` — Read the metrics, or None when the page cannot be read at all.
-- L0367 `_locate_trigger` `[private]` — ``(document, locator)`` for a download trigger.
-- L0392 `_trigger_skip_reason` `[private]` — dl95-naughtyamerica-3: why a learned trigger was not clicked, for the log.
-- L0412 `_reveal_hidden_trigger` `[private]` — dl95-naughtyamerica-3: open the collapsed section that hides a trigger.
-- L0447 `_settle_after_trigger` `[private]` — Wait for a triggered page to change and then hold still.
-- L0519 `_page_media_state` `[private]` — Return candidate_filter's conservative page-media state.
-- L0552 `_cdn_origin_error` `[private]` — Return "Cloudflare 522 (Connection timed out)" for a Cloudflare origin
-- L0586 `_handle_cdn_origin_error_page` `[private]` — Route a CDN origin-error page to the retried failure path.
-- L0624 `_lending_gate` `[private]` — The visible borrow/hold control's label ("BORROW"), else "".
-- L0636 `_handle_lending_gate_page` `[private]` — Hold a borrow-gated title for the operator with a named reason.
-- L0661 `_handle_confirmed_no_video_page` `[private]` — Publish the distinct photo-gallery outcome, if positively proven.
-- L0705 `_content_not_found_statement` `[private]` — The page's own "this content does not exist" line, or "" -- never raises.
-- L0720 `_handle_content_not_found_page` `[private]` — Fail the job with the site's own not-found verdict, if the page states one.
-- L0749 `_page_not_found_reason` `[private]` — Why this page is not the requested content ("HTTP 404", the site's own
-- L0761 `_landed_on_site_root` `[private]` — True when navigating to a non-root URL ended on the SAME host's root
-- L0774 `_refuse_not_found_winner` `[private]` — A winner nothing ties to the scene, on a page that is not the scene, is
-- L0795 `_prefer_member_rendition` `[private]` — dl95-pegasproductions-2b: on a login site, never close a public-tier file
-- L0853 `_handle_bot_wall_page` `[private]` — dl95-reddit-2: a bot-challenge wall is not a missing download button.
-- L1002 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
-- L1027 `_translate_failed_message` `[private]` — Translate a failed-job message with any required live measurement.
-- L1036 `_try_scrapling_turnstile` `[private]` — Run the Turnstile seam only after measuring a usable fetcher.
-- L1202 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
-- L1212 `get_global_concurrent_cap`
-- L1257 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L1281 `_record_run_intent` `[private]` — dl95-evilangel-1: persist whether this site should be running, so a
-- L1299 `_record_window_park` `[private]` — ddr-fix F4: persist whether the download window parked this site, so
-- L1312 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
-- L1327 `_acquire_drain_op` `[private]` — dl-runner #9: register one URL as in-flight work with the task drain
-- L1349 `_await_drain_release` `[private]` — dl-runner r2 (cx162 F1): park a worker whose URL is not yet claimed
-- L1375 `_release_drain_op` `[private]` — Release a handle from _acquire_drain_op (None is a no-op).
-- L1386 `_pending_url_already_downloadable` `[private]` — Row 776: True when `url` is already an accepted direct-media href
-- L1404 `_pending_url_ranker_accepts_media` `[private]` — Row 776 (REFUTE fix, correctness lens): True when a lightweight
-- L1485 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
-- L1513 `get_active_runner` — Return live SiteRunner instance if still referenced in memory (Row 1028).
-- L1518 `live_sample_bps` — One job's byte rate from its progress sample, or 0.0 when the sample
-- L1535 `SiteRunner` `[class]`
-  - L1541 `SiteRunner._state` `[private]`
-  - L1548 `SiteRunner._state` `[private]`
-  - L1562 `SiteRunner._rl_autostart` `[private]`
-  - L1569 `SiteRunner._rl_autostart` `[private]`
-  - L1575 `SiteRunner.__init__` `[dunder]`
-  - L1830 `SiteRunner.get_subsystem` — Return the named runner subsystem if registered (Row 1021).
-  - L1834 `SiteRunner.set_state` — Update runner state via LifecycleSubsystem (Row 1021).
-  - L1838 `SiteRunner.add_url` — Enqueue URL via QueueSubsystem (Row 1021).
-  - L1846 `SiteRunner.record_job` — Record job metadata via QueueSubsystem (Row 1021).
-  - L1853 `SiteRunner.record_bytes` — Record transferred bytes via TelemetrySubsystem (Row 1021).
-  - L1858 `SiteRunner.record_error` — Record error occurrence via TelemetrySubsystem (Row 1021).
-  - L1863 `SiteRunner.register_accumulator` — Register byte accumulator via TransportSubsystem (Row 1021).
-  - L1870 `SiteRunner.unregister_accumulator` — Unregister byte accumulator via TransportSubsystem (Row 1021).
-  - L1877 `SiteRunner.trigger_rate_limit` — Trigger rate limit and notify TransportSubsystem (Row 1021).
-  - L1883 `SiteRunner.log_event` — Log event and mirror errors to TelemetrySubsystem (Row 1021).
-  - L1889 `SiteRunner.configure_work_stealing` — Configure dynamic work stealing from other saturated site queues.
-  - L1894 `SiteRunner._try_steal_job` `[private]` — Attempt to steal a pending job from another site's queue when idle.
-  - L1908 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
-  - L1979 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
-  - L1987 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
-  - L2000 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
-  - L2009 `SiteRunner._refresh_worker_cookies` `[private]` — Inject freshly published cookies into a worker's persistent context.
-  - L2040 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
-  - L2078 `SiteRunner._begin_auxiliary_start` `[private]` — Register the current auth/manual launcher before it can block.
-  - L2088 `SiteRunner._end_auxiliary_start` `[private]` — Release a launcher, retaining its handle after retirement.
-  - L2103 `SiteRunner._start_owned_auxiliary_thread` `[private]` — Atomically publish/start one auxiliary generation or refuse it.
-  - L2117 `SiteRunner._start_tracked_auxiliary_thread` `[private]` — Publish a callback-only thread in the shared auxiliary registry.
-  - L2131 `SiteRunner._finish_tracked_auxiliary_thread` `[private]`
-  - L2136 `SiteRunner.start`
-  - L2198 `SiteRunner._restart_resume_withdrawn` `[private]` — True (and logged) when an operator Stop/Pause cleared the run
-  - L2208 `SiteRunner._refuse_for_download_hold` `[private]` — Publish the runner-visible refusal for a held/unmeasurable hold.
-  - L2230 `SiteRunner._start_serialized` `[private]`
-  - L2626 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
-  - L2636 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L2697 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L2775 `SiteRunner.drain` — Drain in-flight workers to safe transactional boundary and pause (Row 1075).
-  - L2788 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L2825 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L2879 `SiteRunner.window_leave` — ddr-fix F3/F4: the download window closed. Park the site only if it
-  - L2899 `SiteRunner.window_enter` — ddr-fix F4 (PERMISSION, operator DECISION 0438Z item 1): the
-  - L2912 `SiteRunner._reopen_window_held_run` `[private]` — ddr-fix r3 (R158-C F1): window_paused closed the gate on a live run;
-  - L2949 `SiteRunner._repend_jobs_parked_by_stop` `[private]` — dl95-justporn-3: Stop parks the jobs it interrupted ("pending" and
-  - L2983 `SiteRunner.stop`
-  - L3112 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
-  - L3435 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
-  - L3453 `SiteRunner.get_poll_status` — dl95-app-1: job counts for the /api/health and /api/sites/v2 polls.
-  - L3483 `SiteRunner.get_status` — Runner state (see _get_status_impl). dl95-app-1: records the last
-  - L3494 `SiteRunner._get_status_impl` `[private]` — Return runner state. With `light=True`, omit `jobs` and
-  - L3603 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L3620 `SiteRunner.state`
-  - L3622 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L3658 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L3665 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L3672 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
-  - L3741 `SiteRunner._scene_title_for` `[private]` — fx-newsensations-generic-title: the record's first harvested source
-  - L3754 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
-  - L3787 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L3808 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L4428 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L4457 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L4512 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L4570 `SiteRunner._worker_generation_is_current` `[private]`
-  - L4574 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L4635 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L4695 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L4727 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L4758 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L4778 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L4787 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L4812 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
-  - L4837 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L4878 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L4980 `SiteRunner._record_worker_thread_telemetry` `[private]` — Row 995: must run ON the worker thread -- the reading is of the caller.
-  - L4993 `SiteRunner._worker_threads_status` `[private]`
-  - L5001 `SiteRunner._cgroup_controller_or_none` `[private]`
-  - L5011 `SiteRunner._cgroup_backpressure_delay_s` `[private]` — Seconds to slow the intake by on the high-water ramp (0 when the
-  - L5022 `SiteRunner._cgroup_trial_feedback` `[private]` — Settle the HALF_OPEN trial this worker's URL was admitted as
-  - L5056 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L5440 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L5455 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L5485 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
-  - L5511 `SiteRunner._handle_find_button_budget_spent` `[private]` — dl95-tube8-1: fail the job when find_best_download stopped at the
-  - L5526 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
-  - L5576 `SiteRunner._accept_navigation_download` `[private]` — dl-f6: the job URL itself started a browser download on goto.
-  - L5603 `SiteRunner._resolve_write_dir` `[private]` — The directory a job's file is written to, or "" when none resolves.
-  - L5656 `SiteRunner._process_one` `[private]` — Process a single URL.
+- L0207 `prepare_site_http_egress` — Resolve one site's VPN posture and return an HTTP-capable carrier.
+- L0354 `_trigger_page_metrics` `[private]` — (height, candidate-element count) -- the shape a trigger changes.
+- L0360 `_safe_trigger_metrics` `[private]` — Read the metrics, or None when the page cannot be read at all.
+- L0368 `_locate_trigger` `[private]` — ``(document, locator)`` for a download trigger.
+- L0393 `_trigger_skip_reason` `[private]` — dl95-naughtyamerica-3: why a learned trigger was not clicked, for the log.
+- L0413 `_reveal_hidden_trigger` `[private]` — dl95-naughtyamerica-3: open the collapsed section that hides a trigger.
+- L0448 `_settle_after_trigger` `[private]` — Wait for a triggered page to change and then hold still.
+- L0520 `_page_media_state` `[private]` — Return candidate_filter's conservative page-media state.
+- L0553 `_cdn_origin_error` `[private]` — Return "Cloudflare 522 (Connection timed out)" for a Cloudflare origin
+- L0587 `_handle_cdn_origin_error_page` `[private]` — Route a CDN origin-error page to the retried failure path.
+- L0625 `_lending_gate` `[private]` — The visible borrow/hold control's label ("BORROW"), else "".
+- L0637 `_handle_lending_gate_page` `[private]` — Hold a borrow-gated title for the operator with a named reason.
+- L0662 `_handle_confirmed_no_video_page` `[private]` — Publish the distinct photo-gallery outcome, if positively proven.
+- L0706 `_content_not_found_statement` `[private]` — The page's own "this content does not exist" line, or "" -- never raises.
+- L0721 `_handle_content_not_found_page` `[private]` — Fail the job with the site's own not-found verdict, if the page states one.
+- L0750 `_page_not_found_reason` `[private]` — Why this page is not the requested content ("HTTP 404", the site's own
+- L0762 `_landed_on_site_root` `[private]` — True when navigating to a non-root URL ended on the SAME host's root
+- L0775 `_refuse_not_found_winner` `[private]` — A winner nothing ties to the scene, on a page that is not the scene, is
+- L0796 `_prefer_member_rendition` `[private]` — dl95-pegasproductions-2b: on a login site, never close a public-tier file
+- L0854 `_handle_bot_wall_page` `[private]` — dl95-reddit-2: a bot-challenge wall is not a missing download button.
+- L1003 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
+- L1028 `_translate_failed_message` `[private]` — Translate a failed-job message with any required live measurement.
+- L1037 `_try_scrapling_turnstile` `[private]` — Run the Turnstile seam only after measuring a usable fetcher.
+- L1203 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
+- L1213 `get_global_concurrent_cap`
+- L1258 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L1282 `_record_run_intent` `[private]` — dl95-evilangel-1: persist whether this site should be running, so a
+- L1300 `_record_window_park` `[private]` — ddr-fix F4: persist whether the download window parked this site, so
+- L1313 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
+- L1328 `_acquire_drain_op` `[private]` — dl-runner #9: register one URL as in-flight work with the task drain
+- L1350 `_await_drain_release` `[private]` — dl-runner r2 (cx162 F1): park a worker whose URL is not yet claimed
+- L1376 `_release_drain_op` `[private]` — Release a handle from _acquire_drain_op (None is a no-op).
+- L1387 `_pending_url_already_downloadable` `[private]` — Row 776: True when `url` is already an accepted direct-media href
+- L1405 `_pending_url_ranker_accepts_media` `[private]` — Row 776 (REFUTE fix, correctness lens): True when a lightweight
+- L1486 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
+- L1514 `get_active_runner` — Return live SiteRunner instance if still referenced in memory (Row 1028).
+- L1519 `live_sample_bps` — One job's byte rate from its progress sample, or 0.0 when the sample
+- L1536 `SiteRunner` `[class]`
+  - L1542 `SiteRunner._state` `[private]`
+  - L1549 `SiteRunner._state` `[private]`
+  - L1563 `SiteRunner._rl_autostart` `[private]`
+  - L1570 `SiteRunner._rl_autostart` `[private]`
+  - L1576 `SiteRunner.__init__` `[dunder]`
+  - L1831 `SiteRunner.get_subsystem` — Return the named runner subsystem if registered (Row 1021).
+  - L1835 `SiteRunner.set_state` — Update runner state via LifecycleSubsystem (Row 1021).
+  - L1839 `SiteRunner.add_url` — Enqueue URL via QueueSubsystem (Row 1021).
+  - L1847 `SiteRunner.record_job` — Record job metadata via QueueSubsystem (Row 1021).
+  - L1854 `SiteRunner.record_bytes` — Record transferred bytes via TelemetrySubsystem (Row 1021).
+  - L1859 `SiteRunner.record_error` — Record error occurrence via TelemetrySubsystem (Row 1021).
+  - L1864 `SiteRunner.register_accumulator` — Register byte accumulator via TransportSubsystem (Row 1021).
+  - L1871 `SiteRunner.unregister_accumulator` — Unregister byte accumulator via TransportSubsystem (Row 1021).
+  - L1878 `SiteRunner.trigger_rate_limit` — Trigger rate limit and notify TransportSubsystem (Row 1021).
+  - L1884 `SiteRunner.log_event` — Log event and mirror errors to TelemetrySubsystem (Row 1021).
+  - L1890 `SiteRunner.configure_work_stealing` — Configure dynamic work stealing from other saturated site queues.
+  - L1895 `SiteRunner._try_steal_job` `[private]` — Attempt to steal a pending job from another site's queue when idle.
+  - L1909 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
+  - L1980 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
+  - L1988 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
+  - L2001 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
+  - L2010 `SiteRunner._refresh_worker_cookies` `[private]` — Inject freshly published cookies into a worker's persistent context.
+  - L2041 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
+  - L2079 `SiteRunner._begin_auxiliary_start` `[private]` — Register the current auth/manual launcher before it can block.
+  - L2089 `SiteRunner._end_auxiliary_start` `[private]` — Release a launcher, retaining its handle after retirement.
+  - L2104 `SiteRunner._start_owned_auxiliary_thread` `[private]` — Atomically publish/start one auxiliary generation or refuse it.
+  - L2118 `SiteRunner._start_tracked_auxiliary_thread` `[private]` — Publish a callback-only thread in the shared auxiliary registry.
+  - L2132 `SiteRunner._finish_tracked_auxiliary_thread` `[private]`
+  - L2137 `SiteRunner.start`
+  - L2199 `SiteRunner._restart_resume_withdrawn` `[private]` — True (and logged) when an operator Stop/Pause cleared the run
+  - L2209 `SiteRunner._refuse_for_download_hold` `[private]` — Publish the runner-visible refusal for a held/unmeasurable hold.
+  - L2231 `SiteRunner._start_serialized` `[private]`
+  - L2627 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L2637 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L2698 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L2776 `SiteRunner.drain` — Drain in-flight workers to safe transactional boundary and pause (Row 1075).
+  - L2789 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L2826 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L2880 `SiteRunner.window_leave` — ddr-fix F3/F4: the download window closed. Park the site only if it
+  - L2900 `SiteRunner.window_enter` — ddr-fix F4 (PERMISSION, operator DECISION 0438Z item 1): the
+  - L2913 `SiteRunner._reopen_window_held_run` `[private]` — ddr-fix r3 (R158-C F1): window_paused closed the gate on a live run;
+  - L2950 `SiteRunner._repend_jobs_parked_by_stop` `[private]` — dl95-justporn-3: Stop parks the jobs it interrupted ("pending" and
+  - L2984 `SiteRunner.stop`
+  - L3113 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
+  - L3436 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L3454 `SiteRunner.get_poll_status` — dl95-app-1: job counts for the /api/health and /api/sites/v2 polls.
+  - L3484 `SiteRunner.get_status` — Runner state (see _get_status_impl). dl95-app-1: records the last
+  - L3495 `SiteRunner._get_status_impl` `[private]` — Return runner state. With `light=True`, omit `jobs` and
+  - L3604 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L3621 `SiteRunner.state`
+  - L3623 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L3659 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L3666 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L3673 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
+  - L3742 `SiteRunner._scene_title_for` `[private]` — fx-newsensations-generic-title: the record's first harvested source
+  - L3755 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
+  - L3788 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L3809 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L4429 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L4458 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L4513 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L4571 `SiteRunner._worker_generation_is_current` `[private]`
+  - L4575 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L4636 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L4696 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L4728 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L4759 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L4779 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L4788 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L4813 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
+  - L4838 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L4879 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L4981 `SiteRunner._record_worker_thread_telemetry` `[private]` — Row 995: must run ON the worker thread -- the reading is of the caller.
+  - L4994 `SiteRunner._worker_threads_status` `[private]`
+  - L5002 `SiteRunner._cgroup_controller_or_none` `[private]`
+  - L5012 `SiteRunner._cgroup_backpressure_delay_s` `[private]` — Seconds to slow the intake by on the high-water ramp (0 when the
+  - L5023 `SiteRunner._cgroup_trial_feedback` `[private]` — Settle the HALF_OPEN trial this worker's URL was admitted as
+  - L5057 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L5441 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L5456 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L5486 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
+  - L5512 `SiteRunner._handle_find_button_budget_spent` `[private]` — dl95-tube8-1: fail the job when find_best_download stopped at the
+  - L5527 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
+  - L5577 `SiteRunner._accept_navigation_download` `[private]` — dl-f6: the job URL itself started a browser download on goto.
+  - L5604 `SiteRunner._resolve_write_dir` `[private]` — The directory a job's file is written to, or "" when none resolves.
+  - L5657 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -1188,4 +1189,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 1012 across 22 files._
+_Total entries: 1013 across 22 files._

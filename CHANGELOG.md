@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1862 - train281y: row
+
+T281y-A = train-13 (O3141/O3142 F3: on MAIN <M>; member list frozen at assembly; 1 member = BD-SEC-2 withhold r3-restack-d, LIVE-HIGH, PM 12:20Z FRONT of the next product train; the other clean pool rows ride trains 11/12 or are chain tails). Product train; BOARD per O1672 (R327-A claimed leg); merge = gh pr merge --auto --merge on green required checks (F5); band post-merge (F4); gates off-hub (gates-remote.sh).
+FIX: BD-SEC-2 withhold r3-restack-d -- LIVE-HIGH PRIORITY secret withholding across app_config/app_dev_*/sse_broker/admin surfaces; restack-d fixes the 3 gitleaks fixture findings that ejected restack-c from train-6 (S123-B, DONE 19:52Z, BOARDED 20:50Z R327-A; carries its new import edges via the release re-freeze).
+
+
 ## v3.66.1859 - train281v: row
 
 T281v-A (train-9, integrator D2-D, MAP-1 per RULING-pm-A4-A-trainmap-MAP1-2017Z) on main 418de7e3 (train-8 merged) (2 members; product train; legs BOARD per O1672/BOARDED-for-integration.md). Path-disjoint from each other and from train-10 (B). SEC-2 r3-restack-d (lens not yet seated) stays FRONT of train-11 (A).

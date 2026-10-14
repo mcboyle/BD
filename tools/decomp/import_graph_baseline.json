@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6366,
+  "edge_count": 6397,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -104,6 +104,7 @@
       "bulk_downloader/dom_analyzer.py",
       "bulk_downloader/download_supervisor.py",
       "bulk_downloader/download_window.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/extension_vault.py",
       "bulk_downloader/flaresolverr_client.py",
       "bulk_downloader/global_config.py",
@@ -240,6 +241,7 @@
       "bulk_downloader/account_pool.py",
       "bulk_downloader/app_sites_id_core.py",
       "bulk_downloader/app_state.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/session_keeper.py",
       "bulk_downloader/site_editor.py"
@@ -306,7 +308,8 @@
       "bulk_downloader/app_dev_testci.py"
     ],
     "bulk_downloader/app_dev_ai.py": [
-      "bulk_downloader/app_dev.py"
+      "bulk_downloader/app_dev.py",
+      "bulk_downloader/egress_withhold.py"
     ],
     "bulk_downloader/app_dev_auth.py": [
       "bulk_downloader/app_dev.py",
@@ -337,7 +340,8 @@
       "bulk_downloader/app_dev.py"
     ],
     "bulk_downloader/app_dev_obs.py": [
-      "bulk_downloader/app_dev.py"
+      "bulk_downloader/app_dev.py",
+      "bulk_downloader/egress_withhold.py"
     ],
     "bulk_downloader/app_dev_runtime.py": [
       "bulk_downloader/app_dev.py",
@@ -378,6 +382,9 @@
     "bulk_downloader/app_eol.py": [
       "bulk_downloader/eol_export.py"
     ],
+    "bulk_downloader/app_events_all.py": [
+      "bulk_downloader/egress_withhold.py"
+    ],
     "bulk_downloader/app_export.py": [
       "bulk_downloader/exports.py"
     ],
@@ -392,6 +399,9 @@
     "bulk_downloader/app_fixtures.py": [
       "bulk_downloader/synthetic_tests.py"
     ],
+    "bulk_downloader/app_flaresolverr.py": [
+      "bulk_downloader/egress_withhold.py"
+    ],
     "bulk_downloader/app_gallerydl_status.py": [
       "bulk_downloader/gallerydl_updater.py"
     ],
@@ -404,6 +414,7 @@
     "bulk_downloader/app_global_config.py": [
       "bulk_downloader/aiassist.py",
       "bulk_downloader/daily_budget.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/log.py",
       "bulk_downloader/rate_limit.py",
@@ -456,6 +467,7 @@
       "bulk_downloader/login_templates_data.py"
     ],
     "bulk_downloader/app_logs.py": [
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/log.py"
     ],
     "bulk_downloader/app_macros.py": [
@@ -582,6 +594,7 @@
     ],
     "bulk_downloader/app_settings_center.py": [
       "bulk_downloader/app_global_config.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/http_client.py",
       "bulk_downloader/site_editor.py",
@@ -622,6 +635,7 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/csv_bulk.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/login_templates_data.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/site_editor.py",
@@ -640,6 +654,7 @@
       "bulk_downloader/db.py",
       "bulk_downloader/download_window.py",
       "bulk_downloader/dry_run.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/fname.py",
       "bulk_downloader/learn.py",
       "bulk_downloader/log.py",
@@ -655,6 +670,7 @@
       "bulk_downloader/app_sites.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/hooks.py",
       "bulk_downloader/jellyfin_deep.py",
       "bulk_downloader/plex_deep.py",
@@ -677,6 +693,7 @@
       "bulk_downloader/app_sites.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/exports.py",
       "bulk_downloader/jd_bridge.py",
       "bulk_downloader/qb_bridge.py",
@@ -691,6 +708,7 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/dry_run.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/learn.py",
       "bulk_downloader/profile_sync.py",
       "bulk_downloader/runner.py",
@@ -710,6 +728,9 @@
     "bulk_downloader/app_stats.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py"
+    ],
+    "bulk_downloader/app_status.py": [
+      "bulk_downloader/egress_withhold.py"
     ],
     "bulk_downloader/app_storage_rebalance.py": [
       "bulk_downloader/storage_rebalance.py"
@@ -805,6 +826,7 @@
       "bulk_downloader/site_weather.py"
     ],
     "bulk_downloader/app_webhooks.py": [
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/webhooks.py"
     ],
     "bulk_downloader/app_widgets_api.py": [
@@ -1197,6 +1219,7 @@
     ],
     "bulk_downloader/dev_suite/config_tools.py": [
       "bulk_downloader/app.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/site_editor.py"
     ],
@@ -1270,6 +1293,7 @@
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/events.py",
       "bulk_downloader/memory_telemetry.py",
       "bulk_downloader/site_editor.py"
@@ -1365,6 +1389,9 @@
     ],
     "bulk_downloader/egress_transport.py": [
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "bulk_downloader/egress_withhold.py": [
+      "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/element_pick.py": [
       "bulk_downloader/capture_artifact_redact.py"
@@ -1641,6 +1668,7 @@
       "bulk_downloader/webhooks.py"
     ],
     "bulk_downloader/marketplace.py": [
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/mass_import.py": [
@@ -1862,6 +1890,7 @@
       "bulk_downloader/download_supervisor.py",
       "bulk_downloader/download_window.py",
       "bulk_downloader/dry_run.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/error_fingerprint.py",
       "bulk_downloader/extractors_aylo.py",
       "bulk_downloader/extractors_dl8.py",
@@ -2262,7 +2291,8 @@
       "bulk_downloader/wal_inspector.py"
     ],
     "bulk_downloader/sse_broker.py": [
-      "bulk_downloader/dev_events.py"
+      "bulk_downloader/dev_events.py",
+      "bulk_downloader/egress_withhold.py"
     ],
     "bulk_downloader/ssrf_transport.py": [
       "bulk_downloader/happy_eyeballs.py",
@@ -2707,6 +2737,13 @@
     "tests/test_bd_sec_1_config_secrets_never_echoed.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_bd_sec_2_withhold.py": [
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/egress_withhold.py",
+      "bulk_downloader/sse_broker.py",
+      "bulk_downloader/webhooks.py"
     ],
     "tests/test_bd_sec_4_restore_allowlist.py": [
       "bulk_downloader/backup.py",
@@ -7511,6 +7548,12 @@
     ],
     "tests/test_search_extractor_bounds.py": [
       "bulk_downloader/search_extractor.py"
+    ],
+    "tests/test_sec2_withhold_import_roundtrip.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/egress_withhold.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_secret_display_never.py": [
       "bulk_downloader/app.py",
