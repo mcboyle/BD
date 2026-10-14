@@ -843,6 +843,14 @@ def _fetch_manifest_capped(
     # The DoS hardening still partially applies: we cap the decoded
     # `.text` to cap_bytes. The memory ceiling is *the stub's*
     # response size, which is normal-test scale.
+    # A real httpx client only gets here when its .stream() raised (a reset
+    # mid-body, say).  Its .get() reads the WHOLE body before the cap below
+    # applies -- 256 MiB pulled against a 1 MiB cap -- so it keeps the
+    # stream error instead; the fallback stays for stubs only.
+    if out.get("error"):
+        import httpx
+        if isinstance(http, httpx.Client):
+            return out
     try:
         resp = http.get(
             url, headers=headers, timeout=timeout,

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+import ipaddress
 import re
+from urllib.parse import urlsplit
 
 from .resolution import (classify_resolution)
 from .urls import (decode_url)
@@ -123,6 +125,39 @@ def hls_has_encryption(text: str) -> bool:
                     return True
                 break  # found METHOD, value was NONE; check next key tag
     return False
+
+
+def _local_host(host: str) -> bool:
+    """``localhost`` or an IP literal that is not a public unicast address
+    (loopback, private, link-local, ...).  No DNS: a name is judged as text."""
+    host = (host or "").rstrip(".").lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        return False
+
+
+def _refused_variant_url(url: str, base_url: str) -> Optional[str]:
+    """Why an HLS variant URL is not a media candidate, or None if it is.
+
+    A master playlist is page-reachable input: a variant naming
+    ``file:///etc/passwd``, ``javascript:...`` or a loopback/private host
+    from a public manifest is not a stream of that site.  Relative URLs
+    (no base to join) stay; a local manifest may name local variants."""
+    try:
+        parts = urlsplit(url)
+        base_host = urlsplit(base_url or "").hostname or ""
+        host = parts.hostname or ""
+    except ValueError:
+        return "unparseable URL"
+    scheme = parts.scheme.lower()
+    if scheme and scheme not in ("http", "https"):
+        return f"scheme {scheme}: is not http(s)"
+    if host and _local_host(host) and not _local_host(base_host):
+        return f"local host {host} named by a non-local manifest"
+    return None
 
 
 def parse_hls_master(text: str, *, base_url: str = "") -> dict:
@@ -314,8 +349,14 @@ def parse_hls_master(text: str, *, base_url: str = "") -> dict:
                     frame_rate = fr_val if fr_val > 0 else 0.0
         except (ValueError, TypeError):
             frame_rate = None
+        url = decode_url(variant_url, base_url=base_url)
+        refused = _refused_variant_url(url, base_url)
+        if refused:
+            out["warnings"].append(
+                f"STREAM-INF variant URL refused ({refused}) — skipped")
+            continue
         out["variants"].append({
-            "url": decode_url(variant_url, base_url=base_url),
+            "url": url,
             "width": width,
             "height": height,
             "resolution": res_info,

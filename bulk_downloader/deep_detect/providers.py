@@ -764,6 +764,140 @@ _REACTPLAYER_URL_RE = re.compile(
 )
 
 
+# The three patterns above stay the definition of a match, but finditer over
+# hostile page text is quadratic: every start re-scans to a delimiter that
+# never comes (144 KB of "ReactPlayer " took 19.8 s, "jwplayer().setup({"
+# 7.6 s).  The scanners below return the same matches in linear time: a start
+# that fails, fails for every later start that shares its delimiter, so the
+# scan skips past it.
+
+_JW_START_RE = re.compile(r"jwplayer\s*\(")
+_JW_SETUP_AT_CLOSE_RE = re.compile(r"\)\.setup\s*\(\s*(?={)")
+_JW_TAIL_RE = re.compile(r"}\s*\)")
+
+
+def _jwplayer_setup_blobs(text: str) -> List[str]:
+    r"""``m.group(1)`` of each ``_JWPLAYER_SETUP_RE.finditer(text)``, linear.
+
+    ``[^)]*\)`` ends at the first ")" after the "(", so every start before
+    that ")" fails or succeeds alike; the lazy ``{[^;]+?}\s*\)`` body ends
+    at the first tail before the next ";", so a tail-less stretch is
+    searched once."""
+    out: List[str] = []
+    n = len(text)
+    pos = 0
+    semi_q = semi_at = -1          # no ";" in [semi_q, semi_at)
+    dead_from = dead_semi = -1     # no tail in [dead_from, dead_semi)
+    while True:
+        m = _JW_START_RE.search(text, pos)
+        if not m:
+            break
+        close = text.find(")", m.end())
+        if close < 0:
+            break
+        setup = _JW_SETUP_AT_CLOSE_RE.match(text, close)
+        if setup:
+            brace = setup.end()
+            if not semi_q <= brace + 1 <= semi_at:
+                semi_q = brace + 1
+                semi_at = text.find(";", semi_q)
+                if semi_at < 0:
+                    semi_at = n
+            body_from = brace + 2      # "{" plus at least one body char
+            if not (dead_semi == semi_at and body_from >= dead_from):
+                tail = _JW_TAIL_RE.search(text, body_from, semi_at)
+                if tail:
+                    out.append(text[brace:tail.start() + 1])
+                    pos = tail.end()
+                    continue
+                dead_from, dead_semi = body_from, semi_at
+        pos = close + 1
+    return out
+
+
+def _videojs_sources_matches(text: str) -> List["re.Match[str]"]:
+    """The matches of ``_VIDEOJS_SOURCES_RE.finditer(text)``, linear.
+
+    Every match ends with "]", so nothing past the last "]" can match; a
+    start before it either fails at once ("[]") or consumes to its "]"."""
+    end = text.rfind("]") + 1
+    return list(_VIDEOJS_SOURCES_RE.finditer(text, 0, end))
+
+
+_RP_START_RE = re.compile(r"ReactPlayer\b")
+_RP_KEY_RE = re.compile(r"\burl\s*=\s*")
+_RP_WS_RE = re.compile(r"\s*")
+
+
+def _reactplayer_url_values(html: str) -> List[Tuple[str, str, str]]:
+    """``(dq, sq, expr)`` groups of each ``_REACTPLAYER_URL_RE.finditer(html)``
+    (absent groups as ""), linear.
+
+    The lazy ``[^>]*?`` cannot cross the next ">", and whether a ``url=``
+    there has a value does not depend on which ReactPlayer start reached it:
+    when a start fails, every start before that ">" fails too."""
+    out: List[Tuple[str, str, str]] = []
+    n = len(html)
+    nxt: Dict[str, Tuple[int, int]] = {}   # char -> (from, next index or n)
+    ws: Dict[int, int] = {}
+
+    def find(ch: str, q: int) -> int:
+        got = nxt.get(ch)
+        if got is None or not got[0] <= q <= got[1]:
+            at = html.find(ch, q)
+            got = (q, n if at < 0 else at)
+            nxt[ch] = got
+        return got[1]
+
+    def skip_ws(q: int) -> int:
+        if q not in ws:
+            ws[q] = _RP_WS_RE.match(html, q).end()
+        return ws[q]
+
+    def value_at(v: int):
+        c = html[v:v + 1]
+        if c in ('"', "'"):
+            close = find(c, v + 1)
+            if close >= n:
+                return None
+            got = html[v:close + 1]
+            return ((got, "", "") if c == '"' else ("", got, "")), close + 1
+        if c != "{":
+            return None
+        w = skip_ws(v + 1)
+        c2 = html[w:w + 1]
+        if c2 not in ('"', "'", "["):
+            return None
+        close = find("]" if c2 == "[" else c2, w + 1)
+        if close >= n:
+            return None
+        e = skip_ws(close + 1)
+        if html[e:e + 1] != "}":
+            return None
+        return ("", "", html[w:close + 1]), e + 1
+
+    pos = 0
+    while True:
+        m = _RP_START_RE.search(html, pos)
+        if not m:
+            break
+        gt = find(">", m.end())
+        x = m.end()
+        hit = None
+        while hit is None:
+            key = _RP_KEY_RE.search(html, x, gt)
+            if not key:
+                break
+            hit = value_at(key.end())
+            x = key.start() + 1
+        if hit is None:
+            pos = gt + 1
+            continue
+        out.append(hit[0])
+        pos = hit[1]
+    return out
+
+
 def _try_parse_loose_json(blob: str) -> Optional[Any]:
     """JSON parsers reject single quotes and unquoted keys, which
     JWPlayer config blobs use. Cheap workaround: try strict first,
@@ -986,8 +1120,8 @@ def extract_player_configs(html: str, *,
         body = (script.string or script.text or "")[:500_000]
         if not body:
             continue
-        for m in _JWPLAYER_SETUP_RE.finditer(body):
-            cfg = _try_parse_loose_json(m.group(1))
+        for blob in _jwplayer_setup_blobs(body):
+            cfg = _try_parse_loose_json(blob)
             if not isinstance(cfg, dict):
                 continue
             sources = cfg.get("sources") or cfg.get("playlist") or []
@@ -1052,7 +1186,7 @@ def extract_player_configs(html: str, *,
         body = script.string or script.text or ""
         if not body or any(b in body for b in ("jwplayer", "video-js")):
             continue
-        for m in _VIDEOJS_SOURCES_RE.finditer(body[:200_000]):
+        for m in _videojs_sources_matches(body[:200_000]):
             arr = _try_parse_loose_json(m.group(1))
             if not isinstance(arr, list):
                 continue
@@ -1124,8 +1258,8 @@ def extract_player_configs(html: str, *,
         return urls
 
     if "ReactPlayer" in html:
-        for m in _REACTPLAYER_URL_RE.finditer(html):
-            raw = m.group("dq") or m.group("sq") or m.group("expr") or ""
+        for dq, sq, expr in _reactplayer_url_values(html):
+            raw = dq or sq or expr or ""
             for u in _reactplayer_urls(raw):
                 if not u or u.startswith(("data:", "blob:")):
                     continue
