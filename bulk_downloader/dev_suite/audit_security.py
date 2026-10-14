@@ -1124,6 +1124,12 @@ def _extract_hosts_from_site_configs(site_configs):
 
 
 
+# Hosts dialled per tls_cert_check call. Dialling is serial with up to a
+# 30 s timeout each, so the list length bounds how long one request holds
+# a worker thread.
+TLS_CHECK_HOSTS_MAX = 32
+
+
 def tls_cert_check(*, hosts=None, site_configs=None, port=443,
                     timeout=5.0):
     """T43 / D-47 — connect to each host, walk the cert chain, report
@@ -1134,6 +1140,9 @@ def tls_cert_check(*, hosts=None, site_configs=None, port=443,
 
     OPT-IN by default in the sense that the caller must pass hosts
     OR site_configs — never auto-scans. Per-host timeout is bounded.
+    At most TLS_CHECK_HOSTS_MAX hosts: a longer explicit list is
+    refused; a longer derived list is cut and the rest named in
+    hosts_skipped.
 
     Returns {tool, ok, port, hosts_checked, results[], verdict}.
     """
@@ -1154,10 +1163,18 @@ def tls_cert_check(*, hosts=None, site_configs=None, port=443,
             out["ok"] = False
             out["verdict"] = "hosts must be a list of hostnames"
             return out
-        host_list = [str(h) for h in hosts
-                     if isinstance(h, str) and h]
+        if len(hosts) > TLS_CHECK_HOSTS_MAX:
+            out["ok"] = False
+            out["verdict"] = (f"at most {TLS_CHECK_HOSTS_MAX} hosts per "
+                              f"call (got {len(hosts)})")
+            return out
+        host_list = list(dict.fromkeys(
+            str(h) for h in hosts if isinstance(h, str) and h))
     else:
         host_list = _extract_hosts_from_site_configs(site_configs)
+        if len(host_list) > TLS_CHECK_HOSTS_MAX:
+            out["hosts_skipped"] = host_list[TLS_CHECK_HOSTS_MAX:]
+            host_list = host_list[:TLS_CHECK_HOSTS_MAX]
     out["hosts_checked"] = host_list
     if not host_list:
         out["verdict"] = (

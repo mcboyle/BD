@@ -15,6 +15,42 @@ from .app_dev import (
 )
 
 
+def _json_object_body():
+    """A POST body as a dict: {} when the body is empty, None when it is
+    anything but a JSON object (list, string, number, null, form data,
+    malformed JSON). The route answers None with _bad_body()."""
+    if not request.get_data(cache=True):
+        return {}
+    body = request.get_json(silent=True)
+    return body if isinstance(body, dict) else None
+
+
+def _bad_body():
+    return jsonify({"ok": False,
+                    "error": "request body must be a JSON object"}), 400
+
+
+# Substrings of a tool's error that mean the server failed, not the request.
+_SERVER_FAULTS = ("write failed", "cannot create state dir",
+                  "restore failed", "app module unavailable",
+                  "import failed")
+
+
+def _result_status(res):
+    """HTTP status for a dev tool's result dict, so a client that reads
+    only the status code never takes a refusal for success: 200 unless
+    ok is False; then 404 for a missing snapshot, 500 for a server-side
+    fault, else 400."""
+    if not isinstance(res, dict) or res.get("ok") is not False:
+        return 200
+    err = str(res.get("error") or res.get("verdict") or "")
+    if err.startswith("no snapshot named"):
+        return 404
+    if any(h in err for h in _SERVER_FAULTS):
+        return 500
+    return 400
+
+
 @dev_bp.route("/api/dev/enabled")
 def api_dev_enabled():
     """Always available — tells the UI whether to show the Dev tab."""
@@ -121,10 +157,20 @@ def api_dev_cache_clear():
     guard = _dev_mode_guard()
     if guard: return guard
     _check_csrf()
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
+    targets = body.get("targets")
+    if not (targets is None or isinstance(targets, str)
+            or (isinstance(targets, list)
+                and all(isinstance(t, str) for t in targets))):
+        return jsonify({"ok": False,
+                        "error": "targets must be a string or a list of "
+                                 "strings"}), 400
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.cache_clear(
-            targets=(request.json or {}).get("targets")))
+        res = _ds.cache_clear(targets=targets)
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -136,10 +182,13 @@ def api_dev_config_snapshot():
     guard = _dev_mode_guard()
     if guard: return guard
     _check_csrf()
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.config_snapshot(
-            name=(request.json or {}).get("name")))
+        res = _ds.config_snapshot(name=body.get("name"))
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -163,10 +212,13 @@ def api_dev_config_restore():
     guard = _dev_mode_guard()
     if guard: return guard
     _check_csrf()
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.config_restore(
-            name=(request.json or {}).get("name")))
+        res = _ds.config_restore(name=body.get("name"))
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -179,8 +231,8 @@ def api_dev_config_snapshot_diff():
     if guard: return guard
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.config_snapshot_diff(
-            name=request.args.get("name")))
+        res = _ds.config_snapshot_diff(name=request.args.get("name"))
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -273,7 +325,9 @@ def api_dev_feature_flag_set():
     Value must be a literal bool. CSRF-gated."""
     guard = _dev_mode_guard()
     if guard: return guard
-    body = request.json or {}
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     name = body.get("name")
     value = body.get("value")
     actor = _flag_actor()
@@ -297,7 +351,7 @@ def api_dev_feature_flag_set():
         res = _ff.set_flag(name, value)
         _log_flag_change("set", name, value, actor,
                          "ok" if res.get("ok") else "failed")
-        return jsonify(res)
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
@@ -308,7 +362,9 @@ def api_dev_feature_flag_delete():
     Idempotent. CSRF-gated."""
     guard = _dev_mode_guard()
     if guard: return guard
-    body = request.json or {}
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     name = body.get("name")
     refused = _refuse_replayed_capture_change("delete", name, None, _flag_actor())
     if refused: return refused
@@ -317,6 +373,6 @@ def api_dev_feature_flag_delete():
         res = _ff.delete_flag(name)
         _log_flag_change("delete", name, None, _flag_actor(),
                          "ok" if res.get("ok") else "failed")
-        return jsonify(res)
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
