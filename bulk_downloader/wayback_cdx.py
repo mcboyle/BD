@@ -41,7 +41,7 @@ import threading
 import time
 from collections import OrderedDict
 from typing import Optional
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 try:
     import requests  # type: ignore
@@ -55,9 +55,10 @@ _ARCHIVE_BASE = "https://web.archive.org/web"
 _TIMEOUT = 20  # seconds; CDX can be slow at peak times
 _USER_AGENT = "BulkDownloader-WaybackClient/1.0"
 
-# Bounded LRU for CDX results. Key: URL string. Value: list of dicts.
+# Bounded LRU for CDX results. Key: (url, from_ts, to_ts, only_success,
+# limit) -- every input that shapes the answer. Value: list of dicts.
 _CACHE_MAX = 200
-_cache: "OrderedDict[str, list]" = OrderedDict()
+_cache: "OrderedDict[tuple, list]" = OrderedDict()
 _cache_lock = threading.Lock()
 
 
@@ -66,18 +67,18 @@ def is_available() -> bool:
     return _HAS_REQUESTS
 
 
-def _cache_get(url: str) -> Optional[list]:
+def _cache_get(key: tuple) -> Optional[list]:
     with _cache_lock:
-        v = _cache.get(url)
+        v = _cache.get(key)
         if v is not None:
-            _cache.move_to_end(url)
+            _cache.move_to_end(key)
         return v
 
 
-def _cache_put(url: str, snapshots: list):
+def _cache_put(key: tuple, snapshots: list):
     with _cache_lock:
-        _cache[url] = snapshots
-        _cache.move_to_end(url)
+        _cache[key] = snapshots
+        _cache.move_to_end(key)
         while len(_cache) > _CACHE_MAX:
             _cache.popitem(last=False)
 
@@ -101,12 +102,19 @@ def find_snapshots(
         "original": "https://example.com/path",
         "status_code": "200", "mime": "text/html"}, ...]
 
-    Sorted oldest first by default. Empty list on miss or any error.
+    Sorted oldest first by default. At most `limit` (clamped to 1..500)
+    entries. Empty list on miss or any error; only non-empty answers are
+    cached, so a capture archived after an empty answer is still found.
 
     Fail-open: never raises."""
     if not _HAS_REQUESTS or not url:
         return []
-    cached = _cache_get(url)
+    try:
+        limit = max(1, min(int(limit), 500))
+    except (TypeError, ValueError):
+        limit = 100
+    key = (url, from_ts or "", to_ts or "", bool(only_success), limit)
+    cached = _cache_get(key)
     if cached is not None:
         return cached
     params = [
@@ -122,7 +130,7 @@ def find_snapshots(
         params.append(("from", str(from_ts)))
     if to_ts:
         params.append(("to", str(to_ts)))
-    params.append(("limit", str(min(limit, 500))))
+    params.append(("limit", str(limit)))
     try:
         r = requests.get(_API_BASE, params=params,
                         headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
@@ -137,7 +145,6 @@ def find_snapshots(
         sys.stderr.write(f"[wayback] unexpected error: {e}\n")
         return []
     if not isinstance(data, list) or not data:
-        _cache_put(url, [])
         return []
     # First row is the header row ["timestamp","original","statuscode","mimetype"]
     if data and isinstance(data[0], list) and data[0] and data[0][0] == "timestamp":
@@ -145,7 +152,7 @@ def find_snapshots(
     else:
         rows = data
     snapshots = []
-    for row in rows:
+    for row in rows[:limit]:
         if not isinstance(row, list) or len(row) < 2:
             continue
         snap = {
@@ -155,7 +162,8 @@ def find_snapshots(
             "mime": row[3] if len(row) > 3 else "",
         }
         snapshots.append(snap)
-    _cache_put(url, snapshots)
+    if snapshots:
+        _cache_put(key, snapshots)
     return snapshots
 
 
@@ -175,11 +183,33 @@ def build_archive_url(timestamp: str, original_url: str,
     When `identity=True`, the URL includes the 'id_' modifier which
     skips Wayback's HTML wrapper and returns the raw archived response.
     This is what BD wants for re-download: bytes, not the toolbar UI.
+
+    Returns "" unless `timestamp` is all ASCII digits and `original_url`
+    is an http(s) URL with a host and no "." / ".." path segment (a
+    client collapses those, walking out of /web/<ts>/ on the archive).
     """
     if not timestamp or not original_url:
         return ""
+    timestamp = str(timestamp)
+    if not (timestamp.isascii() and timestamp.isdigit()):
+        return ""
+    if not _is_http_url(original_url):
+        return ""
+    if any(seg in (".", "..") for seg in urlsplit(original_url).path.split("/")):
+        return ""
     mod = "id_" if identity else ""
     return f"{_ARCHIVE_BASE}/{timestamp}{mod}/{original_url}"
+
+
+def _is_http_url(value) -> bool:
+    """True for an http(s) URL string with a host."""
+    if not isinstance(value, str):
+        return False
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    return parts.scheme.lower() in ("http", "https") and bool(parts.netloc)
 
 
 def availability(url: str) -> dict:
@@ -200,6 +230,10 @@ def availability(url: str) -> dict:
         data = r.json()
         closest = (data or {}).get("archived_snapshots", {}).get("closest", {})
         if not closest.get("available"):
+            return {"available": False, "timestamp": "", "archive_url": ""}
+        # Only an http(s) snapshot URL is an archive link; anything else
+        # (javascript:, data:, ...) is treated as no snapshot.
+        if not _is_http_url(closest.get("url", "")):
             return {"available": False, "timestamp": "", "archive_url": ""}
         return {
             "available": True,
