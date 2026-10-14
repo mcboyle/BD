@@ -17,7 +17,7 @@ from .app_dev import (
 @dev_bp.route("/api/dev/run", methods=["POST"])
 def api_dev_run():
     """Start a test run. Body: {target, kind}.
-    Returns 202 + run_id."""
+    Returns 202 + run_id, or 429 when the concurrent-run cap is full."""
     guard = _dev_mode_guard()
     if guard: return guard
     _check_csrf()
@@ -28,7 +28,8 @@ def api_dev_run():
         return jsonify({"ok": False, "error": "target required"}), 400
     try:
         from . import dev_tools as _dt
-        return jsonify(_dt.start_run(target, kind=kind)), 202
+        started = _dt.start_run(target, kind=kind)
+        return jsonify(started), (202 if started.get("ok") else 429)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
