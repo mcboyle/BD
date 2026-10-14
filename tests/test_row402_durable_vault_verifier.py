@@ -97,6 +97,19 @@ def _secrets_client():
     return flask_app.test_client()
 
 
+def _master_throttle_on(monkeypatch):
+    """Throttle on, from the env alone, with a state table private to the test."""
+    monkeypatch.setattr(at, "_store_get", lambda _key: None)
+    monkeypatch.setattr(at, "_state", {})
+    monkeypatch.setenv("BD_AUTH_THROTTLE", "1")
+
+
+def _master_throttle_state():
+    """(failures counted, attempt still in flight) on the master-password label."""
+    st = at.snapshot().get(at.LABEL_MASTER_PASSWORD, {})
+    return st.get("fails", 0), "held" in st
+
+
 @contextmanager
 def _memory_db():
     connection = sqlite3.connect(":memory:")
@@ -378,11 +391,12 @@ def test_concurrent_first_use_reports_exactly_one_initializer(
     backend, _path = fresh_backend
     barrier = threading.Barrier(2)
 
-    def release_together(_label):
+    def release_together(*_args, **_kwargs):
         barrier.wait(timeout=5)
         return True, 0.0
 
     monkeypatch.setattr(at, "check", release_together)
+    monkeypatch.setattr(at, "reserve", release_together)
     responses = []
     response_lock = threading.Lock()
 
@@ -526,14 +540,7 @@ def test_compat_unlock_without_status_method_maps_false_to_locked_401(
 
     backend = LegacyBackendWithoutLockProbe()
     monkeypatch.setattr(ss, "get_backend", lambda: backend)
-    recorded = []
-    monkeypatch.setattr(
-        at, "record_success", lambda label: recorded.append(("success", label))
-    )
-    monkeypatch.setattr(
-        at, "record_failure", lambda label: recorded.append(("failure", label))
-    )
-    at.reset()
+    _master_throttle_on(monkeypatch)
 
     response = _secrets_client().post(
         "/api/secrets/unlock", json={"password": _WRONG}
@@ -546,7 +553,7 @@ def test_compat_unlock_without_status_method_maps_false_to_locked_401(
         "state": "locked",
         "error": "incorrect password",
     }
-    assert recorded == [("failure", at.LABEL_MASTER_PASSWORD)]
+    assert _master_throttle_state() == (1, False)
 
 
 @pytest.mark.parametrize(
@@ -586,14 +593,7 @@ def test_unlock_endpoint_relocks_after_invalid_atomic_status(
 
     backend = NonDictStatusBackend()
     monkeypatch.setattr(ss, "get_backend", lambda: backend)
-    recorded = []
-    monkeypatch.setattr(
-        at, "record_success", lambda label: recorded.append(("success", label))
-    )
-    monkeypatch.setattr(
-        at, "record_failure", lambda label: recorded.append(("failure", label))
-    )
-    at.reset()
+    _master_throttle_on(monkeypatch)
 
     response = _secrets_client().post(
         "/api/secrets/unlock", json={"password": _MASTER}
@@ -605,7 +605,7 @@ def test_unlock_endpoint_relocks_after_invalid_atomic_status(
     assert "incoherent" in body["error"].lower()
     assert backend.lock_calls == 1
     assert backend.unlocked is False
-    assert recorded == []
+    assert _master_throttle_state() == (0, False)
 
 
 def test_first_unlock_persist_failure_raises_and_rolls_back(
@@ -1775,14 +1775,7 @@ def test_change_password_endpoint_refuses_incoherent_atomic_status(
 
     backend = IncoherentRotationBackend()
     monkeypatch.setattr(ss, "get_backend", lambda: backend)
-    recorded = []
-    monkeypatch.setattr(
-        at, "record_success", lambda label: recorded.append(("success", label))
-    )
-    monkeypatch.setattr(
-        at, "record_failure", lambda label: recorded.append(("failure", label))
-    )
-    at.reset()
+    _master_throttle_on(monkeypatch)
 
     response = _secrets_client().post(
         "/api/secrets/change_password",
@@ -1793,7 +1786,7 @@ def test_change_password_endpoint_refuses_incoherent_atomic_status(
     assert body["ok"] is False
     assert body["state"] == "unknown"
     assert "incoherent" in body["error"].lower()
-    assert recorded == []
+    assert _master_throttle_state() == (0, False)
 
 
 def test_rotation_persist_failure_restores_salt_verifier_key_and_disk(
