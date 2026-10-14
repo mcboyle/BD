@@ -26,7 +26,8 @@ import pytest
 
 pytestmark = pytest.mark.bd_module_wipe
 
-_CFG = {"retention_days": 30}  # everything seeded "old" → age candidate
+# everything seeded "old" → age candidate; files live in the temp dir root
+_CFG = {"retention_days": 30, "download_dir": tempfile.gettempdir()}
 _OLD_TS = "2020-01-01T00:00:00"
 
 

@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import db as _db
+from . import paths as _paths
 
 
 _tables_ready = False
@@ -100,21 +101,29 @@ def _ensure_tag_table(tag_list: list):
         _tags._ensure_table()
 
 
-def _tagged_with_any(cx, history_ids: list, tag_list: list) -> set:
-    """The ids among history_ids that carry any of the protect-tags, read on cx.
-    One tags query per _TAG_LOOKUP_CHUNK ids, not one per row. A failed read
-    raises: protection that could not be read is never "no tags"."""
-    if not tag_list:
-        return set()
-    wanted = set(tag_list)
-    out = set()
+def _tags_by_row(cx, history_ids: list) -> dict:
+    """{history id: set of its tags} for the tagged ids among history_ids,
+    read on cx. One tags query per _TAG_LOOKUP_CHUNK ids, not one per row. A
+    failed read raises: protection that could not be read is never "no
+    tags"."""
+    out = {}
     for i in range(0, len(history_ids), _TAG_LOOKUP_CHUNK):
         chunk = history_ids[i:i + _TAG_LOOKUP_CHUNK]
         placeholders = ",".join("?" * len(chunk))
         rs = cx.execute(f"""SELECT history_id, tag FROM history_tags
             WHERE history_id IN ({placeholders})""", chunk).fetchall()
-        out.update(int(hid) for hid, tag in rs if tag in wanted)
+        for hid, tag in rs:
+            out.setdefault(int(hid), set()).add(tag)
     return out
+
+
+def _tagged_with_any(cx, history_ids: list, tag_list: list) -> set:
+    """The ids among history_ids that carry any of the protect-tags, read on cx."""
+    if not tag_list:
+        return set()
+    wanted = set(tag_list)
+    return {hid for hid, tags in _tags_by_row(cx, history_ids).items()
+            if tags & wanted}
 
 
 def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
@@ -208,22 +217,103 @@ def _record_audit(hid: int, site_id: str, file_path: str,
         pass
 
 
-def _hold_unprotected(stack, candidates: list, keep_tags: list):
-    """Re-read protect-tags for the candidates at delete time.
+# Stored filenames per file-owner lookup (3 host parameters each).
+_OWNER_LOOKUP_CHUNK = 150
 
-    find_candidates' tag read is advisory: a row tagged after it ran must
-    still survive. The re-read runs in a write transaction on a connection
-    entered into ``stack``, so no tag can commit between this check and the
-    unlinks; the caller keeps the stack open across them. Returns (cx,
-    candidates without a protect-tag). Raises when the tags cannot be read.
+
+def _file_owners(cx, candidates: list) -> dict:
+    """Every history row (any site, any status) whose file is a candidate's
+    file, read on cx: {candidate id: [(id, ts_sec, excluded, site_id), ...]},
+    the candidate's own row included. SQL cannot resolve paths, so rows are
+    matched on the stored name or its basename (of the stored name and of
+    its realpath), then compared by realpath here."""
+    real = {}
+    names = set()
+    for c in candidates:
+        fn = c.get("filename") or ""
+        if fn:
+            real[c["id"]] = rp = os.path.realpath(fn)
+            names.update((os.path.basename(fn), os.path.basename(rp)))
+    names.discard("")
+    names = sorted(names)
+    rows = {}
+    for i in range(0, len(names), _OWNER_LOOKUP_CHUNK):
+        chunk = names[i:i + _OWNER_LOOKUP_CHUNK]
+        where = " OR ".join(["filename = ? OR substr(filename, -?) = ?"]
+                            * len(chunk))
+        args = []
+        for n in chunk:
+            args += [n, len(n) + 1, "/" + n]
+        for hid, fn, ts_sec, excluded, sid in cx.execute(f"""
+                SELECT id, filename, CAST(strftime('%s', ts) AS REAL),
+                       COALESCE(retention_excluded, 0), site_id
+                FROM history WHERE {where}""", args).fetchall():
+            rows[int(hid)] = (os.path.realpath(fn), ts_sec, excluded, sid)
+    by_path = {}
+    for hid, (rp, ts_sec, excluded, sid) in rows.items():
+        by_path.setdefault(rp, []).append((hid, ts_sec, excluded, sid))
+    return {cid: by_path.get(rp, []) for cid, rp in real.items()}
+
+
+def _kept_by_another_row(c: dict, owners: list, tagged: set) -> bool:
+    """True when the candidate's file must stay: a row referencing the same
+    file is excluded or protect-tagged, or another one is newer. Binding is
+    by file, not by id: the newest row owns it (a NULL ts counts as newer)."""
+    cid, cts = c["id"], c.get("ts_sec")
+    for hid, ts_sec, excluded, _sid in owners:
+        if excluded or hid in tagged:
+            return True
+        if hid == cid:
+            continue
+        if ts_sec is None or cts is None or (ts_sec, hid) > (cts, cid):
+            return True
+    return False
+
+
+def _hold_unprotected(stack, candidates: list, keep_tags: list,
+                      s_cfg: Optional[dict] = None):
+    """Re-read protection for the candidates at delete time.
+
+    find_candidates' reads are advisory: a row tagged or excluded after it
+    ran, or a newer row at the same file, must still keep the file. A row is
+    protect-tagged by ITS OWN site's retention_keep_tagged_with: ``keep_tags``
+    for the walked site's rows, ``s_cfg[site]`` for another site's row (a
+    site absent from ``s_cfg`` has no tag policy; its rows' exclusion and age
+    still count). The re-read runs in a write transaction on a connection
+    entered into ``stack``, so no tag, exclusion or history row can commit
+    between this check and the unlinks; the caller keeps the stack open
+    across them. Returns (cx, candidates to delete, count kept for a row
+    sharing their file). Raises when protection cannot be read.
     """
-    if not keep_tags or not candidates:
-        return None, candidates
-    _ensure_tag_table(keep_tags)
+    if not candidates:
+        return None, candidates, 0
+    site_tags = {sid: _keep_tags(cfg) for sid, cfg in (s_cfg or {}).items()
+                 if cfg}
+    for c in candidates:
+        site_tags[c.get("site_id")] = keep_tags
+    _ensure_tag_table([t for tags in site_tags.values() for t in tags])
     cx = stack.enter_context(_db.db_conn())
     cx.execute("BEGIN IMMEDIATE")
-    tagged = _tagged_with_any(cx, [c["id"] for c in candidates], keep_tags)
-    return cx, [c for c in candidates if c["id"] not in tagged]
+    owners = _file_owners(cx, candidates)
+    site_of = {c["id"]: c.get("site_id") for c in candidates}
+    for rows in owners.values():
+        for h, _, _, sid in rows:
+            site_of.setdefault(h, sid)
+    ids = [c["id"] for c in candidates]
+    ids += sorted(set(site_of) - set(ids))
+    row_tags = (_tags_by_row(cx, ids)
+                if any(site_tags.get(site_of[h]) for h in ids) else {})
+    tagged = {h for h, tags in row_tags.items()
+              if tags & set(site_tags.get(site_of[h]) or ())}
+    keep, shared = [], 0
+    for c in candidates:
+        if c["id"] in tagged:
+            continue
+        if _kept_by_another_row(c, owners.get(c["id"], []), tagged):
+            shared += 1
+            continue
+        keep.append(c)
+    return cx, keep, shared
 
 
 def apply_retention(s_cfg: Optional[dict] = None, *,
@@ -246,6 +336,7 @@ def apply_retention(s_cfg: Optional[dict] = None, *,
     """
     _ensure_tables()
     s_cfg = s_cfg or {}
+    roots = _paths.download_roots(s_cfg)
     confirm_set = None if confirm_ids is None else {int(i) for i in confirm_ids
                                                     if str(i).strip() != ""}
     out = {"dry_run": dry_run, "sites": {}, "ts": time.time(),
@@ -270,6 +361,7 @@ def apply_retention(s_cfg: Optional[dict] = None, *,
             "deleted": 0,
             "errors": [],
             "bytes_freed": 0,
+            "kept_shared_file": 0,
         }
         out["total_candidates"] += len(candidates)
 
@@ -277,8 +369,9 @@ def apply_retention(s_cfg: Optional[dict] = None, *,
             cx = None
             if not dry_run:
                 try:
-                    cx, candidates = _hold_unprotected(hold, candidates,
-                                                       _keep_tags(cfg))
+                    cx, candidates, shared = _hold_unprotected(
+                        hold, candidates, _keep_tags(cfg), s_cfg)
+                    site_result["kept_shared_file"] = shared
                 except Exception as e:
                     # Protection unknown: delete nothing for this site.
                     site_result["errors"].append(
@@ -292,6 +385,14 @@ def apply_retention(s_cfg: Optional[dict] = None, *,
                     _record_audit(c["id"], site_id_k, file_path,
                                   c.get("file_size", 0),
                                   c["reason"], dry_run=True)
+                    continue
+                # Both the directory entry and the file it resolves to must
+                # sit inside a download root of the walked config.
+                if not (_paths.within_download_roots(file_path, roots)
+                        and _paths.within_download_roots(os.path.dirname(
+                            os.path.abspath(file_path)), roots)):
+                    site_result["errors"].append(
+                        f"{file_path}: outside the download roots")
                     continue
                 # Actually delete
                 try:
