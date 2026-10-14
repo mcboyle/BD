@@ -310,6 +310,11 @@ class PreparedHttpProxy:
         env = dict(os.environ)
         for name in _PROXY_ENV_VARS:
             env.pop(name, None)
+        # Proxy variables are read case-insensitively by curl, Go and Python children, and
+        # socks_proxy / socks5_proxy are honoured too: a name the list above does not spell
+        # (Http_Proxy, All_Proxy, socks_proxy) would send the child out by another route.
+        for name in [n for n in env if n.lower().endswith("_proxy")]:
+            env.pop(name, None)
         if self.proxy_url:
             env["http_proxy"] = self.proxy_url
             env["https_proxy"] = self.proxy_url

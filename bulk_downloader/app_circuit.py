@@ -27,11 +27,28 @@ def api_circuit_report():
 @circuit_bp.route("/api/circuit/reset", methods=["POST"])
 def api_circuit_reset():
     _check_csrf()
-    body = request.json or {}
+    # {} or {"host": ""} resets everything. Anything that is not a JSON object is refused: reading
+    # garbage as "no host" would wipe every breaker.
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
+    host = body.get("host")
+    if host is not None and not isinstance(host, str):
+        return jsonify({"ok": False, "error": "host must be a string"}), 400
+    host = (host or "").strip()
     try:
         from . import circuit_breaker as _cb
-        _cb.reset(host=body.get("host") or None)
-        return jsonify({"ok": True})
+        if not host:
+            _cb.reset(host=None)
+            return jsonify({"ok": True, "host": None, "reset": True})
+        # Breakers are keyed by lower-case hostname; a URL, a host:port or another letter case names the same one.
+        key = _cb._host_of(host if "//" in host else "//" + host)
+        if not key:
+            return jsonify({"ok": False, "error": "host is not a hostname or URL"}), 400
+        known = key in _cb.report()
+        _cb.reset(host=key)
+        # "reset": false says the truth when there was nothing under that name.
+        return jsonify({"ok": True, "host": key, "reset": known})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 

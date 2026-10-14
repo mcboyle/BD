@@ -1,6 +1,7 @@
 """Optional pooled loopback HTTP proxy for guarded egress."""
 from __future__ import annotations
 
+import http.client
 import os
 import threading
 from typing import Any, Optional
@@ -22,12 +23,15 @@ class _ProxyPool:
         # R4 fix: the registry key becomes the breaker's public ``name``, and a proxy URL
         # routinely carries credentials (http://user:pass@host:port). Key on host:port only,
         # so no stats, log line or telemetry that enumerates circuit names can leak them.
-        # The breaker is the ONLY admission gate (E1). min_calls=_FAILURE_LIMIT keeps row 839's
-        # contract -- three consecutive proxy errors stop sending through the proxy -- while
+        # The breaker is the ONLY admission gate (E1). A window of exactly _FAILURE_LIMIT calls
+        # that must ALL be failures is row 839's contract -- three consecutive proxy errors stop
+        # sending through the proxy, no fewer (ok, ok, fail, fail used to open it) and no more
+        # (after a long run of successes it used to take ten) -- while
         # the breaker, unlike the old counter, lets the proxy back in once it recovers.
         self.circuit = get_transport_circuit(
             f"proxy:{_circuit_key(proxy_url)}",
-            SlidingWindowConfig(min_calls=_FAILURE_LIMIT))
+            SlidingWindowConfig(window_size=_FAILURE_LIMIT, min_calls=_FAILURE_LIMIT,
+                                failure_rate_threshold=1.0))
 
     @property
     def open_circuit(self) -> bool:
@@ -128,7 +132,10 @@ def proxy_open(request, *, timeout, direct_open):
             pool.record_failure()
             return direct_open(request, timeout=timeout)
         raise
-    except OSError:
+    except (OSError, http.client.HTTPException):
+        # HTTPException: the proxy answered, but not HTTP (BadStatusLine, IncompleteRead ...).
+        # urllib does not wrap these in URLError, so they are named here: a proxy that talks
+        # garbage is as unusable as one that refuses, and is counted and bypassed the same way.
         pool.record_failure()
         return direct_open(request, timeout=timeout)
     # R2: the success half of the loop. Without it the circuit only ever accumulates
