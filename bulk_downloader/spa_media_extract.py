@@ -31,6 +31,8 @@ import re
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import quote, urljoin, urlparse
 
+from .registrable_domain import is_public_suffix
+
 MAX_RECORDS = 40            # per page; a SPA fetches a handful, ads fetch more
 MAX_BODY_BYTES = 2_000_000  # a scene record is a few KB; skip catalog dumps
 
@@ -68,7 +70,15 @@ def _same_site(page_url: str, url: str) -> bool:
     if not a or not b:
         return False
     a = a.lower(); b = b.lower()
-    return a == b or a.endswith("." + b) or b.endswith("." + a)
+    if a == b:
+        return True
+    # A parent that is a public suffix ("test", "co.uk") is nobody's site:
+    # taking it would scope every registrant under it (detect-extract F10).
+    if a.endswith("." + b):
+        return not is_public_suffix(b)
+    if b.endswith("." + a):
+        return not is_public_suffix(a)
+    return False
 
 
 def is_api_json_response(page_url: str, url: str, content_type: str) -> bool:
@@ -628,15 +638,47 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
 # That video's <source> children are the post's renditions, and the page's own records declare each
 # one's dimensions ("url":..,"width":..,"height":..; RSC-escaped).  The page
 # also carries native-ad clips (galleryAds mediaSources) that prove nothing.
-_LD_JSON_SCRIPT_RE = re.compile(
-    r"""<script\b[^>]*type\s*=\s*["']application/ld\+json["'][^>]*>(.*?)</script>""",
-    re.S | re.I)
-_VIDEO_ELEMENT_RE = re.compile(r"<video\b([^>]*)>(.*?)</video>", re.S | re.I)
+_LD_JSON_TYPE_RE = re.compile(r"""type\s*=\s*["']application/ld\+json["']""", re.I)
+_SCRIPT_OPEN_RE = re.compile(r"<script\b", re.I)
+_SCRIPT_CLOSE_RE = re.compile(r"</script>", re.I)
+_VIDEO_OPEN_RE = re.compile(r"<video\b", re.I)
+_VIDEO_CLOSE_RE = re.compile(r"</video>", re.I)
 _POSTER_ATTR_RE = re.compile(r"""\bposter\s*=\s*["']([^"']+)["']""", re.I)
 _ID_ATTR_RE = re.compile(r"""\bid\s*=\s*["']([A-Za-z0-9+/=_-]{16,})["']""")
 _SRC_ATTR_RE = re.compile(r"""\bsrc\s*=\s*["']([^"']+)["']""", re.I)
 _SOURCE_TAG_RE = re.compile(r"<source\b([^>]*)>", re.I)
 _DECLARED_DIMS_RE = re.compile(r'"url":"([^"]+)","width":(\d+),"height":(\d+)')
+
+
+def _tag_blocks(html: str, open_re, close_re, want=None) -> List[tuple]:
+    """``(attrs, inner)`` of each ``<tag attrs>inner</tag>`` in *html* whose
+    attrs pass *want*, in one linear pass.
+
+    The matches of ``<tag\\b([^>]*)>(.*?)</tag>`` (re.S | re.I) without its
+    re-scan to the end from every unclosed start, O(n^2) on page.content()
+    (detect-extract F5): an open tag ends at the next '>', its body at the
+    next close tag, and a start inside an open tag's attributes is attribute
+    text, not a tag."""
+    closes = [m.span() for m in close_re.finditer(html)]
+    out: List[tuple] = []
+    pos = ci = 0
+    for m in open_re.finditer(html):
+        if m.start() < pos:
+            continue
+        gt = html.find(">", m.end())
+        if gt < 0:
+            break
+        pos = gt + 1
+        attrs = html[m.end():gt]
+        if want is not None and not want(attrs):
+            continue
+        while ci < len(closes) and closes[ci][0] < pos:
+            ci += 1
+        if ci == len(closes):
+            break
+        out.append((attrs, html[pos:closes[ci][0]]))
+        pos = closes[ci][1]
+    return out
 
 
 def _names_page(named: str, actual: str) -> bool:
@@ -671,10 +713,11 @@ def jsonld_scene_video_candidates(page_url: str, html: str,
     if job_url and not _names_page(page_url, job_url):
         return []
     posters, contents = set(), set()
-    for m in _LD_JSON_SCRIPT_RE.finditer(html or ""):
+    for _attrs, body in _tag_blocks(html or "", _SCRIPT_OPEN_RE, _SCRIPT_CLOSE_RE,
+                                    want=_LD_JSON_TYPE_RE.search):
         try:
-            data = json.loads(m.group(1).strip())
-        except (ValueError, TypeError):
+            data = json.loads(body.strip())
+        except (ValueError, TypeError, RecursionError):   # F7: nesting bomb
             continue
         items = data.get("@graph", [data]) if isinstance(data, dict) else data
         for item in items if isinstance(items, list) else []:
@@ -693,14 +736,14 @@ def jsonld_scene_video_candidates(page_url: str, html: str,
     if not (posters or contents):
         return []
     srcs: List[str] = []
-    for vm in _VIDEO_ELEMENT_RE.finditer(html):
-        tags = [vm.group(1)] + [t.group(1) for t in _SOURCE_TAG_RE.finditer(vm.group(2))]
+    for v_attrs, v_body in _tag_blocks(html, _VIDEO_OPEN_RE, _VIDEO_CLOSE_RE):
+        tags = [v_attrs] + [t.group(1) for t in _SOURCE_TAG_RE.finditer(v_body)]
         found = [urljoin(page_url, unescape(m.group(1)).strip())
                  for m in map(_SRC_ATTR_RE.search, tags) if m]
-        poster = _POSTER_ATTR_RE.search(vm.group(1))
+        poster = _POSTER_ATTR_RE.search(v_attrs)
         if not (poster and urljoin(page_url, unescape(poster.group(1))) in posters
                 or contents.intersection(found)
-                or _b64_text(_ID_ATTR_RE.search(vm.group(1))) in contents):
+                or _b64_text(_ID_ATTR_RE.search(v_attrs)) in contents):
             continue
         for u in found:
             if (u.startswith(("http://", "https://")) and MEDIA_EXT_RE.search(u)
@@ -1145,9 +1188,13 @@ def third_party_frame_hosts(page) -> List[str]:
 # eval(function(p,a,c,k,e,d){...}('<payload>',<radix>,<count>,'<w1|w2|..>'.split('|'))
 # -- so the real ``sources:[{file:"...master.m3u8"}]`` is in no DOM attribute;
 # during the preroll the player's <video src> is the VAST ad clip instead.
-_PACKER_RE = re.compile(
-    r"eval\(function\(p,a,c,k,e,[dr]\)\{.*?\}\("
-    r"'((?:[^'\\]|\\.)*)',\s*(\d+),\s*(\d+),\s*'((?:[^'\\]|\\.)*)'\.split\('\|'\)",
+# One regex ``eval\(function\(p,a,c,k,e,[dr]\)\{.*?<tail>`` re-scanned the rest
+# of the text from every start with no valid tail: O(n^2), 240 KB of tail-less
+# starts took over 60 s (detect-extract F2).  The same matches, linear: each
+# start takes the first valid tail at or after its "{".
+_PACKER_START_RE = re.compile(r"eval\(function\(p,a,c,k,e,[dr]\)\{")
+_PACKER_TAIL_RE = re.compile(
+    r"\}\('((?:[^'\\]|\\.)*)',\s*(\d+),\s*(\d+),\s*'((?:[^'\\]|\\.)*)'\.split\('\|'\)",
     re.S)
 _PACKER_DIGITS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _PLAYER_SOURCE_RE = re.compile(
@@ -1159,13 +1206,38 @@ def _packer_word(n: int, radix: int) -> str:
     return head + _PACKER_DIGITS[n % radix]
 
 
+def _packer_matches(html: str) -> List[tuple]:
+    """(payload, radix, count, words) of each packed script, in order."""
+    # Every valid tail once: a tail's payload stops at the next quote, and
+    # each "}('" carries one, so the attempts never overlap more than once.
+    tails = []
+    i = html.find("}('")
+    while i >= 0:
+        t = _PACKER_TAIL_RE.match(html, i)
+        if t:
+            tails.append((i, t.end(), t.groups()))
+        i = html.find("}('", i + 1)
+    out: List[tuple] = []
+    pos = ti = 0
+    for m in _PACKER_START_RE.finditer(html):
+        if m.start() < pos:
+            continue
+        while ti < len(tails) and tails[ti][0] < m.end():
+            ti += 1
+        if ti == len(tails):
+            break
+        out.append(tails[ti][2])
+        pos = tails[ti][1]
+    return out
+
+
 def unpack_packed_scripts(html: str) -> List[str]:
     """The unpacked bodies of every p,a,c,k,e,d script in ``html`` (radix <= 62)."""
     out: List[str] = []
-    for m in _PACKER_RE.finditer(html or ""):
-        payload = m.group(1).replace("\\'", "'").replace("\\\\", "\\")
-        radix, count = int(m.group(2)), int(m.group(3))
-        words = m.group(4).split("|")
+    for g_payload, g_radix, g_count, g_words in _packer_matches(html or ""):
+        payload = g_payload.replace("\\'", "'").replace("\\\\", "\\")
+        radix, count = int(g_radix), int(g_count)
+        words = g_words.split("|")
         if not 2 <= radix <= len(_PACKER_DIGITS):
             continue
         table = {}
