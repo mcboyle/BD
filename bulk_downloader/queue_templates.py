@@ -97,17 +97,15 @@ def list_all() -> list[dict]:
         rows = cx.execute(
             "SELECT id, name, origin_site_id, note, "
             "       ts_created, ts_used, use_count, "
-            "       (length(urls) - length(replace(urls, char(10), '')) + 1) "
+            "       (CASE WHEN urls = '' THEN 0 ELSE "
+            "        length(urls) - length(replace(urls, char(10), '')) + 1 END) "
             "         AS url_count "
             "FROM queue_templates ORDER BY ts_created DESC"
         ).fetchall()
         out = []
         for r in rows:
-            d = dict(r)
-            # An empty-urls template would report url_count=1 from the
-            # length math; fix that edge case.
-            if not d["url_count"]: d["url_count"] = 0
-            out.append(d)
+            # qt-validate L4: an empty-urls template is 0 in the SQL itself (the length math alone gives 1).
+            out.append(dict(r))
         return out
 
 
