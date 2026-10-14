@@ -12,6 +12,12 @@ from flask import Blueprint, jsonify, request
 user_templates_bp = Blueprint("user_templates", __name__)
 
 
+def _store_failed(err):
+    """qti-user-tpl F2/F3: the store was unreadable for a write, or the write
+    failed -- nothing was saved, so never answer ok."""
+    return jsonify({"ok": False, "error": str(err)}), 503
+
+
 @user_templates_bp.route("/api/user_templates", methods=["GET"])
 def api_user_templates_list():
     """List all user-saved templates with full data. The combined picker
@@ -62,15 +68,20 @@ def api_user_templates_create():
             return jsonify({"ok": False, "error":
                             f"id {tid!r} is a built-in template id; user "
                             "template ids are namespaced user_..."}), 400
-    ok, result = _ut.save_user_template(
-        name=str(data.get("name", "")),
-        description=str(data.get("description", "")),
-        patterns=list(data.get("patterns") or []),
-        learned=data.get("learned") or {},
-        config_defaults=data.get("config_defaults") or None,
-        source=str(data.get("source", "user_teach")),
-        tid=tid,
-    )
+    try:
+        ok, result = _ut.save_user_template(
+            name=str(data.get("name", "")),
+            description=str(data.get("description", "")),
+            # qti-user-tpl F4: passed as sent; a non-list is refused (400)
+            # by validation instead of list()-ed into one-char regexes.
+            patterns=data.get("patterns") or [],
+            learned=data.get("learned") or {},
+            config_defaults=data.get("config_defaults") or None,
+            source=str(data.get("source", "user_teach")),
+            tid=tid,
+        )
+    except _ut.UserTemplatesStoreError as e:
+        return _store_failed(e)
     if not ok:
         return jsonify({"ok": False, "error": result}), 400
     return jsonify({"ok": True, "template": result})
@@ -80,7 +91,11 @@ def api_user_templates_create():
 def api_user_templates_delete(tid):
     """Remove a user template by id. 404 if not found."""
     from . import user_templates as _ut
-    if _ut.delete_user_template(tid):
+    try:
+        deleted = _ut.delete_user_template(tid)
+    except _ut.UserTemplatesStoreError as e:
+        return _store_failed(e)
+    if deleted:
         return jsonify({"ok": True, "deleted": tid})
     return jsonify({"ok": False, "error": "not found"}), 404
 
@@ -119,7 +134,10 @@ def api_user_templates_import():
     from . import user_templates as _ut
     payload = request.json or {}
     merge = request.args.get("merge", "1") != "0"
-    added, skipped, errors = _ut.import_user_templates(payload, merge=merge)
+    try:
+        added, skipped, errors = _ut.import_user_templates(payload, merge=merge)
+    except _ut.UserTemplatesStoreError as e:
+        return _store_failed(e)
     return jsonify({
         "ok": True,
         "added": added,

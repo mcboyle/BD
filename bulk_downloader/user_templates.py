@@ -47,12 +47,49 @@ Design choices:
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
+import threading
 import time
 from pathlib import Path
 
 USER_TEMPLATES_FILE = Path("user_templates.json")
 SCHEMA_VERSION = 1
+
+# qti-user-tpl F1: every read-modify-write of the store holds this lock, so
+# concurrent saves/deletes/imports in one process cannot drop each other.
+_STORE_LOCK = threading.RLock()
+
+
+class UserTemplatesStoreError(RuntimeError):
+    """The store could not be read for a write, or the write failed. Raised
+    instead of reporting success (qti-user-tpl F2/F3)."""
+
+
+def _require_readable_store() -> None:
+    """Writers call this before their read-modify-write: a present-but-
+    unreadable store raises UserTemplatesStoreError instead of reading as
+    empty, so the next save cannot overwrite the user's templates with a
+    near-empty list (qti-user-tpl F2). _load() itself stays tolerant (and
+    zero-arg) for readers."""
+    if not USER_TEMPLATES_FILE.exists():
+        return
+    try:
+        data = json.loads(USER_TEMPLATES_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise UserTemplatesStoreError(
+            f"{USER_TEMPLATES_FILE.name} is unreadable ({e}); not overwritten "
+            "-- fix or move the file, then retry") from e
+    if not isinstance(data, dict) or not isinstance(data.get("templates") or [], list):
+        raise UserTemplatesStoreError(
+            f"{USER_TEMPLATES_FILE.name} has no templates list; not overwritten")
+
+
+def _load_for_write() -> list[dict]:
+    """_load() for a writer: refuses a damaged store first (F2)."""
+    _require_readable_store()
+    return _load()
 
 
 def _load() -> list[dict]:
@@ -81,24 +118,29 @@ def _load() -> list[dict]:
 
 def _save(templates: list[dict]) -> None:
     """Write templates list atomically. Tmpfile + rename so a crash
-    mid-write can't leave a corrupt file."""
+    mid-write can't leave a corrupt file. The temp name is unique per write
+    (F1: a fixed .json.tmp let two writers interleave), secret keys are
+    stripped from every template written (F11), and a failed write raises
+    UserTemplatesStoreError instead of passing as saved (F3)."""
     payload = {
         "version": SCHEMA_VERSION,
-        "templates": templates,
+        "templates": [_strip_secrets(t) for t in templates],
     }
-    tmp = USER_TEMPLATES_FILE.with_suffix(".json.tmp")
+    tmp = None
     try:
-        tmp.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        tmp.replace(USER_TEMPLATES_FILE)
+        fd, tmp = tempfile.mkstemp(dir=str(USER_TEMPLATES_FILE.parent),
+                                   prefix=f".{USER_TEMPLATES_FILE.name}.",
+                                   suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(payload, indent=2, ensure_ascii=False))
+        Path(tmp).replace(USER_TEMPLATES_FILE)
     except Exception as e:
         import sys
         sys.stderr.write(f"  user_templates save failed: {e}\n")
-        if tmp.exists():
-            try: tmp.unlink()
+        if tmp is not None and os.path.exists(tmp):
+            try: os.unlink(tmp)
             except Exception: pass
+        raise UserTemplatesStoreError(f"user templates not saved: {e}") from e
 
 
 def list_user_templates() -> list[dict]:
@@ -206,13 +248,18 @@ def save_user_template(
         "id": tid or _generate_id(name),
         "name": name.strip(),
         "description": (description or "").strip(),
-        "patterns": list(patterns or []),
+        # F4: only a list is a pattern list; anything else reaches
+        # _validate_template as-is and is refused (list("a.com") made one
+        # single-character regex per letter, "." matching every URL).
+        "patterns": (list(patterns) if isinstance(patterns, (list, tuple))
+                     else (patterns if patterns else [])),
         "learned": learned,
         "source": source,
     }
     if config_defaults:
         template["config_defaults"] = config_defaults
     template = _safe_config(template)  # BD-SEC-5 H1: allowlisted keys only
+    template = _strip_secrets(template)  # F11: no credential is stored or echoed
 
     ok, err = _validate_template(template)
     if not ok: return False, err
@@ -227,7 +274,24 @@ def save_user_template(
         _msgs = "; ".join(i.message for i in _issues if i.level == "error")
         return False, f"unsafe selectors — refine before saving: {_msgs}"[:200]
 
-    existing = _load()
+    with _STORE_LOCK:
+        _save_locked(template, tid)
+
+    # C3: record a selector-history version on every save (append-only, best
+    # effort). A recording failure must never break the save, so this is fully
+    # guarded and its result is ignored.
+    try:
+        from . import selector_versions as _sv
+        _sv.record_template_version(template, source=source)
+    except Exception:
+        pass
+
+    return True, template
+
+
+def _save_locked(template: dict, tid: str | None) -> None:
+    """Read-modify-write of one template; caller holds _STORE_LOCK."""
+    existing = _load_for_write()
     if tid:
         # Update in place
         found = False
@@ -249,28 +313,18 @@ def save_user_template(
 
     _save(existing)
 
-    # C3: record a selector-history version on every save (append-only, best
-    # effort). A recording failure must never break the save, so this is fully
-    # guarded and its result is ignored.
-    try:
-        from . import selector_versions as _sv
-        _sv.record_template_version(template, source=source)
-    except Exception:
-        pass
-
-    return True, template
-
 
 def delete_user_template(tid: str) -> bool:
     """Remove a user template by id. Returns True if it existed and was
     removed, False if no template had that id."""
-    existing = _load()
-    before = len(existing)
-    remaining = [t for t in existing if t.get("id") != tid]
-    if len(remaining) == before:
-        return False
-    _save(remaining)
-    return True
+    with _STORE_LOCK:
+        existing = _load_for_write()
+        before = len(existing)
+        remaining = [t for t in existing if t.get("id") != tid]
+        if len(remaining) == before:
+            return False
+        _save(remaining)
+        return True
 
 
 def restore_template_set(as_of_ts, *, dry_run: bool = False,
@@ -341,15 +395,36 @@ def import_user_templates(payload: dict, merge: bool = True) -> tuple[int, int, 
     incoming = payload.get("templates") if isinstance(payload, dict) else None
     if not isinstance(incoming, list):
         return 0, 0, ["payload missing 'templates' array"]
+    with _STORE_LOCK:
+        return _import_locked(incoming, merge)
 
+
+def _import_id_error(t) -> str:
+    """F13: an imported template must carry a non-empty string id -- the store
+    and GET drop id-less rows, so one would be reported added yet never listed."""
+    tid = t.get("id") if isinstance(t, dict) else None
+    return "" if isinstance(tid, str) and tid.strip() else "missing id"
+
+
+def _import_locked(incoming: list, merge: bool) -> tuple[int, int, list[str]]:
+    """import_user_templates body; caller holds _STORE_LOCK."""
     if not merge:
         # Replace mode: validate everything first, then save the lot
         valid = []
         errors = []
+        seen: set = set()
+        skipped = 0
         for i, t in enumerate(incoming):
             ok, err = _validate_template(t)
-            if ok: valid.append(_safe_config(_strip_secrets(t)))
-            else: errors.append(f"#{i} ({t.get('name','<unnamed>')}): {err}")
+            if ok and _import_id_error(t):
+                ok, err = False, _import_id_error(t)
+            if ok and t["id"] in seen:
+                skipped += 1  # F12: first entry with an id wins
+                continue
+            if ok:
+                seen.add(t["id"])
+                valid.append(_safe_config(_strip_secrets(t)))
+            else: errors.append(f"#{i} ({t.get('name','<unnamed>') if isinstance(t, dict) else '<unnamed>'}): {err}")
         # v3.65.2: don't silently wipe the existing template set when a
         # restore-from-backup payload has entries but none validate.
         # The original code called _save([]) unconditionally, so a single
@@ -364,18 +439,20 @@ def import_user_templates(payload: dict, merge: bool = True) -> tuple[int, int, 
                 "and try again, or use merge mode to skip bad entries."
             ]
         _save(valid)
-        return len(valid), 0, errors
+        return len(valid), skipped, errors
 
     # Merge mode: keep existing, append new, skip on id collision
-    existing = _load()
+    existing = _load_for_write()
     existing_ids = {t.get("id") for t in existing}
     added = 0
     skipped = 0
     errors = []
     for i, t in enumerate(incoming):
         ok, err = _validate_template(t)
+        if ok and _import_id_error(t):
+            ok, err = False, _import_id_error(t)
         if not ok:
-            errors.append(f"#{i} ({t.get('name','<unnamed>')}): {err}")
+            errors.append(f"#{i} ({t.get('name','<unnamed>') if isinstance(t, dict) else '<unnamed>'}): {err}")
             continue
         if t.get("id") in existing_ids:
             skipped += 1
@@ -532,6 +609,7 @@ def preview_user_templates_import(payload: dict, merge: bool = True) -> dict:
     existing = _load()
     existing_ids = {t.get("id") for t in existing}
     valid_incoming_ids: set = set()
+    payload_ids: set = set()  # F12: a repeated id in the payload is skipped
 
     for t in incoming:
         name = t.get("name", "<unnamed>") if isinstance(t, dict) else "<unnamed>"
@@ -541,11 +619,17 @@ def preview_user_templates_import(payload: dict, merge: bool = True) -> dict:
         item = {"id": tid, "name": name, "status": None,
                 "secrets_omitted": secret_keys, "refused": refused}
         ok, err = _validate_template(t)
+        if ok and _import_id_error(t):  # F13: same rule as the import
+            ok, err = False, _import_id_error(t)
         if not ok:
             item["status"] = "invalid"
             item["error"] = err
             out["counts"]["invalid"] += 1
+        elif tid in payload_ids:
+            item["status"] = "conflict"  # F12: the import skips the repeat
+            out["counts"]["conflict"] += 1
         elif merge:
+            payload_ids.add(tid)
             if tid in existing_ids:
                 item["status"] = "conflict"
                 out["counts"]["conflict"] += 1
@@ -553,6 +637,7 @@ def preview_user_templates_import(payload: dict, merge: bool = True) -> dict:
                 item["status"] = "new"
                 out["counts"]["new"] += 1
         else:  # replace
+            payload_ids.add(tid)
             valid_incoming_ids.add(tid)
             if tid in existing_ids:
                 item["status"] = "changed"
