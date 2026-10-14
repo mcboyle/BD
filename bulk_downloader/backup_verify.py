@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import tarfile
@@ -200,6 +201,12 @@ def verify_tarball(path: str, *, expected_members: Optional[list] = None) -> dic
         return result
 
 
+# BK-REST F9: per-member extraction cap, equal to backup._RESTORE_MEMBER_CAP (the
+# cap restore_backup applies to the same member); kept local so this module adds
+# no import edge to backup.py.
+_SMOKE_MEMBER_CAP = 256 * 1024 * 1024
+
+
 def _confine_extract(archive, sandbox: str, *, is_tar: bool) -> None:
     """Vet every archive member's destination BEFORE extracting so no member
     can escape `sandbox` via '..' traversal, an absolute path (tar-slip /
@@ -214,6 +221,11 @@ def _confine_extract(archive, sandbox: str, *, is_tar: bool) -> None:
         name = m.name if is_tar else m.filename
         if is_tar and (m.issym() or m.islnk()):
             raise ValueError(f"unsafe link member in backup archive: {name!r}")
+        # BK-REST F9: the same per-member cap restore_backup applies.
+        size = m.size if is_tar else m.file_size
+        if size > _SMOKE_MEMBER_CAP:
+            raise ValueError(f"backup archive member {name!r} is {size} bytes "
+                             f"> restore cap {_SMOKE_MEMBER_CAP}")
         dest = os.path.realpath(os.path.join(sandbox, name))
         if dest != base and not dest.startswith(base + os.sep):
             raise ValueError(f"backup archive member escapes sandbox: {name!r}")
@@ -224,17 +236,20 @@ def smoke_restore(path: str, *, expected_tables: Optional[list] = None) -> dict:
     """Restore a backup into a temp dir and confirm BD could read it.
     For SQLite dumps: open r/o; for tarballs: extract + spot-check.
 
-    Returns {ok, restored_to, summary, error}."""
+    Returns {ok, restored_to, summary, error}. The sandbox is removed on every
+    return that does not hand it back in ``restored_to`` (BK-REST F9); a caller
+    that receives ``restored_to`` owns it."""
     started = time.time()
     sandbox = tempfile.mkdtemp(prefix="bd-restore-test-")
+    handed_back = False
     try:
         if path.endswith(".db") or path.endswith(".sqlite"):
             # Copy file in (so we can rw-open if needed)
-            import shutil
             dest = os.path.join(sandbox, os.path.basename(path))
             shutil.copyfile(path, dest)
             v = verify_db_dump(dest)
             v["restored_to"] = sandbox
+            handed_back = True
             if expected_tables:
                 v["missing_tables"] = [t for t in expected_tables
                                         if t not in v.get("tables", [])]
@@ -253,6 +268,7 @@ def smoke_restore(path: str, *, expected_tables: Optional[list] = None) -> dict:
                     with tarfile.open(path, "r:*") as tf:
                         _confine_extract(tf, sandbox, is_tar=True)
                 v["restored_to"] = sandbox
+                handed_back = True
                 v["extracted_files"] = os.listdir(sandbox)[:20]
             _record(path, "smoke_restore", v, started)
             return v
@@ -274,6 +290,9 @@ def smoke_restore(path: str, *, expected_tables: Optional[list] = None) -> dict:
         result = {"ok": False, "state": _STATE_FAILED, "error": str(e)[:300]}
         _record(path, "smoke_restore", result, started)
         return result
+    finally:
+        if not handed_back:
+            shutil.rmtree(sandbox, ignore_errors=True)
 
 
 def verify_against_live(path: str) -> dict:
@@ -449,6 +468,9 @@ def rehearse(*, backup_path: Optional[str] = None) -> dict:
         return out
     try:
         res = smoke_restore(path)
+        # BK-REST F9: the rehearsal only needs the verdict, not the sandbox.
+        if res.get("restored_to"):
+            shutil.rmtree(res["restored_to"], ignore_errors=True)
         ok = bool(res.get("ok"))
         err = res.get("error") or ("" if ok else "smoke_restore reported not-ok")
     except Exception as e:                      # never raise into the scheduler

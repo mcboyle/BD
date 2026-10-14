@@ -17,6 +17,25 @@ def _check_csrf(*_a, **_k):
     return getattr(importlib.import_module("bulk_downloader.app"), "_check_csrf")(*_a, **_k)
 
 
+def _confined_path(raw):
+    """BK-REST F12/F13: a verify/smoke_restore/drift ``path`` must be a string
+    naming a file inside BD_HOME (or BD_INSTALL_DIR; the CWD when neither is
+    set). Checked BEFORE any filesystem access and refused with one body
+    whether or not the outside path exists, so the routes are no existence
+    oracle. Returns (resolved_path, None) or (None, (response, 400))."""
+    import os
+    from .backup import _is_safe_path
+    if not isinstance(raw, str):
+        return None, (jsonify({"ok": False, "error": "path must be a string"}), 400)
+    roots = [v for v in (os.environ.get(k, "").strip()
+                         for k in ("BD_HOME", "BD_INSTALL_DIR")) if v] or ["."]
+    for root in roots:
+        if _is_safe_path(Path(root), Path(raw)):
+            return str((Path(root) / raw).resolve()), None
+    return None, (jsonify({"ok": False,
+                           "error": "path must be inside BD_HOME"}), 400)
+
+
 @backup_bp.route("/api/backup/verify", methods=["POST"])
 def api_backup_verify():
     _check_csrf()
@@ -24,6 +43,9 @@ def api_backup_verify():
     path = body.get("path", "")
     if not path:
         return jsonify({"ok": False, "error": "path required"}), 400
+    path, err = _confined_path(path)
+    if err:
+        return err
     try:
         from . import backup_verify as _bv
         if path.endswith((".db", ".sqlite")):
@@ -40,12 +62,21 @@ def api_backup_smoke():
     body = request.json or {}
     if not body.get("path"):
         return jsonify({"ok": False, "error": "path required"}), 400
+    path, err = _confined_path(body["path"])
+    if err:
+        return err
     try:
+        import shutil
         from . import backup_verify as _bv
-        return jsonify(_bv.smoke_restore(
-            body["path"],
+        result = _bv.smoke_restore(
+            path,
             expected_tables=body.get("expected_tables"),
-        ))
+        )
+        # BK-REST F9: the caller is a browser; the sandbox is not its to read.
+        sandbox = result.pop("restored_to", None)
+        if sandbox:
+            shutil.rmtree(sandbox, ignore_errors=True)
+        return jsonify(result)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 @backup_bp.route("/api/backup/drift", methods=["POST"])
@@ -54,17 +85,28 @@ def api_backup_drift():
     body = request.json or {}
     if not body.get("path"):
         return jsonify({"ok": False, "error": "path required"}), 400
+    path, err = _confined_path(body["path"])
+    if err:
+        return err
     try:
         from . import backup_verify as _bv
-        return jsonify(_bv.verify_against_live(body["path"]))
+        return jsonify(_bv.verify_against_live(path))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 @backup_bp.route("/api/backup/history")
 def api_backup_history():
+    # BK-REST F13: a non-integer or non-positive limit is the caller's error
+    # (400), not a 500 and not an unbounded list.
+    try:
+        limit = int(request.args.get("limit", 20))
+    except ValueError:
+        limit = 0
+    if limit < 1:
+        return jsonify({"error": "limit must be a positive integer"}), 400
     try:
         from . import backup_verify as _bv
         return jsonify({"verifications": _bv.recent_verifications(
-            limit=int(request.args.get("limit", 20)))})
+            limit=limit)})
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 @backup_bp.route("/api/backup/create", methods=["POST"])

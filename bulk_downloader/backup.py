@@ -192,14 +192,21 @@ def _derive_fernet_key(passphrase: str, salt: bytes,
 
 def _iter_files(target_root: Path, src: Path):
     """Yield (file_path, arcname_relative) for every regular file under
-    src. Used to flatten directory targets into individual zip entries."""
+    src. Used to flatten directory targets into individual zip entries.
+    BK-REST F11: symlinks under src are never followed -- a cookies/x.json
+    link to a file outside the data dir must not be archived by content."""
     if src.is_file():
         yield src, src.name
         return
     if not src.is_dir():
         return
-    for f in src.rglob("*"):
-        if f.is_file():
+    for base, dirs, names in os.walk(src, followlinks=False):
+        base_path = Path(base)
+        dirs[:] = sorted(d for d in dirs if not (base_path / d).is_symlink())
+        for name in sorted(names):
+            f = base_path / name
+            if f.is_symlink() or not f.is_file():
+                continue
             # Skip rotating profile-sync backups (profiles/<site>/<profile>/
             # .sync_backups/<ts>/...): they are backups-of-backups — stale
             # session copies that bloat the archive and shouldn't ride along
@@ -315,14 +322,18 @@ def create_backup(out_path: str | Path, base_dir: str | Path = ".",
                             checksums[arcname] = hashlib.sha256(_plain).hexdigest()
                             files_written += 1
                         else:
-                            zf.write(file_path, arcname)
+                            # BK-REST F14: hash the SAME bytes that go into the
+                            # zip (one read), so a file changing mid-backup can't
+                            # yield a manifest checksum that fails on restore.
+                            _zi = zipfile.ZipInfo.from_file(file_path, arcname)
+                            _zi.compress_type = zipfile.ZIP_DEFLATED
+                            _digest = hashlib.sha256()
+                            with open(file_path, "rb") as _fh, zf.open(_zi, "w") as _out:
+                                while _chunk := _fh.read(_COPY_BLOCK_BYTES):
+                                    _digest.update(_chunk)
+                                    _out.write(_chunk)
+                            checksums[arcname] = _digest.hexdigest()
                             files_written += 1
-                            try:
-                                with open(file_path, "rb") as _fh:
-                                    checksums[arcname] = hashlib.sha256(
-                                        _fh.read()).hexdigest()
-                            except OSError:
-                                pass
                     except (OSError, PermissionError) as e:
                         skipped.append(f"{arcname}: {type(e).__name__}")
             # CAP-4: manifest last, now carrying the integrity map. Restore reads
@@ -554,6 +565,17 @@ def restore_backup(backup_path: str | Path,
                 return {"ok": False,
                         "error": f"decrypt setup failed: {type(e).__name__}",
                         "elapsed_ms": round((time.time() - t0) * 1000, 1)}
+
+        # BK-REST F10: an archive with no member to restore (empty zip, or only
+        # _manifest.json / directory entries) is not a successful restore.
+        if not any(n != "_manifest.json" and not n.endswith("/")
+                   for n in zf.namelist()):
+            return {"ok": False,
+                    "error": "backup archive is empty: no members to restore",
+                    "files_restored": 0, "files_skipped": 0,
+                    "manifest": manifest, "warnings": warnings,
+                    "dry_run": dry_run,
+                    "elapsed_ms": round((time.time() - t0) * 1000, 1)}
 
         if not dry_run:
             target.mkdir(parents=True, exist_ok=True)
