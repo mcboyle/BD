@@ -1,7 +1,10 @@
 """Guarded stdlib/requests HTTP for token-bearing deep integrations.
 
 ``allow_private_hosts`` relaxes host classification for deliberate LAN
-integrations only.  It never relaxes the same-origin-only redirect policy.
+integrations only.  It never relaxes the same-origin-only redirect policy,
+and it never admits link-local / cloud-metadata, CGNAT, reserved, multicast
+or unspecified targets (BD-SEC-3): with it on, the repository's LAN
+classifier ``hooks._host_ok_for_hook`` judges every resolved address.
 
 SUBSTITUTION SEAM.  :func:`guarded_open` classifies the target and only then
 delegates the send to the module-level opener ``_OPENER``.  That opener is the
@@ -14,6 +17,7 @@ refused whether or not a test is running.
 """
 from __future__ import annotations
 
+import ipaddress
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,6 +27,7 @@ import requests
 from bulk_downloader.provider_resolve_impl._common import SSRFBlocked, _is_safe_public_host
 
 _MAX_REDIRECTS = 5
+_IPV6_LOOPBACK = ipaddress.ip_address("::1")
 
 
 def refusal_message(reason, setting_name: str) -> str:
@@ -41,6 +46,43 @@ def _check(url: str, allow_private_hosts: bool) -> None:
         safe, reason = _is_safe_public_host(parsed.hostname or "")
         if not safe:
             raise SSRFBlocked(str(reason))
+        return
+    # The opt-in admits a LAN server (RFC 1918, loopback), never the metadata
+    # endpoint: 169.254.169.254 named by IP, by mapped/embedded IPv6 or by a
+    # hostname that resolves there is refused with the switch on as well.
+    from bulk_downloader.hooks import _host_ok_for_hook
+    host = parsed.hostname or ""
+    ok, reason = _host_ok_for_hook(host)
+    if ok:
+        return
+    # BD-SEC-3 r2: hooks judges is_reserved before its loopback allowance, and
+    # Python classes ::1 as reserved (::/8), so IPv6 loopback was refused. Re-judge
+    # with the ::1 answers removed; every other answer is still judged by hooks.
+    answers = _answers(host)
+    rest = [a for a in answers if a != _IPV6_LOOPBACK]
+    if not answers:
+        # hooks' DNS-failure reason does not carry the host; name it.
+        raise SSRFBlocked(f"{reason} ({host})")
+    if len(rest) == len(answers):
+        raise SSRFBlocked(reason)
+    ok, reason = _host_ok_for_hook(host, _resolved=rest)
+    if not ok:
+        raise SSRFBlocked(reason)
+
+
+def _answers(host: str) -> list:
+    """The addresses ``host`` names (itself if a literal); [] when unresolvable."""
+    import socket
+    try:
+        return [ipaddress.ip_address(host)]
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        return [ipaddress.ip_address(info[4][0]) for info in infos
+                if info[0] in (socket.AF_INET, socket.AF_INET6)]
+    except (OSError, UnicodeError, ValueError):
+        return []
 
 
 def _origin(url: str) -> tuple[str, str, int]:

@@ -78,6 +78,21 @@ from .website_title import history_title_kwargs
 from . import netns_isolation
 from . import member_rendition as _member_rendition  # dl95-pegasproductions-2b
 
+# dl95-naughtyamerica-3: the logged-IN half of constants.LOGGED_OUT_SHAPE_JS --
+# a logout control is on the page (the same selectors and words that JS takes
+# as proof of a member page). A verdict that would tell the operator to log in
+# asks this first: a page with a logout control is already logged in. Defined
+# here, beside its only consumer (_spa_trailer_only), not in constants.py: a
+# runner module importing it from there was a runner -> core edge
+# (t154-coupling-residual).
+LOGOUT_CONTROL_JS = r"""() => {
+  const text = (document.body ? document.body.textContent : '') || '';
+  return !!(document.querySelector(
+    'a[href*="logout" i],a[href*="log-out" i],a[href*="signout" i],' +
+    'a[href*="sign-out" i],form[action*="logout" i]') ||
+    /\b(?:log|sign)[\s-]?out\b/i.test(text));
+}"""
+
 # tier_probe soft import (moved verbatim from runner.py; flat sibling).
 try:
     from . import tier_probe as _tier_probe
@@ -2100,7 +2115,6 @@ class ExtractorsMixin:
         dl95-naughtyamerica-3: a page with a logout control is logged in, so the
         verdict must not send the operator to log in; it names the missing
         member download control instead."""
-        from .constants import LOGOUT_CONTROL_JS
         name = previews[0].split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
         try:
             logged_in = page.evaluate(LOGOUT_CONTROL_JS) is True

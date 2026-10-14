@@ -66,8 +66,14 @@ def _first_positive_size_match(page, selector, skip=None):
 # dl95-scrolller-2: the ONE visible control whose whole label is a login verb,
 # returned as its index in querySelectorAll order, or -1.  Nested matches
 # (an <a> wrapping a <button>) count once, as the outermost.
+#
+# tpl95-whoreshub-1 r2: whoreshub's sole Login control is a <div data-href=
+# ".../login/" data-fancybox="ajax" id="login">, neither <a> nor <button>, so
+# the candidate set also admits [data-href] controls.  ONE selector feeds both
+# the JS census and the Python locator: nth(index) must name the same element.
+_AUTO_TRIGGER_SEL = "button, a, [role='button'], [data-href]"
 _AUTO_TRIGGER_JS = """() => {
-    const SEL = "button, a, [role='button']";
+    const SEL = "__AUTO_TRIGGER_SEL__";
     const LABEL = /^(log|sign)[\\s-]?in$/i;
     const all = Array.from(document.querySelectorAll(SEL));
     const hits = [];
@@ -87,7 +93,7 @@ _AUTO_TRIGGER_JS = """() => {
         if (LABEL.test(label.replace(/\\s+/g, " "))) hits.push(i);
     });
     return hits.length === 1 ? hits[0] : -1;
-}"""
+}""".replace("__AUTO_TRIGGER_SEL__", _AUTO_TRIGGER_SEL)
 
 
 def _visible_login_field(page, selectors):
@@ -128,7 +134,7 @@ def _fire_auto_login_trigger(page):
         return False, False, ""
     if not isinstance(index, int) or index < 0:
         return False, False, ""
-    control = page.locator("button, a, [role='button']").nth(index)
+    control = page.locator(_AUTO_TRIGGER_SEL).nth(index)
     try:
         control.click(timeout=2500)
         return True, True, "clicked the page's sole Login control (auto)"
@@ -138,11 +144,22 @@ def _fire_auto_login_trigger(page):
     # actionable (off-canvas nav, overlay) is still one navigation from the
     # form.  Follow the link's own http(s) href; a control without one keeps
     # the "could not click" result.
+    # tpl95-whoreshub-1 r2: a <div data-href=".../login/"> (fancybox ajax
+    # popup) under an age-gate overlay is the same one navigation away; its
+    # data-href is followed too, resolved against the page like a link.
     try:
-        target = control.evaluate(
-            "e => (e.tagName === 'A' && e.href) ? e.href : ''")
+        target, via = control.evaluate(
+            "e => { if (e.tagName === 'A' && e.href) return [e.href, 'href'];"
+            " const raw = e.getAttribute('data-href') || '';"
+            " if (!raw) return ['', ''];"
+            " try { return [new URL(raw, location.href).href, 'data-href']; }"
+            " catch (_) { return ['', '']; } }")
         if isinstance(target, str) and target.startswith(("http://", "https://")):
             page.goto(target, wait_until="domcontentloaded", timeout=15000)
+            if via == "data-href":
+                return True, True, (
+                    "followed the data-href of the page's sole Login control "
+                    "(auto) after its click was not actionable")
             return True, True, (
                 "followed the page's sole Login link (auto) after its click "
                 "was not actionable")
