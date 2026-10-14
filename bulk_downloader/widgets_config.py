@@ -297,7 +297,7 @@ def _sanitize_list(raw) -> list[dict]:
             continue  # dedupe — UI shouldn't allow but defense in depth
         seen.add(wid)
         size = item.get("size", "sm")
-        if size not in VALID_SIZES:
+        if not isinstance(size, str) or size not in VALID_SIZES:  # widgets-fix F5: [] is unhashable
             size = "sm"
         out.append({"id": wid, "size": size})
     return out
