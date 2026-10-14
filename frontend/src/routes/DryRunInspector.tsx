@@ -45,8 +45,11 @@ function CandidateRow({ r }: { r: InspectCandidateRow }) {
           {r.selector || "—"}
         </span>
         {typeof r.score === "number" && (
-          <span className="ml-auto shrink-0 text-[11px] tabular-nums text-ink-3">
-            {r.score.toFixed(0)}
+          <span
+            className="ml-auto shrink-0 text-[11px] tabular-nums text-ink-3"
+            title="heuristic rank: relative order only; below zero is not an error"
+          >
+            score {r.score.toFixed(0)}
           </span>
         )}
       </div>
@@ -150,15 +153,21 @@ function TemplatePanel({ res }: { res: TemplateDryRunResult }) {
             {res.network_patterns.length} patterns
           </div>
         )}
+        {/* F010: with no template the selection comes from generic detection,
+            so it gets no green check beside the "no template" badge. */}
         <div className="mt-1.5 text-xs">
           <span
             className={
-              res.safe_candidate_selected ? "text-green" : "text-ink-3"
+              res.safe_candidate_selected && res.template_matched
+                ? "text-green"
+                : "text-ink-3"
             }
           >
-            {res.safe_candidate_selected
-              ? "✓ a safe candidate would be selected"
-              : "no safe candidate from supplied HTML"}
+            {!res.safe_candidate_selected
+              ? "no safe candidate from supplied HTML"
+              : res.template_matched
+                ? "✓ a safe candidate would be selected"
+                : "no template — generic detection would pick a candidate (not a template result)"}
           </span>
         </div>
       </Card>
