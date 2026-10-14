@@ -48,6 +48,9 @@ const DialogContent = React.forwardRef<
       onInteractOutside={(e) => e.preventDefault()}
       className={cn(
         "fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2",
+        // library-fix F3: a tall dialog in a short (landscape) viewport ran off
+        // both edges with its buttons unreachable; cap it and scroll inside.
+        "max-h-[calc(100dvh-2rem)] overflow-y-auto",
         "hairline rounded-lg bg-surface p-6 shadow-lg",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         className,

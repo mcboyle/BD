@@ -67,6 +67,33 @@ const itemLabel = (it: LibraryItem) =>
   it.title || it.name || it.path || `#${it.id}`;
 const tagLabel = (t: LibraryTag) => t.name || t.tag || `#${t.id}`;
 
+// library-fix F8: a stored rating outside the 1-5 options (0, 7, 3.5) or sent
+// as a numeric string ("4") read as "none". Show what is stored.
+const ratingText = (r: unknown): string => {
+  const n =
+    typeof r === "number" ? r : typeof r === "string" && r.trim() ? Number(r) : NaN;
+  return Number.isFinite(n) ? String(n) : "";
+};
+const RATING_OPTS = ["1", "2", "3", "4", "5"];
+
+// library-fix F6: the Tags card rendered every tag (5 000 -> 50 000 nodes,
+// every keystroke re-rendered them all). Render a filtered window instead.
+const TAG_WINDOW = 200;
+
+// library-fix F10: history ids are positive integers that survive Number()
+// exactly; anything else is reported, never silently dropped or rounded.
+const parseIdBox = (raw: string): { ids: number[]; rejected: string[] } => {
+  const ids: number[] = [];
+  const rejected: string[] = [];
+  for (const tok of raw.split(/[\s,]+/)) {
+    if (!tok) continue;
+    const n = Number(tok);
+    if (!/^\d+$/.test(tok) || !Number.isSafeInteger(n)) rejected.push(tok);
+    else if (!ids.includes(n)) ids.push(n);
+  }
+  return { ids, rejected };
+};
+
 type Pending =
   | { kind: "item"; id: number | string; label: string; token: string }
   | { kind: "tag"; id: number | string; label: string; token: string }
@@ -139,7 +166,16 @@ export function Library() {
   // P6-1 — sort the fetched library page client-side via the SortSelect control
   // (a <ul>, not a table, so no column headers). Direction toggle governs
   // newest/oldest etc.
-  const loadedRows = items.data?.pages.flatMap((pg) => pg.rows ?? []) ?? [];
+  // library-fix F11: a repeated id became a repeated React key, and a refetch
+  // left a ghost row behind. Keep the first row per id.
+  const loadedRows: LibraryItem[] = [];
+  const seen = new Set<string>();
+  for (const r of items.data?.pages.flatMap((pg) => pg.rows ?? []) ?? []) {
+    if (!seen.has(String(r.id))) {
+      seen.add(String(r.id));
+      loadedRows.push(r);
+    }
+  }
   const partial = !!items.hasNextPage;
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
@@ -163,10 +199,9 @@ export function Library() {
   );
   const itemRows = [...loadedRows];
   if (remoteIds.size) {
-    const seen = new Set(loadedRows.map((r) => r.id));
     for (const r of remote.data ?? []) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
+      if (!seen.has(String(r.id))) {
+        seen.add(String(r.id));
         itemRows.push(r);
       }
     }
@@ -307,12 +342,10 @@ export function Library() {
   const tagRows = useTagRows(rowsTag.trim());
   const suggestN = /^\d+$/.test(suggestHid.trim()) ? Number(suggestHid.trim()) : null;
   const tagSuggest = useTagSuggest(suggestN);
-  const parseIds = (raw: string): number[] =>
-    raw
-      .split(/[\s,]+/)
-      .map((t) => t.trim())
-      .filter((t) => /^\d+$/.test(t))
-      .map(Number);
+  const bulk = parseIdBox(bulkIds);
+  const parseIds = (raw: string): number[] => parseIdBox(raw).ids;
+  const bulkOk = bulk.ids.length > 0 && bulk.rejected.length === 0;
+  const [tagFilter, setTagFilter] = useState("");
 
   // Confirm state: destructive actions get a labelled yes/no dialog with No as
   // the default; the confirm button is disabled only while a request is busy.
@@ -385,10 +418,26 @@ export function Library() {
     setPending(null);
   };
 
-  const scanState =
-    scan.data?.scan?.state ??
-    scan.data?.scan?.status ??
-    (scan.data?.scan?.running ? "running" : "idle");
+  // library-fix F2: a failed status read showed "idle", the real idle text.
+  // With no data yet, each 5 s refetch puts the query back to pending (error
+  // cleared), so an earlier failure is read from errorUpdatedAt, and a status
+  // never read is not "idle" either.
+  const scanFailed = scan.isError || (scan.data === undefined && scan.errorUpdatedAt > 0);
+  const scanState = scan.isError
+    ? `status unavailable (${scan.error?.message ?? "request failed"})`
+    : scan.data === undefined
+      ? scanFailed
+        ? "status unavailable (retrying)"
+        : "status loading…"
+      : scan.data.scan?.state ??
+        scan.data.scan?.status ??
+        (scan.data.scan?.running ? "running" : "idle");
+
+  const tagNeedle = tagFilter.trim().toLowerCase();
+  const matchedTags = (tags.data?.tags ?? []).filter(
+    (t) => !tagNeedle || tagLabel(t).toLowerCase().includes(tagNeedle),
+  );
+  const shownTags = matchedTags.slice(0, TAG_WINDOW);
 
   return (
     <AppShell title="Library" subtitle="Items, tags, and scans">
@@ -413,12 +462,19 @@ export function Library() {
         >
           <Square className="mr-1 h-4 w-4" /> Cancel scan
         </Button>
-        <span className="text-sm text-muted-foreground">scan: {scanState}</span>
+        <span
+          className={`text-sm ${scanFailed ? "text-red" : "text-muted-foreground"}`}
+          role={scanFailed ? "alert" : undefined}
+        >
+          scan: {scanState}
+        </span>
         <Button
           variant="destructive"
           disabled={busy}
           onClick={() => arm({ kind: "rotateStream", token: "ROTATE STREAM" })}
           title="Invalidate every previously-issued stream link"
+          // library-fix F5: at a 200% text size these labels ran off a 390 px screen.
+          className="h-auto min-h-10 whitespace-normal"
         >
           <RotateCcw className="mr-1 h-4 w-4" /> Rotate stream secret
         </Button>
@@ -428,7 +484,7 @@ export function Library() {
       </div>
 
       <Card className="mt-4 p-4">
-        <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h2 className="section-head mb-0">Items</h2>
           <div
             role="group"
@@ -520,7 +576,7 @@ export function Library() {
                 className={
                   isGrid
                     ? `hairline flex flex-col gap-2 rounded-md ${isCompact ? "p-1.5" : "p-3"}`
-                    : `flex items-center justify-between ${isCompact ? "py-0.5" : "py-2"}`
+                    : `flex flex-wrap items-center justify-between gap-x-2 gap-y-1 ${isCompact ? "py-0.5" : "py-2"}`
                 }
               >
                 <span className="min-w-0 text-sm">
@@ -534,9 +590,9 @@ export function Library() {
                     {itemLabel(it)}
                   </button>
                 </span>
-                <div className={`flex items-center gap-2 ${isGrid ? "flex-wrap" : ""}`}>
+                <div className="flex flex-wrap items-center gap-2">
                   <select
-                    value={typeof it.rating === "number" ? String(it.rating) : ""}
+                    value={ratingText(it.rating)}
                     onChange={(e) =>
                       setRating.mutate({
                         id: it.id,
@@ -549,7 +605,12 @@ export function Library() {
                     className="hairline rounded-md bg-surface px-1.5 py-1 text-xs tabular"
                   >
                     <option value="">none</option>
-                    {[1, 2, 3, 4, 5].map((r) => (
+                    {ratingText(it.rating) && !RATING_OPTS.includes(ratingText(it.rating)) && (
+                      <option value={ratingText(it.rating)} disabled>
+                        {ratingText(it.rating)} (stored)
+                      </option>
+                    )}
+                    {RATING_OPTS.map((r) => (
                       <option key={r} value={r}>
                         {r}
                       </option>
@@ -615,37 +676,60 @@ export function Library() {
         <h2 className="section-head">Tags</h2>
         {tags.isLoading ? (
           <SkeletonRows count={4} rowClassName="h-8" />
+        ) : tags.isError ? (
+          // library-fix F2: a failed load used to read "No tags.".
+          <Card className="border-red bg-red-soft p-3 text-sm text-red" role="alert">
+            Couldn’t load tags: {tags.error?.message ?? "request failed"}
+          </Card>
         ) : !tags.data?.tags?.length ? (
           <p className="text-sm text-ink-3">No tags.</p>
         ) : (
-          <ul className="divide-y divide-border">
-            {tags.data.tags.map((t) => (
-              <li
-                key={String(t.id)}
-                className={`flex items-center justify-between ${isCompact ? "py-0.5" : "py-2"}`}
-              >
-                <span className="text-sm">
-                  <span className="text-muted-foreground">#{t.id}</span>{" "}
-                  {tagLabel(t)}
-                </span>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  disabled={busy}
-                  onClick={() =>
-                    arm({
-                      kind: "tag",
-                      id: t.id,
-                      label: tagLabel(t),
-                      token: `DELETE TAG ${t.id}`,
-                    })
-                  }
+          <>
+            {/* library-fix F6b: a typed filter keeps its box after a refetch drops the count to the window. */}
+            {(tagFilter !== "" || tags.data.tags.length > TAG_WINDOW) && (
+              <Input
+                type="search"
+                aria-label="Filter tags"
+                placeholder="Filter tags"
+                value={tagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+                className="mb-2 max-w-sm"
+              />
+            )}
+            <ul className="divide-y divide-border">
+              {shownTags.map((t) => (
+                <li
+                  key={String(t.id)}
+                  className={`flex items-center justify-between ${isCompact ? "py-0.5" : "py-2"}`}
                 >
-                  <Trash2 className="mr-1 h-4 w-4" /> Delete tag
-                </Button>
-              </li>
-            ))}
-          </ul>
+                  <span className="text-sm">
+                    <span className="text-muted-foreground">#{t.id}</span>{" "}
+                    {tagLabel(t)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={busy}
+                    onClick={() =>
+                      arm({
+                        kind: "tag",
+                        id: t.id,
+                        label: tagLabel(t),
+                        token: `DELETE TAG ${t.id}`,
+                      })
+                    }
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" /> Delete tag
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            {matchedTags.length > shownTags.length && (
+              <p className="mt-2 text-xs text-ink-3">
+                Showing {shownTags.length} of {matchedTags.length} tags — filter to find the rest.
+              </p>
+            )}
+          </>
         )}
       </Card>
 
@@ -703,7 +787,8 @@ export function Library() {
             orphans on disk: {orphans.data.orphans?.length ?? 0}
           </p>
         )}
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        {/* library-fix F5: at a 200% text size these labels ran off a 390 px screen. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3 [&>button]:h-auto [&>button]:min-h-10 [&>button]:whitespace-normal">
           <span className="text-sm">NFO sidecars:</span>
           <Button
             variant="outline"
@@ -731,7 +816,11 @@ export function Library() {
             Regen missing NFOs
           </Button>
         </div>
-        {libStats.data?.stats && (
+        {libStats.isError ? (
+          <p className="mt-2 text-xs text-red" role="alert">
+            Couldn’t load library stats: {libStats.error?.message ?? "request failed"}
+          </p>
+        ) : libStats.data?.stats && (
           <p className="mt-2 text-xs text-muted-foreground">
             stats: {Object.keys(libStats.data.stats).length} dimensions loaded
           </p>
@@ -749,7 +838,7 @@ export function Library() {
           />
           <Button
             variant="outline"
-            disabled={busy || parseIds(bulkIds).length === 0}
+            disabled={busy || !bulkOk}
             onClick={() => tagsForMany.mutate({ history_ids: parseIds(bulkIds) })}
           >
             Load row tags
@@ -762,20 +851,20 @@ export function Library() {
           />
           <Button
             variant="outline"
-            disabled={busy || !bulkTag.trim() || parseIds(bulkIds).length === 0}
+            disabled={busy || !bulkTag.trim() || !bulkOk}
             onClick={() =>
-              arm({ kind: "tagAdd", ids: parseIds(bulkIds), tag: bulkTag.trim(), token: "" })
+              arm({ kind: "tagAdd", ids: bulk.ids, tag: bulkTag.trim(), token: "" })
             }
           >
             Add to rows
           </Button>
           <Button
             variant="destructive"
-            disabled={busy || !bulkTag.trim() || parseIds(bulkIds).length === 0}
+            disabled={busy || !bulkTag.trim() || !bulkOk}
             onClick={() =>
               arm({
                 kind: "tagRemove",
-                ids: parseIds(bulkIds),
+                ids: bulk.ids,
                 tag: bulkTag.trim(),
                 token: "",
               })
@@ -784,6 +873,11 @@ export function Library() {
             Remove from rows
           </Button>
         </div>
+        {bulk.rejected.length > 0 && (
+          <p className="mt-2 text-xs text-red" role="alert">
+            Not history ids (fix them first): {bulk.rejected.join(" ")}
+          </p>
+        )}
         {tagsForMany.data?.tags && (
           <p className="mt-2 text-xs text-muted-foreground">
             loaded tags for {Object.keys(tagsForMany.data.tags).length} rows
@@ -830,7 +924,9 @@ export function Library() {
               <p className="mt-1 text-xs text-muted-foreground">
                 {tagRows.isLoading
                   ? "looking…"
-                  : `${tagRows.data?.rows?.length ?? 0} rows tagged "${rowsTag.trim()}"`}
+                  : tagRows.isError
+                    ? `Couldn’t load rows tagged "${rowsTag.trim()}": ${tagRows.error?.message ?? "request failed"}`
+                    : `${tagRows.data?.rows?.length ?? 0} rows tagged "${rowsTag.trim()}"`}
               </p>
             )}
           </div>
@@ -845,9 +941,11 @@ export function Library() {
               <p className="mt-1 text-xs text-muted-foreground">
                 {tagSuggest.isLoading
                   ? "inferring…"
-                  : (tagSuggest.data?.suggested?.length ?? 0) > 0
-                    ? `suggested: ${(tagSuggest.data?.suggested ?? []).join(", ")}`
-                    : "no suggestions"}
+                  : tagSuggest.isError
+                    ? `Couldn’t load suggestions: ${tagSuggest.error?.message ?? "request failed"}`
+                    : (tagSuggest.data?.suggested?.length ?? 0) > 0
+                      ? `suggested: ${(tagSuggest.data?.suggested ?? []).join(", ")}`
+                      : "no suggestions"}
               </p>
             )}
           </div>
@@ -858,6 +956,10 @@ export function Library() {
         <h2 className="section-head">Lowest-scored scenes</h2>
         {sceneBottom.isLoading ? (
           <SkeletonRows count={4} rowClassName="h-7" />
+        ) : sceneBottom.isError ? (
+          <Card className="border-red bg-red-soft p-3 text-sm text-red" role="alert">
+            Couldn’t load scene scores: {sceneBottom.error?.message ?? "request failed"}
+          </Card>
         ) : !sceneBottom.data?.scenes?.length ? (
           <p className="text-sm text-ink-3">No scored scenes.</p>
         ) : (
@@ -966,7 +1068,7 @@ export function Library() {
               <dt className="text-muted-foreground">Path</dt>
               <dd className="break-all">{preview.path || "—"}</dd>
               <dt className="text-muted-foreground">Rating</dt>
-              <dd>{typeof preview.rating === "number" ? preview.rating : "none"}</dd>
+              <dd>{ratingText(preview.rating) || "none"}</dd>
               <dt className="text-muted-foreground">Watched</dt>
               <dd>{preview.watched ? "yes" : "no"}</dd>
               <dt className="text-muted-foreground">Tags</dt>

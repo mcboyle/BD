@@ -48,13 +48,26 @@ interface LoginExtractResult {
   warnings?: string[];
 }
 
+// library-fix F1: a list field the server left out (or sent as null) blanked
+// the whole SPA ("reading 'length'"); read every list through this.
+const listOf = <T,>(v: T[] | null | undefined): T[] => (Array.isArray(v) ? v : []);
+
+// library-fix F7: a disabled Promote said nothing about why; the button now
+// carries this text as its title and points at the row's lint line.
+const blockingReason = (t: TemplateManagerEntry): string =>
+  listOf(t.lint_warnings).find((w) => w.level === "error")?.message ??
+  "unsafe selector — fix before promoting";
+
 function TemplateRow({
   t,
   action,
+  reasonId,
 }: {
   t: TemplateManagerEntry;
   action: React.ReactNode;
+  reasonId?: string;
 }) {
+  const resolutions = listOf(t.resolutions);
   return (
     <Card className="hairline border bg-surface p-3">
       <div className="flex items-start justify-between gap-3">
@@ -82,16 +95,16 @@ function TemplateRow({
             </span>
           </div>
           <div className="mt-1 text-xs text-ink-3">
-            {t.resolutions.length > 0 && (
-              <>Res {t.resolutions.slice(0, 5).join("/")} · </>
+            {resolutions.length > 0 && (
+              <>Res {resolutions.slice(0, 5).join("/")} · </>
             )}
-            {t.selectors.length} selector groups · {t.network_patterns.length}{" "}
+            {listOf(t.selectors).length} selector groups ·{" "}
+            {listOf(t.network_patterns).length}{" "}
             patterns
           </div>
           {t.has_blocking_lint && (
-            <div className="mt-1 text-xs font-medium text-red">
-              {t.lint_warnings.find((w) => w.level === "error")?.message ??
-                "unsafe selector — fix before promoting"}
+            <div id={reasonId} className="mt-1 text-xs font-medium text-red">
+              {blockingReason(t)}
             </div>
           )}
         </div>
@@ -138,12 +151,14 @@ export function TemplateManager() {
   const disableMut = useMutation<TemplateActionResult, Error, string>({
     mutationFn: (file) =>
       apiPost<TemplateActionResult>("/api/template_manager/disable", { file }),
-    onSuccess: (res) => {
-      if (res.ok) toast.success(`Disabled ${res.disabled}`);
+    onSuccess: (res, file) => {
+      // library-fix F9: an ok reply without `disabled` toasted "Disabled undefined".
+      if (res.ok) toast.success(`Disabled ${res.disabled ?? file}`);
       else toast.error(res.error ?? "Disable failed");
-      qc.invalidateQueries({ queryKey: ["template-manager"] });
     },
     onError: (err) => toast.error(`Disable failed: ${err.message}`),
+    // library-fix F9: refetch after a failed POST too (404 = gone elsewhere).
+    onSettled: () => qc.invalidateQueries({ queryKey: ["template-manager"] }),
   });
 
   // Confirm gate — promote/disable mutate live template state, so they are
@@ -160,6 +175,19 @@ export function TemplateManager() {
   const [acceptApi, setAcceptApi] = useState(false);
 
   const busy = promoteMut.isPending || disableMut.isPending;
+
+  // library-fix F1: a 200 body that is not a template list ({"ok":false},
+  // missing or null reviewed/drafts, a bare array) is a failed load, not an
+  // empty one, and must not blank the page.
+  const reviewed = listOf(data?.reviewed);
+  const drafts = listOf(data?.drafts);
+  const badBody =
+    !!data &&
+    (typeof data !== "object" ||
+      data.ok === false ||
+      !Array.isArray(data.reviewed) ||
+      !Array.isArray(data.drafts));
+  const bodyError = (data as { error?: unknown } | undefined)?.error;
 
   function runPending() {
     if (!pending) return;
@@ -214,11 +242,16 @@ export function TemplateManager() {
           <Skeleton className="h-20 w-full" />
           <Skeleton className="h-20 w-full" />
         </div>
-      ) : isError ? (
+      ) : isError || badBody ? (
         // sltm-fix F4: a failed load used to fall through to "Reviewed (0)",
         // which reads as "templates gone".
         <Card className="border-red bg-red-soft p-3 text-sm text-red" role="alert">
-          Couldn’t load templates: {error?.message ?? "request failed"}
+          Couldn’t load templates:{" "}
+          {isError
+            ? error?.message ?? "request failed"
+            : typeof bodyError === "string" && bodyError
+              ? bodyError
+              : "the server sent no template list"}
         </Card>
       ) : (
         <div className="space-y-5">
@@ -233,9 +266,9 @@ export function TemplateManager() {
           </Callout>
           <section className="space-y-2">
             <h2 className="eyebrow">
-              Reviewed ({data?.reviewed.length ?? 0})
+              Reviewed ({reviewed.length})
             </h2>
-            {(data?.reviewed ?? []).map((t) => (
+            {reviewed.map((t) => (
               <TemplateRow
                 key={t.file}
                 t={t}
@@ -261,23 +294,24 @@ export function TemplateManager() {
                 }
               />
             ))}
-            {(data?.reviewed.length ?? 0) === 0 && (
+            {reviewed.length === 0 && (
               <p className="text-xs text-ink-3">No reviewed templates.</p>
             )}
           </section>
 
           <section className="space-y-2">
             <h2 className="eyebrow">
-              Drafts ({data?.drafts.length ?? 0})
+              Drafts ({drafts.length})
             </h2>
             <p className="text-xs text-ink-3">
               Drafts are never auto-enabled. Promoting one with unsafe selectors
               is refused — fix it first.
             </p>
-            {(data?.drafts ?? []).map((t) => (
+            {drafts.map((t, i) => (
               <TemplateRow
                 key={t.file}
                 t={t}
+                reasonId={`promote-blocked-${i}`}
                 action={
                   <Button
                     size="sm"
@@ -291,6 +325,8 @@ export function TemplateManager() {
                       })
                     }
                     disabled={busy || t.has_blocking_lint}
+                    title={t.has_blocking_lint ? `Can't promote: ${blockingReason(t)}` : undefined}
+                    aria-describedby={t.has_blocking_lint ? `promote-blocked-${i}` : undefined}
                     aria-label={`Promote ${t.host ?? t.file}`}
                   >
                     Promote
@@ -298,7 +334,7 @@ export function TemplateManager() {
                 }
               />
             ))}
-            {(data?.drafts.length ?? 0) === 0 && (
+            {drafts.length === 0 && (
               <p className="text-xs text-ink-3">No drafts.</p>
             )}
           </section>
