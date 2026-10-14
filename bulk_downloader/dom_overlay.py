@@ -288,10 +288,14 @@ def hud_payload(capture: Any,
 # The in-page widget. A single IIFE with EXPLICIT statement terminators — the
 # ``;`` separators are load-bearing exactly as in dom_recorder.recorder_script
 # (the vendored bundles are not newline-terminated; ASI must never be relied
-# on). The widget builds a CLOSED Shadow root so it cannot be read or restyled
-# by the page and never appears in the page's own DOM tree (and therefore not
-# in the rrweb DOM capture). It is render-only: no listeners that touch the
-# page, no network, no globals beyond the one mount guard.
+# on). The widget builds a CLOSED Shadow root so the page's own styles do not
+# reach it and its content never appears in the page's DOM tree (and therefore
+# not in the rrweb DOM capture). It is NOT hidden from the page's scripts: it
+# runs in the page's main world and keeps ``window.__bd_hud_box`` (below), so
+# any page script can read the rendered HUD text. Treat everything in the
+# payload as visible to the page; the capture driver therefore hands each page
+# only the actions recorded on that page's own origin. It is render-only: no
+# listeners that touch the page, no network.
 #
 # v3.66.230.x fix: the widget is now SELF-HEALING. The earlier single-mount
 # guard (``if (window.__bd_hud_mounted) return``) keyed on a window global, so
@@ -308,9 +312,10 @@ def hud_payload(capture: Any,
 #     every data refresh, so it showed that frozen empty snapshot forever.
 # Both are fixed by keying on DOM PRESENCE, not a window flag: re-mount whenever
 # the host is missing, and refresh the panel values in place (via a retained
-# ``window.__bd_hud_box`` reference) when it is still there. The Shadow root
-# stays CLOSED, so only the empty ``<div data-bd-hud>`` host marker ever reaches
-# the page DOM / the rrweb capture (WACZ-safe), and the orphan-removal step
+# ``window.__bd_hud_box`` reference) when it is still there. That reference is
+# a page-readable global (see above). The Shadow root stays CLOSED, so only the
+# empty ``<div data-bd-hud>`` host marker ever reaches the page DOM / the rrweb
+# capture (WACZ-safe), and the orphan-removal step
 # guarantees there is never more than one host. The ``;`` separators are
 # load-bearing exactly as before (no ASI reliance).
 _WIDGET_TEMPLATE = (
@@ -463,7 +468,10 @@ def inject_overlay(page, capture: Any,
     CSP**, so the HUD mounts on sites that would refuse an injected ``<script>``.
     The widget builds a CLOSED Shadow root (only an empty host marker reaches the
     page DOM / rrweb capture) and is self-healing (re-mounts whenever the host is
-    missing; refreshes panel values in place when present). It never drives the
+    missing; refreshes panel values in place when present). Main-world scripts
+    can still read what it renders (``window.__bd_hud_box``), so pass only what
+    this page may see: the capture driver scopes ``actions``/``verify`` to the
+    page's origin. It never drives the
     page — the recorder keeps ``add_script_tag`` because it must hook the page's
     own runtime; the HUD does not.
 

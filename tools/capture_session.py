@@ -959,14 +959,21 @@ def run(argv=None) -> int:
                 _inspect_on = False
         _hud_warned = [False]
 
-        def _record_pick(rec):
+        def _record_pick(rec, origin=""):
             # Normalise one pick from EITHER transport — the Playwright binding
             # (live, nav-safe) or the in-page buffer drain (survives cross-origin
             # document swaps where the binding does not) — and append it.
+            # The descriptor is page-written: it is bounded (or the pick dropped)
+            # before it is kept, and tagged with the origin of the tab it came
+            # from so a page's HUD shows only its own origin's clicks.
             # Passive: recording only — must NEVER disturb the capture.
             try:
                 p = _normalize_pick(rec, _click_now)
                 if p is not None:
+                    p = _inspect.clean_pick(p)
+                if p is not None:
+                    if origin:
+                        p["origin"] = origin
                     _picks.append(p)
                     if len(_picks) > 300:
                         del _picks[:-300]
@@ -978,7 +985,12 @@ def run(argv=None) -> int:
             # listener is passive (no preventDefault), so the operator's own
             # click still reaches the site — we only record WHAT they pointed
             # at, stamped on the same clock as network_log so it correlates.
-            _record_pick(rec)
+            try:
+                _pg_src = source.get("page") if isinstance(source, dict) else None
+                _o = _inspect.origin_of(getattr(_pg_src, "url", ""))
+            except Exception:
+                _o = ""
+            _record_pick(rec, _o)
 
         # Row 122: the ChallengeHandler the settle step reached, retained for the
         # held-open pump. None until the settle runs, and None for every capture
@@ -992,6 +1004,8 @@ def run(argv=None) -> int:
             # must never disturb arm/drain or take down the capture.
             _cap = None
             _timeline = []
+            _by_origin = {}
+            _report = None
             _verify = None
             if _hud_on:
                 try:
@@ -1000,7 +1014,8 @@ def run(argv=None) -> int:
                     _cap = None
             if _cap is not None and _inspect_on:
                 try:
-                    _timeline = _inspect.correlate_timeline(_picks, _cap.get("network_log"))
+                    _timeline, _by_origin = _inspect.timeline_by_origin(
+                        _picks, _cap.get("network_log"))
                     # (B) rrweb cross-check: count rrweb MouseInteraction CLICK
                     # events (source==2, data.type==2). Undercount -> 0 -> no
                     # false warning; the listener (A) is the primary resolver.
@@ -1008,9 +1023,12 @@ def run(argv=None) -> int:
                         1 for _e in (_cap.get("dom_log") or [])
                         if isinstance(_e, dict) and _e.get("source") == 2
                         and isinstance(_e.get("data"), dict) and _e["data"].get("type") == 2)
-                    _verify = _inspect.verify_summary(_timeline, _cap, recorded_clicks=_clicks)
+                    _report = _inspect.classify_network_log(_cap)
+                    _verify = _inspect.verify_summary(_timeline, _cap, recorded_clicks=_clicks,
+                                                      report=_report)
                 except Exception:
                     _timeline = []
+                    _by_origin = {}
                     _verify = None
             # C3 (v3.66.290): mirror the live action timeline + verify readout
             # to the SPA the same cross-process way the pick bridge works.
@@ -1026,6 +1044,7 @@ def run(argv=None) -> int:
                          "rec": _inspect_on})
                 except Exception:
                     pass
+            _scoped = {}            # origin -> (actions, verify), this tick
             for _pg in list(wired):
                 try:
                     arm_dom_recorder(_pg)
@@ -1068,14 +1087,32 @@ def run(argv=None) -> int:
                                 "(function(){var a=window.__bd_picks||[];"
                                 "window.__bd_picks=[];return a;})()")
                             if isinstance(_drained, list):
+                                _o = _inspect.origin_of(getattr(_pg, "url", ""))
                                 for _r in _drained:
-                                    _record_pick(_r)
+                                    _record_pick(_r, _o)
                         except Exception:
                             pass
                     try:
+                        # The HUD is rendered in the page's main world, where the
+                        # page can read it: show only this origin's clicks. The
+                        # verify readout lists selectors too, so it is scoped the
+                        # same way (the rrweb click count is capture-wide, so the
+                        # cross-check is kept only when the scope is everything).
+                        _acts, _pg_verify = _timeline, _verify
+                        if _timeline:
+                            _o = _inspect.origin_of(getattr(_pg, "url", ""))
+                            if _o not in _scoped:
+                                _a = _by_origin.get(_o, []) if _o else []
+                                _scoped[_o] = (_a, _verify if len(_a) == len(_timeline)
+                                               else _inspect.verify_summary(
+                                                   _a, _cap, report=_report))
+                            _acts, _pg_verify = _scoped[_o]
+                    except Exception:
+                        _acts, _pg_verify = [], None
+                    try:
                         if not _inject_hud(_pg, _cap if _cap is not None else capture,
-                                           _rec_status(), actions=_timeline,
-                                           verify=_verify, rec=_inspect_on) \
+                                           _rec_status(), actions=_acts,
+                                           verify=_pg_verify, rec=_inspect_on) \
                                 and not _hud_warned[0]:
                             _hud_warned[0] = True
                             sys.stderr.write(

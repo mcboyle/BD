@@ -26,8 +26,10 @@ This module does not drive the page, replay anything, or emit a signed URL.
 
 from __future__ import annotations
 
+import bisect
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from .capture_redact import redact_query, PLACEHOLDER
 from .netlog_classify import (
@@ -67,7 +69,133 @@ _UNSTABLE_ID = re.compile(
     r"|^(?:react|ember|radix|mui|headlessui|:r)[-:]?",  # framework-minted
     re.I,
 )
-_CSS_IDENT = re.compile(r"^[A-Za-z_][\w-]*$")
+# \Z, not $: ``$`` also matches before a trailing newline.
+_CSS_IDENT = re.compile(r"^[A-Za-z_][\w-]*\Z")
+
+# Bounds on a picked-element descriptor. The descriptor is written by the PAGE
+# (the picker runs in its main world and anything there can call the binding or
+# fill ``window.__bd_picks``), and the pump re-resolves every pick each tick, so
+# every field is type-checked and length-capped before any derivation runs.
+_MAX_PICKS = 300            # same cap as capture_session's _picks
+_MAX_TAG = 64
+_MAX_ID = 256
+_MAX_CLASSES = 32
+_MAX_CLASS = 128            # = the _HASHED_CLASS run bound
+_MAX_MAP = 32               # data_attrs / attrs entries
+_MAX_KEY = 64
+_MAX_DATA_VAL = 256
+_MAX_ATTR_VAL = 2048
+_MAX_TEXT = 200
+_MAX_HTML = 4096
+_MAX_ANCESTORS = 3
+
+
+def _capped_str(v: Any, cap: int) -> Optional[str]:
+    """``v`` cut to ``cap`` chars ("" for None); None when it is not a string."""
+    if v is None:
+        return ""
+    return v[:cap] if isinstance(v, str) else None
+
+
+def _clean_map(m: Any, val_cap: int, allow_num: bool) -> Optional[Dict[str, Any]]:
+    if m is None:
+        return {}
+    if not isinstance(m, dict):
+        return None
+    out: Dict[str, Any] = {}
+    for k, v in m.items():
+        if len(out) >= _MAX_MAP:
+            break
+        if not isinstance(k, str) or len(k) > _MAX_KEY:
+            continue
+        if v is None:
+            v = ""
+        if isinstance(v, str):
+            if len(v) > val_cap:
+                continue
+        elif not (allow_num and isinstance(v, (int, float)) and not isinstance(v, bool)):
+            continue
+        out[k] = v
+    return out
+
+
+def _clean_descriptor(desc: Any, depth: int = 0) -> Optional[Dict[str, Any]]:
+    """A bounded, type-checked copy of a picked-element descriptor, or None when
+    a field has the wrong type (the pick is skipped; the other picks are kept).
+    Over-long values are cut (text, outer_html) or dropped (a class token, a
+    data/attr value, an id); lists and maps are capped in length."""
+    if not isinstance(desc, dict):
+        return None
+    tag = _capped_str(desc.get("tag"), 10 ** 9)
+    eid = _capped_str(desc.get("id"), 10 ** 9)
+    text = _capped_str(desc.get("text"), _MAX_TEXT)
+    html = _capped_str(desc.get("outer_html"), _MAX_HTML)
+    if tag is None or eid is None or text is None or html is None:
+        return None
+    classes = desc.get("classes")
+    if classes is None:
+        classes = []
+    if not isinstance(classes, (list, tuple)):
+        return None
+    data = _clean_map(desc.get("data_attrs"), _MAX_DATA_VAL, allow_num=True)
+    attrs = _clean_map(desc.get("attrs"), _MAX_ATTR_VAL, allow_num=False)
+    if data is None or attrs is None:
+        return None
+    out: Dict[str, Any] = {
+        "tag": tag if len(tag) <= _MAX_TAG else "",
+        "id": eid if len(eid) <= _MAX_ID else "",
+        "classes": [c for c in classes[:_MAX_CLASSES * 2]
+                    if isinstance(c, str) and len(c) <= _MAX_CLASS][:_MAX_CLASSES],
+        "data_attrs": data,
+        "attrs": attrs,
+        "text": text,
+        "outer_html": html,
+    }
+    for k in ("nth", "of_type_nth"):
+        v = desc.get(k)
+        out[k] = v if isinstance(v, int) and not isinstance(v, bool) else None
+    if depth == 0:
+        anc = desc.get("ancestors")
+        if anc is None:
+            anc = []
+        if not isinstance(anc, (list, tuple)):
+            return None
+        out["ancestors"] = [a for a in (_clean_descriptor(x, 1) for x in anc[:_MAX_ANCESTORS])
+                            if a is not None]
+    return out
+
+
+def clean_pick(pick: Any) -> Optional[Dict[str, Any]]:
+    """A recorder pick ``{"descriptor", "ts"[, "origin"]}`` with its descriptor
+    bounded by :func:`_clean_descriptor`; None when the pick is malformed."""
+    if not isinstance(pick, dict):
+        return None
+    desc = _clean_descriptor(pick.get("descriptor"))
+    if desc is None:
+        return None
+    out = dict(pick)
+    out["descriptor"] = desc
+    return out
+
+
+def origin_of(url: Any) -> str:
+    """``scheme://host[:port]`` of an http(s) url, lower-cased; "" otherwise.
+    The key the capture driver scopes a page's HUD actions by."""
+    if not isinstance(url, str):
+        return ""
+    try:
+        parts = urlsplit(url.strip())
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return ""
+    scheme = parts.scheme.lower()
+    if scheme not in ("http", "https") or not host:
+        return ""
+    if ":" in host:
+        host = f"[{host}]"
+    if port == {"http": 80, "https": 443}[scheme]:
+        port = None
+    return f"{scheme}://{host}" + (f":{port}" if port is not None else "")
 
 
 def _stable_classes(classes: Any) -> List[str]:
@@ -108,8 +236,9 @@ def build_selector(desc: Dict[str, Any]) -> str:
     own = tag + "".join("." + c for c in _stable_classes(desc.get("classes")))
     if own != tag:  # we have stable classes
         for k, v in (desc.get("data_attrs") or {}).items():
-            if _short_enum(v):
-                own += f'[data-{k}="{v}"]'
+            name = _data_attr_name(k)
+            if name and _short_enum(v):
+                own += f'[data-{name}="{v}"]'
                 break
         return own
 
@@ -119,6 +248,18 @@ def build_selector(desc: Dict[str, Any]) -> str:
     nth = desc.get("nth")
     node = f"{tag}:nth-child({int(nth)})" if isinstance(nth, int) and nth > 0 else tag
     return f"{ctx} > {node}" if ctx else node
+
+
+def _data_attr_name(key: Any) -> Optional[str]:
+    """The ``data-*`` attribute suffix for a picked ``el.dataset`` key. The DOM
+    camelCases the attribute (``data-video-quality`` -> ``videoQuality``), and
+    attribute names are case-insensitive, so the key is turned back into kebab
+    case. None unless the result is a plain CSS identifier: the key is written
+    by the page and lands unquoted in the selector."""
+    if not isinstance(key, str) or len(key) > _MAX_KEY:
+        return None
+    name = re.sub(r"[A-Z]", lambda m: "-" + m.group(0).lower(), key)
+    return name if _CSS_IDENT.match(name) else None
 
 
 def _ancestor_prefix(ancestors: Any, max_levels: int = 2) -> str:
@@ -191,7 +332,10 @@ def role_of(desc: Dict[str, Any]) -> Tuple[str, float]:
 
 
 # Match an attribute pair in a serialized tag: name="value" / name='value'.
-_ATTR_RE = re.compile(r"""(\s)([:\w-]+)\s*=\s*(["'])(.*?)\3""", re.S)
+# A value with no closing quote runs to the end of the input: the picker cuts
+# outerHTML at 600 chars, so a long value (a token in a hidden input) arrives
+# unterminated and must still be redacted, not passed through.
+_ATTR_RE = re.compile(r"""(\s)([:\w-]+)\s*=\s*(["'])(.*?)(?:\3|\Z)""", re.S)
 
 
 def redact_excerpt(html: Optional[str], max_len: int = 400) -> str:
@@ -377,7 +521,8 @@ def build_action_entry(desc: Dict[str, Any],
     """Resolve ONE picked element (manual single-pick) into an action entry:
     selector + XPath + role (structure) and its effect (kinds/counts), excerpt
     redacted. No values cross this boundary."""
-    entry = _entry_from(desc, click_ts, effects_for_click(click_ts, network_log, window_ms))
+    entry = _entry_from(_clean_descriptor(desc) or {}, click_ts,
+                        effects_for_click(click_ts, network_log, window_ms))
     entry["effect"].update(media_attribution(network_log, click_ts, window_ms))
     return entry
 
@@ -393,41 +538,97 @@ def correlate_timeline(picks: Any,
     ``picks`` is the recorder's raw list of ``{"descriptor": {...}, "ts": int}``
     in click order. Returns entries in the same order, each with kinds/counts
     effects. Pure; this is what the capture driver renders and persists.
+
+    Bounded: only the last ``_MAX_PICKS`` well-formed picks are resolved (a
+    malformed one is skipped, see :func:`clean_pick`), and the work is one
+    sorted pass over the log — O((picks + requests) log) — because the capture
+    pump re-runs it every tick.
     """
-    seq = [p for p in (picks or []) if isinstance(p, dict)]
-    seq = sorted(seq, key=lambda p: p.get("ts") if isinstance(p.get("ts"), int) else 0)
-    cts = [p.get("ts") for p in seq]
+    return [e for _, e in _correlate(picks, network_log, window_ms)]
+
+
+def timeline_by_origin(picks: Any,
+                       network_log: Any,
+                       window_ms: int = 2500
+                       ) -> Tuple[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]]:
+    """:func:`correlate_timeline`, plus the same entries grouped by the
+    ``origin`` each pick was recorded on (picks with no origin are in no group).
+    The capture driver shows a page's HUD only its own origin's actions; the
+    entries themselves carry no origin."""
+    pairs = _correlate(picks, network_log, window_ms)
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for p, e in pairs:
+        o = p.get("origin")
+        if isinstance(o, str) and o:
+            groups.setdefault(o, []).append(e)
+    return [e for _, e in pairs], groups
+
+
+def _correlate(picks: Any, network_log: Any,
+               window_ms: int) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    raw = picks if isinstance(picks, (list, tuple)) else []
+    kept: List[Dict[str, Any]] = []
+    for p in reversed(raw):                         # newest first, keep the last N
+        c = clean_pick(p)
+        if c is not None:
+            kept.append(c)
+            if len(kept) >= _MAX_PICKS:
+                break
+    kept.reverse()
+    seq = sorted(kept, key=lambda p: p.get("ts") if isinstance(p.get("ts"), int) else 0)
     nl = [e for e in (network_log or [])
           if isinstance(e, dict) and isinstance(e.get("timestamp"), int)]
 
+    # Latest preceding click wins: the last click (in sorted order) with
+    # ci < ts; it owns the request when ts <= ci + window_ms.
+    clicks = [(p["ts"], i) for i, p in enumerate(seq) if isinstance(p.get("ts"), int)]
+    click_ts = [c for c, _ in clicks]
     buckets: List[List[Dict[str, Any]]] = [[] for _ in seq]
     for e in nl:
         ts = e["timestamp"]
-        for i in range(len(seq) - 1, -1, -1):       # latest preceding click wins
-            ci = cts[i]
-            if isinstance(ci, int) and ci < ts <= ci + window_ms:
-                buckets[i].append(e)
-                break
+        j = bisect.bisect_left(click_ts, ts) - 1
+        if j >= 0 and ts <= click_ts[j] + window_ms:
+            buckets[clicks[j][1]].append(e)
 
-    return [_entry_with_attribution(p, buckets[i], nl, window_ms)
-            for i, p in enumerate(seq)]
+    if not seq:
+        return []
+    media = _MediaIndex(nl)
+    out = []
+    for i, p in enumerate(seq):
+        entry = _entry_from(p["descriptor"], p.get("ts"), _effects_from(buckets[i]))
+        entry["effect"].update(media.attribution(p.get("ts"), window_ms))
+        out.append((p, entry))
+    return out
 
 
-def _entry_with_attribution(pick: Dict[str, Any], bucket: List[Dict[str, Any]],
-                            network_log: List[Dict[str, Any]],
-                            window_ms: int) -> Dict[str, Any]:
-    """Build one timeline entry and merge the REC-3 autoplay attribution
-    (computed against the FULL network log, not just the click's bucket)."""
-    entry = _entry_from(pick.get("descriptor") or {}, pick.get("ts"),
-                        _effects_from(bucket))
-    entry["effect"].update(
-        media_attribution(network_log, pick.get("ts"), window_ms))
-    return entry
+class _MediaIndex:
+    """:func:`media_attribution` for many clicks over one log. A click's
+    ``fresh_download`` holds iff some media url shape is FIRST seen inside
+    ``[click_ts, click_ts + window_ms]`` (seen in the window and not before
+    it), so the first-seen time per shape, sorted, answers it by bisection."""
+
+    def __init__(self, nl: List[Dict[str, Any]]) -> None:
+        first: Dict[str, int] = {}
+        for e in nl:
+            if _is_media_request(e):
+                shape, ts = _media_shape(e.get("url") or ""), e["timestamp"]
+                if shape not in first or ts < first[shape]:
+                    first[shape] = ts
+        self.first_seen = sorted(first.values())
+
+    def attribution(self, click_ts: Any, window_ms: int) -> Dict[str, Any]:
+        if not isinstance(click_ts, int):
+            return {"autoplay": False, "fresh_download": False}
+        fs = self.first_seen
+        k = bisect.bisect_left(fs, click_ts)
+        return {"autoplay": k > 0,
+                "fresh_download": k < len(fs) and fs[k] <= click_ts + window_ms}
 
 
 def verify_summary(action_timeline: Any,
                    capture: Any,
-                   recorded_clicks: Optional[int] = None) -> Dict[str, Any]:
+                   recorded_clicks: Optional[int] = None,
+                   report: Any = None) -> Dict[str, Any]:
     """Finish-time confidence readout for the HUD verify bar. ADVISORY ONLY —
     it never blocks finishing a capture (fail-open-into-review).
 
@@ -440,13 +641,16 @@ def verify_summary(action_timeline: Any,
         mismatch (the (B) cross-check: rrweb saw N interactions, we resolved M).
       * ``trigger_selector`` — the selector of the click whose effect first
         produced a manifest/segment/direct-media (the resolved trigger).
+
+    ``report`` is ``classify_network_log(capture)`` when the caller already has
+    it (several timelines judged against one capture in the same tick).
     """
     tl = action_timeline if isinstance(action_timeline, (list, tuple)) else []
     cap = capture if isinstance(capture, dict) else (
         capture.to_capture_dict() if hasattr(capture, "to_capture_dict") else {})
 
     # Overall tier from the capture's media (independent of the per-click view).
-    rep = classify_network_log(cap)
+    rep = report if report is not None else classify_network_log(cap)
     has_manifest = (len(rep.hls_manifests) + len(rep.dash_manifests)) > 0
     has_seg = len(rep.segments) > 0
     has_direct = any(i.kind == KIND_DIRECT for i in rep.items)
@@ -473,7 +677,9 @@ def verify_summary(action_timeline: Any,
         if not isinstance(e, dict):
             continue
         roles_seen.add(e.get("role"))
-        eff = e.get("effect") or {}
+        eff = e.get("effect")
+        if not isinstance(eff, dict):
+            eff = {}
         if trigger_selector is None and (eff.get("manifest") or eff.get("segments")
                                          or eff.get("direct_media")):
             trigger_selector = e.get("selector")
