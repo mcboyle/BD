@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1862 - train281u: row
+
+T281u-A = train-11 (MAP-1, RULING-pm-A4-A-trainmap-MAP1-2017Z.md; on MAIN 4b3422b4 = train-12 T281w landed (after train-8, train-9); 5 members, BOARDed per O1672/BOARDED-for-integration.md, pins (index tree + PATCH-SHA256) == DONE; cumulative merge-tree on main rc 0). Merge = gh pr merge --auto --merge on green required checks; band post-merge. Whichever merges later re-kits on the earlier merge commit.
+FIX: request-capture-redact-r2-S59-B (HIGH; R249-B) -- bulk_downloader/app.py bulk_downloader/app_dev_config.py bulk_downloader/capture_redact.py bulk_downloader/feature_flags.py bulk_downloader/request_replay.py tests/test_request_capture_redact.py
+FIX: pair-admission-proxy-r2-restack-S112-B -- bulk_downloader/app.py bulk_downloader/app_pair.py bulk_downloader/request_peer.py tests/test_pair_admission_mint_needs_trust.py tests/test_pair_admission_proxy_is_not_loopback.py 
+FIX: dva-trusted-proxies-r1-restack-S112-B -- bulk_downloader/app_auth.py conf/Caddyfile tests/test_dva_trusted_proxies.py 
+FIX: retention-path-dedupe-r3-S90-B -- bulk_downloader/paths.py bulk_downloader/retention.py tests/test_o1826_c42_perf_db_n1_and_ddl.py tests/test_retention_path_dedupe.py tests/test_v3_66_227_retention_preview_verbatim.py 
+FIX: dev-console-lows-r1-restack-S73A -- bulk_downloader/app.py bulk_downloader/app_dev_auth.py bulk_downloader/app_dev_config.py bulk_downloader/app_dev_net.py bulk_downloader/capture_redact.py bulk_downloader/dev_suite/audit_security.py bulk_downloader/dev_suite/config_tools.py bulk_downloader/feature_flags.py bulk_downloader/request_replay.py tests/test_dev_console_lows.py tests/test_request_capture_redact.py  [stacked on rcr r2 tree 41e61e73; delta only]
+
+
 ## v3.66.1861 - train281w: row
 
 T281w-A (train-12, integrator D2-D) on main 7450ba69 (train-9 merged): RESTAGE of train-10 (bd-integrator-B, pool B hard-stopped; ASK-dispatch-A-integrators-train10-2052Z, O3167 item 6) (4 members; product train; legs BOARD per O1672/BOARDED-for-integration.md). rcr r2 + ext-route-anchor r2m deferred: app.py (+5 rcr paths) shared with in-flight train-11 (A) (ORDER-pm-B-landing-5fix-1620Z F3).
