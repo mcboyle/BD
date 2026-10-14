@@ -245,6 +245,11 @@ def api_sites_import():
         cfg_in["name"] = _sanitize_display_name(cfg_in["name"])
     sid = uuid.uuid4().hex[:8]
     cfg = {k: cfg_in.get(k, "") for k in CFG_FIELDS}
+    # plaintext-secret-class F4: like POST /api/sites (api_add), the password
+    # never reaches sites_config.json; it goes to the secrets vault as a
+    # @cred: reference below, or is not stored at all.
+    password = cfg.get("password") or ""
+    cfg["password"] = ""
     cfg.setdefault("name", f"Imported site {len(runners)+1}")
     for k, d in DEFAULTS.items():
         if cfg.get(k) in ("", None):
@@ -262,6 +267,24 @@ def api_sites_import():
     if cfg.get("cookie_file") and Path(cfg["cookie_file"]).exists():
         _new_runner.set_cookies_from_file(cfg["cookie_file"])
     _save_sites_config()
+    cred = {}
+    if password:
+        allowed, _status, errbody = _vault_guard_for_password()
+        if allowed:
+            ok, cred_err = _store_site_password_in_vault(sid, password)
+            if ok:
+                _save_sites_config()
+                s_meta[sid] = _build_meta(s_cfg[sid])
+                cred["cred_stored"] = True
+            else:
+                cred["cred_stored"] = False
+                cred["cred_error"] = cred_err
+        else:
+            cred["cred_stored"] = False
+            if errbody.get("secrets_locked"):
+                cred["secrets_locked"] = True
+            if errbody.get("secrets_plaintext"):
+                cred["secrets_plaintext"] = True
     # Audit the import (same pattern as api_add)
     try:
         from . import audit as _audit
@@ -274,4 +297,4 @@ def api_sites_import():
     except Exception:
         pass
     return jsonify({"ok": True, "id": sid,
-                    "errors": [], "warnings": result["warnings"]})
+                    "errors": [], "warnings": result["warnings"], **cred})
