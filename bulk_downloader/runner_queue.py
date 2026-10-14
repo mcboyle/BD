@@ -44,6 +44,23 @@ _JOB_STATUS_BOOTSTRAP_LOCK = threading.Lock()
 # db_queue_requeue_dead_letter does).
 BULK_RETRY_STATUSES = ("failed", "needs_review", "dead_letter")
 
+# ddr-fix F6: the job statuses a persisted queue row may carry. A row with any
+# other status was never claimed and never cleared; _restore_queue parks it as
+# "failed" (visible, retryable) instead. Local copy: nothing comes from .runner.
+_RESTORABLE_STATUSES = frozenset({
+    "pending", "running", "done", "failed", "error", "stopped", "cancelled",
+    "needs_review", "dead_letter", "skipped_duplicate", "tombstone",
+})
+
+
+def _restored_retries(value):
+    """ddr-fix F6: a NULL/garbage retries column restores as 0, never None
+    (the next failure compared None >= int and raised TypeError)."""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
 
 @contextlib.contextmanager
 def job_status_writer(runner):
@@ -92,20 +109,41 @@ class QueueMixin:
         # operator knows which jobs to keep an eye on (they may have
         # partial files on disk, partial DB state, etc).
         crash_recovered_urls = []
+        try:
+            max_ret = int(self.config.get("max_retries", 2))
+        except (TypeError, ValueError, AttributeError):
+            max_ret = 2
         for r in rows:
             url = r["url"]
             status = r["status"]
+            message = r.get("message","")
+            retries = _restored_retries(r.get("retries"))
             was_running = (status == "running")
             # Reset in-flight states — we can't resume mid-Playwright work
             if was_running:
-                status = "pending"
                 crash_recovered_urls.append(url)
-                queue_upsert(self.site_id, url, status="pending",
-                             message="Restored after restart "
-                                     "— was mid-download at last shutdown")
+                # ddr-fix F5: a crash mid-download is a failed attempt, charged
+                # like _handle_failure charges one, so a URL that kills the
+                # process is not retried forever.
+                if retries >= max_ret:
+                    status = "failed"
+                    message = (f"Failed: mid-download at shutdown with "
+                               f"retries exhausted ({retries}/{max_ret})")
+                else:
+                    status = "pending"
+                    retries += 1
+                    message = ("Restored after restart "
+                               "— was mid-download at last shutdown")
+                queue_upsert(self.site_id, url, status=status,
+                             message=message, retries=retries)
+            elif status not in _RESTORABLE_STATUSES:
+                # ddr-fix F6: unknown status -> visible and retryable.
+                message = f"Restored with unknown status {str(status)[:40]!r}"
+                status = "failed"
+                queue_upsert(self.site_id, url, status=status, message=message)
             self.jobs[url] = {
                 "status": status,
-                "message": r.get("message",""),
+                "message": message,
                 "ts": "",
                 # CUT #31: carry a date-comparable stamp across restarts, or
                 # every job completed before the last restart silently drops
@@ -119,7 +157,7 @@ class QueueMixin:
                 # completed jobs on any non-UTC host.
                 "ts_iso": _utc_iso_to_local_iso(r.get("ts_updated", "") or ""),
                 "priority": r.get("priority","") or "normal",
-                "retries": r.get("retries",0),
+                "retries": retries,
                 "retry_after": r.get("retry_after",0),
                 "screenshot": r.get("screenshot",""),
                 "filename": r.get("filename",""),
@@ -159,11 +197,17 @@ class QueueMixin:
         (q-import-export M2). A NEW job for such a url is created already in
         that status, inside the same transaction, so a cancelled/done row from
         an export never exists as claimable "pending" on its way back in."""
+        if not dedupe:
+            # ddr-fix F12: the job map holds one job per URL, so dedupe=False
+            # cannot be honoured; refuse it rather than ignore it.
+            raise ValueError("load_urls(dedupe=False) is not supported: "
+                             "the queue holds one job per URL")
         restore_status = restore_status or {}
         restored_urls=set()
-        added=dupes=skipped_on_disk=0
+        added=dupes=skipped_on_disk=refused=0
         new_urls=[]
         new_headers={}  # url -> custom headers of a job created by this call
+        created={}  # url -> the job dict this call created (F2 rollback)
         rearmed=[]  # dl95-africancasting-1: stopped jobs re-armed by this add
         # QueueMixin also has lightweight/direct hosts that predate website
         # title capture. Preserve their enqueue contract with an empty metadata
@@ -329,7 +373,8 @@ class QueueMixin:
                                        reason)
                 except Exception as e:
                     self.log.error("content-rights refusal audit failed: %s", e)
-                dupes += 1
+                # ddr-fix F9: a refusal is not a duplicate.
+                refused += 1
                 continue
             pre_done=False
             if folder_scan and existing_files:
@@ -396,6 +441,7 @@ class QueueMixin:
                         self.log.warning(
                             "custom headers for %s cannot be stored and will "
                             "not survive a restart", u)
+                created[u] = self.jobs[u]
                 self.urls.append(u); new_urls.append(u)
                 if pre_done: skipped_on_disk+=1
                 else: added+=1
@@ -419,7 +465,25 @@ class QueueMixin:
                     },
                     custom_headers=new_headers,
                 )
-            except Exception as e: self.log.error("bulk persist failed: %s", e)
+            except Exception as e:
+                self.log.error("bulk persist failed: %s", e)
+                # ddr-fix F2: the jobs are not durable, so this call did not
+                # queue them. Withdraw what it published (a job a worker has
+                # already claimed stays with that worker) and raise, so the
+                # caller cannot report them added and a re-send is not a dupe.
+                withdrawn = set()
+                with self._job_status_writer() as mark_status_changed:
+                    for u in new_urls:
+                        j = self.jobs.get(u)
+                        if j is created[u] and j.get("status") != "running":
+                            del self.jobs[u]
+                            withdrawn.add(u)
+                    if withdrawn:
+                        self.urls[:] = [u for u in self.urls if u not in withdrawn]
+                        mark_status_changed()
+                sys.stderr.write(f"  queue: {len(new_urls)} new URL(s) not persisted "
+                                 f"({type(e).__name__}: {e}); {len(withdrawn)} withdrawn\n")
+                raise
             # Persist restored import statuses, one bulk update per (status, message).
             restored={}
             for u in new_urls:
@@ -449,8 +513,10 @@ class QueueMixin:
         # clear "n URLs imported" entry.
         try:
             self.log_event("import",
-                f"Imported {added} URL(s); {dupes} duplicate(s); {skipped_on_disk} skipped (already on disk)",
-                extra={"added": added, "dupes": dupes, "skipped": skipped_on_disk})
+                f"Imported {added} URL(s); {dupes} duplicate(s); {skipped_on_disk} skipped (already on disk)"
+                + (f"; {refused} refused (content rights)" if refused else ""),
+                extra={"added": added, "dupes": dupes, "skipped": skipped_on_disk,
+                       "refused": refused})
         except Exception as e:
             self.log.debug("import event log failed: %s", e)
         # E1 (v3.66.494): queue intake event through the isolated emit seam.
@@ -465,7 +531,11 @@ class QueueMixin:
                           "ts": _ts()})
             except Exception:
                 pass
-        return added,dupes,skipped_on_disk
+        # F9 (S11): refusals are reported apart from duplicates in the import
+        # event above; slot 1 of the return stays "not queued" (dupes +
+        # refused) because callers unpack exactly three values and existing
+        # rights tests pin a refusal there.
+        return added,dupes+refused,skipped_on_disk
     def reorder_urls(self,ordered):
         with self._lock:
             ex=set(self.urls)
@@ -600,7 +670,8 @@ class QueueMixin:
         try:
             queue_bulk_update(self.site_id, paused, status="stopped",
                               message="Paused by user")
-        except Exception: pass
+        except Exception as e:
+            self._log_queue_persist_failure("bulk_pause", paused, e)
         return n
     def bulk_resume(self, urls):
         """v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
@@ -621,7 +692,8 @@ class QueueMixin:
         try:
             queue_bulk_update(self.site_id, resumed, status="pending",
                               message="Resumed", retries=0, retry_after=0)
-        except Exception: pass
+        except Exception as e:
+            self._log_queue_persist_failure("bulk_resume", resumed, e)
         return n
     def retryable_urls(self, urls):
         """The given URLs whose existing job bulk_retry would re-queue (in
@@ -725,11 +797,14 @@ class QueueMixin:
                        extra={"count": n})
         return n
     def clear_completed(self):
-        """Drop URLs in `done` or `stopped` status from both the in-memory
-        job map and the queue table. History rows (in the separate `history`
-        table) are NOT affected — those persist for audit/reporting."""
+        """Drop URLs in `done` status from both the in-memory job map and the
+        queue table. History rows (in the separate `history` table) are NOT
+        affected — those persist for audit/reporting.
+
+        ddr-fix F1: `stopped` is unfinished work (bulk_pause "Paused by user",
+        Stop's "Stopped"); clearing completed jobs must keep it."""
         with self._job_status_writer() as mark_status_changed:
-            removed=[u for u,j in self.jobs.items() if j["status"] in ("done","stopped")]
+            removed=[u for u,j in self.jobs.items() if j["status"]=="done"]
             # Row 1021: mutate in place -- runner.jobs/urls alias queue_subsystem.jobs/urls.
             for u in removed: del self.jobs[u]
             self.urls[:]=[u for u in self.urls if u not in removed]
@@ -737,7 +812,6 @@ class QueueMixin:
                 mark_status_changed()
         try:
             queue_delete_status(self.site_id,"done")
-            queue_delete_status(self.site_id,"stopped")
         except Exception: pass
     def retry_failed(self):
         """Reset every failed job back to pending so the scheduler picks
@@ -754,7 +828,14 @@ class QueueMixin:
         try:
             queue_bulk_update(self.site_id, retried, status="pending",
                               message="", retries=0, retry_after=0)
-        except Exception: pass
+        except Exception as e:
+            self._log_queue_persist_failure("retry_failed", retried, e)
+    def _log_queue_persist_failure(self, verb, urls, exc):
+        """ddr-fix F7: a bulk verb's queue write failed. Memory already moved,
+        so say so: a restart restores the queue table's old status."""
+        self.log.warning("%s: %d job(s) changed in memory only, queue table "
+                         "not updated (%s: %s); a restart reverts them",
+                         verb, len(urls), type(exc).__name__, exc)
     def retry(self):
         return self.retry_failed()
     def clear(self):
