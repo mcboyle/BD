@@ -6,52 +6,83 @@ the BD URL and seek/scrub like a normal video CDN.
 
 Why not just serve files via Flask's send_file? Two reasons:
 
-  1. Per-request access control (auth token) is easier via this
-     module: each stream URL gets a short-lived signed token, so the
-     operator can share a single video without exposing their whole
-     library.
+  1. Per-request access control is easier via this module: each stream
+     URL carries a short-lived signed token naming ONE history row.
+     The token is a second factor, not a credential on its own: when the
+     app has an auth token configured, /stream/<token> still requires the
+     normal app authentication (session / bearer) and answers 401 without
+     it. The token narrows what an authenticated caller can fetch; it
+     never stands in for authentication.
 
   2. We can rewrite the byte range to the underlying ffmpeg or to a
      transcoded variant if requested — useful if the source is
      2160p HEVC and the phone wants 720p H.264.
 
 Token scheme:
-  • generate_token(history_id, *, ttl_seconds=3600, max_uses=1) →
-    string token like "v1.<history_id>.<expires>.<sig>"
-  • verify_token(token) → {ok, history_id, error}
-  • Tokens are signed with stream_token_secret from global_config.
-    Stateless — no DB writes, no revocation list (just short TTL).
+  • generate_token(history_id, *, ttl_seconds=3600, max_uses=None) →
+    "v1.<history_id>.<expires>.<sig>", or with a use limit
+    "v2.<history_id>.<expires>.<max_uses>.<sig>" (the limit is signed).
+    ttl_seconds must be a positive int and is capped at MAX_TTL_SECONDS.
+  • verify_token(token) → {ok, history_id, expires, error}. Each
+    successful verify of a v2 token consumes one use; past max_uses it
+    answers "use limit reached". Use counts live in this process only, so
+    a restart resets them (the TTL cap still bounds the token).
+  • Tokens are signed with stream_token_secret, persisted in
+    global_config: tokens survive a restart. POST /api/stream/rotate_secret
+    replaces the secret and so revokes every issued token.
 
 Range serving:
   • serve_range(filename, range_header) — yields bytes for a Flask
-    Response. Supports the standard "bytes=START-END" syntax.
+    Response. Supports the standard "bytes=START-END" syntax. The body
+    never exceeds the Content-Length it announces.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
 import os
+import threading
 import time
 from typing import Optional
 
+# Longest lifetime a stream token may be minted with (24 h). Longer requests
+# are clamped, not refused.
+MAX_TTL_SECONDS = 24 * 3600
+# Use limit applied when the caller names none. None = unlimited (playback and
+# every seek re-request the same URL).
+DEFAULT_MAX_USES: Optional[int] = None
+
+# Serialises first-secret provisioning and the use counters.
+_lock = threading.Lock()
+# sig -> [uses_left, expires]; pruned of expired entries on every mint.
+_uses: dict = {}
+
+
+def _configured_secret() -> str:
+    from .global_config import get_config
+    return (get_config() or {}).get("stream_token_secret", "") or ""
+
 
 def _get_secret() -> str:
-    """Retrieve the stream token signing secret. If not configured,
-    auto-generate one (in-memory only; tokens reset on restart)."""
+    """Retrieve the stream token signing secret, persisted in global_config.
+    If none is configured, provision one under _lock (re-read inside the lock
+    so concurrent first mints all sign with the same secret) and persist it."""
     try:
-        from .global_config import get_config, set_config
-        cfg = get_config() or {}
-        sec = cfg.get("stream_token_secret", "") or ""
+        sec = _configured_secret()
         if sec:
             return sec
-        # Auto-provision a random one and persist
-        import secrets
-        sec = secrets.token_urlsafe(32)
-        try:
-            set_config({**cfg, "stream_token_secret": sec})
-        except Exception:
-            pass
-        return sec
+        with _lock:
+            sec = _configured_secret()
+            if sec:
+                return sec
+            import secrets
+            from .global_config import set_config
+            sec = secrets.token_urlsafe(32)
+            try:
+                set_config({"stream_token_secret": sec})
+            except Exception:
+                pass
+            return sec
     except Exception:
         # Last-resort: in-process random (resets on restart, ok for dev)
         if not hasattr(_get_secret, "_fallback"):
@@ -60,41 +91,75 @@ def _get_secret() -> str:
         return _get_secret._fallback  # type: ignore
 
 
+def _sign(secret: str, body: str) -> str:
+    return hmac.new(secret.encode("utf-8"), body.encode("utf-8"),
+                    hashlib.sha256).hexdigest()[:24]
+
+
+def _positive_int(value, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
 def generate_token(history_id: int, *,
-                  ttl_seconds: int = 3600) -> str:
+                  ttl_seconds: int = 3600,
+                  max_uses: Optional[int] = DEFAULT_MAX_USES) -> str:
     """Mint a signed token that grants read access to one history
-    row's file for `ttl_seconds`."""
+    row's file for min(ttl_seconds, MAX_TTL_SECONDS) seconds and, when
+    max_uses is given, for at most max_uses successful verifies.
+    Raises ValueError for a non-positive / non-int ttl_seconds or max_uses."""
+    ttl = min(_positive_int(ttl_seconds, "ttl_seconds"), MAX_TTL_SECONDS)
+    if max_uses is not None:
+        max_uses = _positive_int(max_uses, "max_uses")
     secret = _get_secret()
-    expires = int(time.time() + ttl_seconds)
-    body = f"v1.{int(history_id)}.{expires}"
-    sig = hmac.new(secret.encode("utf-8"), body.encode("utf-8"),
-                   hashlib.sha256).hexdigest()[:24]
+    expires = int(time.time() + ttl)
+    if max_uses is None:
+        body = f"v1.{int(history_id)}.{expires}"
+    else:
+        body = f"v2.{int(history_id)}.{expires}.{max_uses}"
+    sig = _sign(secret, body)
+    if max_uses is not None:
+        now = time.time()
+        with _lock:
+            for k in [k for k, v in _uses.items() if v[1] < now]:
+                del _uses[k]
+            _uses[sig] = [max_uses, expires]
     return f"{body}.{sig}"
 
 
 def verify_token(token: str) -> dict:
-    """Verify a token. Returns {ok, history_id, expires, error}."""
-    if not token or token.count(".") != 3:
-        return {"ok": False, "error": "malformed token"}
-    try:
-        version, hid_str, exp_str, sig = token.split(".")
-    except ValueError:
-        return {"ok": False, "error": "malformed token"}
-    if version != "v1":
+    """Verify a token. Returns {ok, history_id, expires, error}. A
+    successful verify of a use-limited (v2) token consumes one use."""
+    parts = token.split(".") if token else []
+    if len(parts) == 4 and parts[0] == "v1":
+        version, hid_str, exp_str, sig = parts
+        uses_str = None
+    elif len(parts) == 5 and parts[0] == "v2":
+        version, hid_str, exp_str, uses_str, sig = parts
+    elif len(parts) in (4, 5):
         return {"ok": False, "error": "unsupported token version"}
+    else:
+        return {"ok": False, "error": "malformed token"}
     try:
         hid = int(hid_str)
         exp = int(exp_str)
+        max_uses = None if uses_str is None else int(uses_str)
     except ValueError:
         return {"ok": False, "error": "non-numeric fields"}
     if exp < time.time():
         return {"ok": False, "error": "expired", "expires": exp}
     secret = _get_secret()
-    body = f"{version}.{hid_str}.{exp_str}"
-    expected_sig = hmac.new(secret.encode("utf-8"), body.encode("utf-8"),
-                            hashlib.sha256).hexdigest()[:24]
-    if not hmac.compare_digest(expected_sig, sig):
+    body = ".".join(parts[:-1])
+    if not hmac.compare_digest(_sign(secret, body), sig):
         return {"ok": False, "error": "bad signature"}
+    if max_uses is not None:
+        with _lock:
+            left = _uses.setdefault(sig, [max_uses, exp])
+            if left[0] <= 0:
+                return {"ok": False, "error": "use limit reached",
+                        "history_id": hid}
+            left[0] -= 1
     return {"ok": True, "history_id": hid, "expires": exp}
 
 
@@ -149,12 +214,16 @@ def serve_range(filename: str, range_header: str = "",
     # No range or invalid range
     if not range_header:
         def full_stream():
+            # Bounded to the file_size announced in Content-Length: a file
+            # still growing (or appended to) must not send extra bytes.
             with open(filename, "rb") as f:
-                while True:
-                    chunk = f.read(chunk_size)
+                remaining = file_size
+                while remaining > 0:
+                    chunk = f.read(min(chunk_size, remaining))
                     if not chunk:
                         return
                     yield chunk
+                    remaining -= len(chunk)
         return full_stream(), {
             "Content-Length": str(file_size),
             "Content-Type": _mime_for(filename),

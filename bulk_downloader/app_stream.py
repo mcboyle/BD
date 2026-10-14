@@ -30,20 +30,37 @@ def _status_snapshot(*_a, **_k):
 def api_stream_token(hid):
     _check_csrf()
     body = request.json or {}
+    from . import stream_relay as _sr
+    # stream-token F3: ttl_seconds / max_uses must be positive JSON integers;
+    # anything else is the caller's error (400), never an exception echo.
+    ttl = body.get("ttl_seconds", 3600) if isinstance(body, dict) else None
+    max_uses = (body.get("max_uses", _sr.DEFAULT_MAX_USES)
+                if isinstance(body, dict) else None)
+    for name, val in (("ttl_seconds", ttl), ("max_uses", max_uses)):
+        if name == "max_uses" and val is None:
+            continue
+        if isinstance(val, bool) or not isinstance(val, int) or val <= 0:
+            return jsonify({"ok": False,
+                            "error": f"{name} must be a positive integer"}), 400
     try:
         from . import db as _db
-        from . import stream_relay as _sr
         # dsw-fix F2: a token is a read grant for one row's file; never mint
         # one for a row that does not exist.
         with _db.db_conn() as cx:
-            row = cx.execute("SELECT 1 FROM history WHERE id = ?",
+            row = cx.execute("SELECT status FROM history WHERE id = ?",
                              (hid,)).fetchone()
         if row is None:
             return jsonify({"ok": False,
                             "error": f"history row {hid} not found"}), 404
-        token = _sr.generate_token(hid,
-            ttl_seconds=int(body.get("ttl_seconds", 3600)))
-        return jsonify({"ok": True, "token": token, "history_id": hid})
+        # stream-token F12: only a completed download has a whole file to
+        # stream; failed / paused / running rows hold a partial or no file.
+        if row[0] != "done":
+            return jsonify({"ok": False,
+                            "error": f"history row {hid} is not completed"}), 409
+        token = _sr.generate_token(hid, ttl_seconds=ttl, max_uses=max_uses)
+        return jsonify({"ok": True, "token": token, "history_id": hid,
+                        "ttl_seconds": min(ttl, _sr.MAX_TTL_SECONDS),
+                        "max_uses": max_uses})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 @stream_bp.route("/api/stream/rotate_secret", methods=["POST"])
