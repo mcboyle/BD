@@ -37,7 +37,15 @@ Configuration (environment, read fresh per call):
 
 Back-off after the free allowance is ``base * 2 ** (over - 1)`` seconds,
 capped at ``max``, where ``over`` is the count of failures beyond the
-free allowance. A successful verify resets the counter for that label.
+free allowance (the exponent stops at 20, far past any cap, so a long
+flood never overflows the float). A successful verify resets the counter
+for that label. A ``soft`` label (cooldown capped at ``base``) counts only
+the failures of the last ``max`` seconds: older ones drop out.
+
+Callers that verify AFTER asking (``/api/auth/login``) use :func:`reserve` and
+:func:`release` instead of check/record_failure: the check and the count are one
+step under the lock, so a burst of concurrent requests cannot all pass the check
+before any of them has failed, and each label has at most one verify in flight.
 
 State is process-local and uses ``time.monotonic()`` (immune to wall-
 clock changes). A process restart clears it — acceptable, since
@@ -64,7 +72,17 @@ _ENABLED_VALUES = frozenset({"1", "on", "true", "yes"})
 from .lock_monitor import register_monitored_lock
 
 _lock = register_monitored_lock("auth_throttle._lock", threading.Lock())
-_state: dict = {}  # label -> {"fails": int, "until": float (monotonic)}
+_state: dict = {}  # label -> {"fails": int, "until": float, "last": float} (monotonic)
+#                    + "times": the counted failure stamps of a soft label (window)
+#                    + "held": the owner of the attempt in flight, while one is
+# Per-client labels are tuples (app_auth login keys: one per username/address), so
+# a caller can mint them at will. Past this many, the tuple label with the fewest
+# failures (then the least recent) is dropped: a flood of fresh one-failure labels
+# evicts its own kind, never an escalated backoff. Named str labels are never evicted.
+_MAX_CLIENT_LABELS = 4096
+# The back-off exponent stops here: base * 2**20 is past any sane cap, and an
+# unbounded exponent turns a long flood into an OverflowError (dva-auth r3 F4).
+_MAX_EXPONENT = 20
 
 
 def _store_get(key):
@@ -103,7 +121,7 @@ def _cfg() -> tuple[int, float, float]:
     return max(0, free), max(0.0, base), max(0.0, mx)
 
 
-def check(label: str) -> tuple[bool, float]:
+def check(label) -> tuple[bool, float]:
     """Return ``(allowed, retry_after_seconds)``.
 
     ``allowed`` is False while a cooldown is in effect; ``retry_after`` is
@@ -121,21 +139,108 @@ def check(label: str) -> tuple[bool, float]:
         return True, 0.0
 
 
-def record_failure(label: str) -> None:
-    """Record one failed verification. No-op when disabled."""
+def _evict_client_label() -> None:
+    """Drop the fewest-failures, least recent tuple label (caller holds _lock).
+    A label with an attempt in flight is never dropped."""
+    keys = [k for k in _state if isinstance(k, tuple)]
+    if len(keys) >= _MAX_CLIENT_LABELS:
+        idle = [k for k in keys if "held" not in _state[k]]
+        if idle:
+            _state.pop(min(idle, key=lambda k: (_state[k]["fails"], _state[k].get("last", 0.0))))
+
+
+def _count(label, free, base, mx, now, window=None) -> dict:
+    """Add one failure to ``label`` and arm its cooldown (caller holds _lock).
+
+    With ``window`` (soft labels), only the failures of the last ``window``
+    seconds count; at most ``free + 1`` stamps are kept, as more than that
+    cannot change a cooldown already capped at ``mx`` <= ``base``."""
+    if label not in _state and isinstance(label, tuple):
+        _evict_client_label()
+    st = _state.setdefault(label, {"fails": 0, "until": 0.0})
+    if window is None:
+        st["fails"] += 1
+    else:
+        times = [t for t in st.get("times", ()) if now - t < window] + [now]
+        st["times"] = tuple(times[-(free + 1):])
+        st["fails"] = len(st["times"])
+    st["last"] = now
+    over = st["fails"] - free
+    if over > 0:
+        exp = min(over - 1, _MAX_EXPONENT)
+        st["until"] = now + min(base * (_MULTIPLIER ** exp), mx)
+    return st
+
+
+def record_failure(label, soft: bool = False) -> None:
+    """Record one failed verification. No-op when disabled.
+
+    ``soft`` caps this label's cooldown at BD_AUTH_THROTTLE_BASE: a ceiling
+    that slows guesses but never makes the real user wait longer than that.
+    Its failures older than BD_AUTH_THROTTLE_MAX seconds no longer count."""
     if not is_enabled():
         return
     free, base, mx = _cfg()
+    window = mx if soft else None
+    if soft:
+        mx = min(mx, base)
     with _lock:
-        st = _state.setdefault(label, {"fails": 0, "until": 0.0})
-        st["fails"] += 1
-        over = st["fails"] - free
-        if over > 0:
-            cooldown = min(base * (_MULTIPLIER ** (over - 1)), mx)
-            st["until"] = time.monotonic() + cooldown
+        _count(label, free, base, mx, time.monotonic(), window)
 
 
-def record_success(label: str) -> None:
+def reserve(labels, soft=(), owner=True) -> tuple[bool, float]:
+    """Check AND count one attempt on every label, in one lock hold.
+
+    Returns ``(allowed, retry_after)`` like :func:`check`. Refused (nothing
+    counted) while any label is in cooldown or already has an attempt in flight
+    (``retry_after`` >= 1 s then). Allowed: each label has one more failure
+    BEFORE the caller verifies (labels in ``soft`` as ``record_failure(soft=True)``)
+    and is marked in flight by ``owner``. The caller must call :func:`release`
+    with the same ``owner`` in a ``finally``, also when reserve itself raises:
+    an owner that was refused frees nothing. When disabled, always allows and
+    records nothing."""
+    if not is_enabled():
+        return True, 0.0
+    free, base, mx = _cfg()
+    with _lock:
+        now = time.monotonic()
+        for label in labels:
+            st = _state.get(label)
+            if not st:
+                continue
+            remaining = st.get("until", 0.0) - now
+            if remaining > 0 or "held" in st:
+                return False, round(max(remaining, 1.0), 2)
+        for label in labels:
+            if label in soft:
+                st = _count(label, free, base, min(mx, base), now, window=mx)
+            else:
+                st = _count(label, free, base, mx, now)
+            st["held"] = owner
+    return True, 0.0
+
+
+def release(labels, success: bool = False, owner=True) -> None:
+    """End the attempts :func:`reserve` started for ``owner``; another owner's
+    attempt stays in flight. A failure (or an exception in the verify) leaves
+    each attempt counted. On ``success`` every label not in flight for another
+    owner is dropped (as :func:`record_success`), not refunded. Always runs,
+    even when disabled."""
+    with _lock:
+        for label in labels:
+            st = _state.get(label)
+            if not st:
+                continue
+            held = st.get("held")
+            if held is not None and held is not owner:
+                continue
+            if success:
+                _state.pop(label)
+            elif held is not None:
+                del st["held"]
+
+
+def record_success(label) -> None:
     """Clear the failure counter for a label after a successful verify.
 
     Always clears (even when disabled) so toggling the flag at runtime
@@ -144,7 +249,7 @@ def record_success(label: str) -> None:
         _state.pop(label, None)
 
 
-def reset(label: str | None = None) -> None:
+def reset(label=None) -> None:
     """Clear throttle state — all labels, or one. For tests/operators."""
     with _lock:
         if label is None:
