@@ -103,106 +103,106 @@ Schema version: 2
 - L1966 `_load_sites_config` `[private]` — Read sites from disk on startup and instantiate SiteRunners.
 - L2246 `_init_vpn_runtime` `[private]` — Initialize VPN mappings after configured sites have been restored.
 - L2287 `_start_session_keepers` `[private]`
-- L2407 `_heartbeat_to_disk_loop` `[private]`
-- L2447 `_start_watch_folder_threads` `[private]` — Spawn one daemon thread per configured site. The thread's
-- L2532 `_resolved_site_runtime_path` `[private]` — Return the absolute identity of the configured-sites runtime.
-- L2541 `_require_compatible_site_runtime_path` `[private]` — Refuse to bind the process's live runners to a second config file.
-- L2554 `_retire_configured_runtime_runners` `[private]` — Retire every partially loaded runner without losing any handle.
-- L2580 `_retire_configured_runtime_watchers` `[private]` — Signal and prove every configured watch generation quiescent.
-- L2644 `_retire_configured_runtime_dependencies` `[private]` — Quiesce watcher/keeper producers without resetting VPN leaves.
-- L2675 `_retire_configured_runtime_all` `[private]` — Retire all producers, then and only then reset their VPN leaf.
-- L2689 `_clear_configured_runtime_state` `[private]` — Clear a partial load only after every owned generation is dead.
-- L2706 `_activate_configured_runtime_once` `[private]` — Restore configured sites and their dependent services exactly once.
-- L2789 `_resume_sites_running_at_shutdown` `[private]` — Start again every site that was running when the service went down.
-- L2827 `_start_window_scheduler` `[private]`
-- L2896 `_start_storage_tier_scheduler` `[private]`
-- L2919 `_load_app_config` `[private]`
-- L3017 `_save_app_config` `[private]` — Persist global app config. Atomic via .tmp + replace (v3.43.19):
-- L3096 `_start_background_services` `[private]` — Start bg_scheduler + the webhook drain worker. Called from boot_once().
-- L3182 `_routing_config_projection` `[private]` — Return the immutable-by-value inputs used for URL/site scoring.
-- L3193 `_route_urls_internal` `[private]` — Internal helper: same routing logic as /api/route_urls but without
-- L3256 `_saved_search_enqueue_handler` `[private]`
-- L3271 `_score_url_against_sites` `[private]` — v3.43.40: extracted scoring helper used by both routing
-- L3363 `_watcher_loop` `[private]` — Thread body. Polls watch_folder for new .txt files; imports URLs;
-- L3434 `_start_watcher` `[private]` — Idempotent start. Called at explicit boot + whenever app_config
-- L3476 `_stop_watcher` `[private]` — Signal and boundedly prove the process-global watcher generation.
-- L3548 `_explicit_methods_for_path` `[private]` — Methods served by EXPLICIT rules (anything but the serve_spa_root
-- L3566 `_405_with_allow` `[private]`
-- L3574 `_method_not_allowed_parity` `[private]` — Restore pre-flip 404/405 semantics for non-GET requests whose
-- L3607 `serve_spa_root` `GET /; GET /<path:subpath>` — Serve the D3 React SPA from frontend/dist/ at the site root.
-- L3690 `pwa_manifest` `GET /manifest.json`
-- L3706 `pwa_icon_svg` `GET /icon.svg` — Same icon as the favicon — bundled inline so we don't need a static dir.
-- L3819 `pwa_sw` `GET /sw.js`
-- L3839 `_origins_env_locked` `[private]` — A field is env-locked when a BD_<UPPER(field)> env var pins it. Static
-- L3851 `_oi_flagged` `[private]` — Best-effort count of sites whose status looks problematic. Fail-soft:
-- L3877 `_oi_dir_writable` `[private]` — (exists, writable) for a candidate dir — read-only, never creates.
-- L3886 `_oi_default_download_dir` `[private]` — The directory a site downloads into when it names none of its own.
-- L3912 `_chk` `[private]`
-- L4033 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
-- L4068 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
-- L4551 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
-- L4586 `_bd_cookie_dir` `[private]`
-- L4593 `_site_primary_url` `[private]` — Resolve a content URL, retaining an explicit login-first mode.
-- L4691 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
-- L4777 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
-- L4894 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
-- L4907 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
-- L4925 `_m2_latest_login_failed` `[private]` — dl95-vip4k-2: the latest SETTLED login attempt failed and the jar has
-- L4944 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
-- L5008 `_m2_hold_reason` `[private]` — Operator-facing cause of a runner self-hold, or "" when not held.
-- L5026 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
-- L5101 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
-- L5120 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
-- L5147 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
-- L5238 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
-- L5254 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
-- L5296 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
-- L5355 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
-- L5392 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
-- L5522 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
-- L5567 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
-- L5602 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
-- L5627 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
-- L5654 `_cookie_file_cells` `[private]` — (label, account index or None, value) for the site's cookie_file and
-- L5666 `_judge_cookie_file` `[private]` — One cookie_file value -> (ok, error_string).  _validate_path (string,
-- L5694 `_validate_cookie_files` `[private]` — cookie-file-roots (finder R38-B): the ONE cookie_file check, for the
-- L5723 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
-- L5743 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
-- L5840 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
-- L5878 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
-- L5906 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
-- L5956 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
-- L6153 `_gap_fill_builtin_download_template` `[private]` — dl95-xvideos-2b: load-time counterpart of _auto_pick_templates'
-- L6210 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
-- L6246 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
-- L6429 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
-- L6493 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
-- L6633 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
-- L6658 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
-- L6862 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
-- L6875 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
-- L6902 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
-- L6922 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L6955 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
-- L7000 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L7068 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L7210 `serve_ss` `GET /screenshots/<path:filename>`
-- L7519 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7526 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7537 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7552 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7616 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7645 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7653 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7670 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7682 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7705 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7721 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7737 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7754 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7807 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7928 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
-- L7965 `_dev_session_is_paired` `[private]` — True iff the cookie names a live login session minted by pair_redeem.
+- L2411 `_heartbeat_to_disk_loop` `[private]`
+- L2451 `_start_watch_folder_threads` `[private]` — Spawn one daemon thread per configured site. The thread's
+- L2536 `_resolved_site_runtime_path` `[private]` — Return the absolute identity of the configured-sites runtime.
+- L2545 `_require_compatible_site_runtime_path` `[private]` — Refuse to bind the process's live runners to a second config file.
+- L2558 `_retire_configured_runtime_runners` `[private]` — Retire every partially loaded runner without losing any handle.
+- L2584 `_retire_configured_runtime_watchers` `[private]` — Signal and prove every configured watch generation quiescent.
+- L2648 `_retire_configured_runtime_dependencies` `[private]` — Quiesce watcher/keeper producers without resetting VPN leaves.
+- L2679 `_retire_configured_runtime_all` `[private]` — Retire all producers, then and only then reset their VPN leaf.
+- L2693 `_clear_configured_runtime_state` `[private]` — Clear a partial load only after every owned generation is dead.
+- L2710 `_activate_configured_runtime_once` `[private]` — Restore configured sites and their dependent services exactly once.
+- L2793 `_resume_sites_running_at_shutdown` `[private]` — Start again every site that was running when the service went down.
+- L2831 `_start_window_scheduler` `[private]`
+- L2900 `_start_storage_tier_scheduler` `[private]`
+- L2923 `_load_app_config` `[private]`
+- L3021 `_save_app_config` `[private]` — Persist global app config. Atomic via .tmp + replace (v3.43.19):
+- L3100 `_start_background_services` `[private]` — Start bg_scheduler + the webhook drain worker. Called from boot_once().
+- L3186 `_routing_config_projection` `[private]` — Return the immutable-by-value inputs used for URL/site scoring.
+- L3197 `_route_urls_internal` `[private]` — Internal helper: same routing logic as /api/route_urls but without
+- L3260 `_saved_search_enqueue_handler` `[private]`
+- L3275 `_score_url_against_sites` `[private]` — v3.43.40: extracted scoring helper used by both routing
+- L3367 `_watcher_loop` `[private]` — Thread body. Polls watch_folder for new .txt files; imports URLs;
+- L3438 `_start_watcher` `[private]` — Idempotent start. Called at explicit boot + whenever app_config
+- L3480 `_stop_watcher` `[private]` — Signal and boundedly prove the process-global watcher generation.
+- L3552 `_explicit_methods_for_path` `[private]` — Methods served by EXPLICIT rules (anything but the serve_spa_root
+- L3570 `_405_with_allow` `[private]`
+- L3578 `_method_not_allowed_parity` `[private]` — Restore pre-flip 404/405 semantics for non-GET requests whose
+- L3611 `serve_spa_root` `GET /; GET /<path:subpath>` — Serve the D3 React SPA from frontend/dist/ at the site root.
+- L3694 `pwa_manifest` `GET /manifest.json`
+- L3710 `pwa_icon_svg` `GET /icon.svg` — Same icon as the favicon — bundled inline so we don't need a static dir.
+- L3823 `pwa_sw` `GET /sw.js`
+- L3843 `_origins_env_locked` `[private]` — A field is env-locked when a BD_<UPPER(field)> env var pins it. Static
+- L3855 `_oi_flagged` `[private]` — Best-effort count of sites whose status looks problematic. Fail-soft:
+- L3881 `_oi_dir_writable` `[private]` — (exists, writable) for a candidate dir — read-only, never creates.
+- L3890 `_oi_default_download_dir` `[private]` — The directory a site downloads into when it names none of its own.
+- L3916 `_chk` `[private]`
+- L4037 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
+- L4072 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
+- L4555 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
+- L4590 `_bd_cookie_dir` `[private]`
+- L4597 `_site_primary_url` `[private]` — Resolve a content URL, retaining an explicit login-first mode.
+- L4695 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
+- L4781 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
+- L4898 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
+- L4911 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
+- L4929 `_m2_latest_login_failed` `[private]` — dl95-vip4k-2: the latest SETTLED login attempt failed and the jar has
+- L4948 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
+- L5012 `_m2_hold_reason` `[private]` — Operator-facing cause of a runner self-hold, or "" when not held.
+- L5030 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
+- L5105 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
+- L5124 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
+- L5151 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
+- L5242 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
+- L5258 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
+- L5300 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
+- L5359 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
+- L5396 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
+- L5526 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
+- L5571 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
+- L5606 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
+- L5631 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
+- L5658 `_cookie_file_cells` `[private]` — (label, account index or None, value) for the site's cookie_file and
+- L5670 `_judge_cookie_file` `[private]` — One cookie_file value -> (ok, error_string).  _validate_path (string,
+- L5698 `_validate_cookie_files` `[private]` — cookie-file-roots (finder R38-B): the ONE cookie_file check, for the
+- L5727 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
+- L5747 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
+- L5844 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
+- L5882 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
+- L5910 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
+- L5960 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
+- L6157 `_gap_fill_builtin_download_template` `[private]` — dl95-xvideos-2b: load-time counterpart of _auto_pick_templates'
+- L6214 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
+- L6250 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
+- L6433 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
+- L6497 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
+- L6637 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
+- L6662 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
+- L6866 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
+- L6879 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
+- L6906 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
+- L6926 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
+- L6959 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
+- L7004 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L7072 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L7214 `serve_ss` `GET /screenshots/<path:filename>`
+- L7523 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L7530 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7541 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7556 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7620 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7649 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7657 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7674 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7686 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7709 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7725 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7741 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7758 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7811 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7932 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L7969 `_dev_session_is_paired` `[private]` — True iff the cookie names a live login session minted by pair_redeem.
 ```
 
 
@@ -597,35 +597,39 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_queue.py` (26 entries)
+## `bulk_downloader/runner_queue.py` (30 entries)
 
 ```
-- L0056 `_restored_retries` `[private]` — ddr-fix F6: a NULL/garbage retries column restores as 0, never None
-- L0066 `job_status_writer` — Guard an eligibility/completion mutation and invalidate its token.
-- L0096 `QueueMixin` `[class]`
-  - L0097 `QueueMixin._job_status_writer` `[private]`
-  - L0100 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
-  - L0181 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
-  - L0539 `QueueMixin.reorder_urls`
-  - L0551 `QueueMixin.set_priority`
-  - L0561 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0579 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0617 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0650 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0676 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0698 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
-  - L0706 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0728 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0752 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0799 `QueueMixin.clear_completed` — Drop URLs in `done` status from both the in-memory job map and the
-  - L0816 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0833 `QueueMixin._log_queue_persist_failure` `[private]` — ddr-fix F7: a bulk verb's queue write failed. Memory already moved,
-  - L0839 `QueueMixin.retry`
-  - L0841 `QueueMixin.clear`
-  - L0843 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0849 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
-  - L0866 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
-  - L0871 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
+- L0057 `_restored_retries` `[private]` — ddr-fix F6: a NULL/garbage retries column restores as 0, never None
+- L0066 `_is_queueable_url` `[private]` — ddr-fix F8 (RULING adjB 0443Z): only http/https with a non-empty host
+- L0076 `_dedupe_key` `[private]` — ddr-fix F10 (RULING adjB 0443Z): the dedupe KEY is the RFC 3986
+- L0109 `LoadResult` `[class]` — load_urls' (added, dupes, skipped) with the counts that are neither,
+  - L0115 `LoadResult.__new__` `[dunder]`
+- L0123 `job_status_writer` — Guard an eligibility/completion mutation and invalidate its token.
+- L0153 `QueueMixin` `[class]`
+  - L0154 `QueueMixin._job_status_writer` `[private]`
+  - L0157 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
+  - L0238 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
+  - L0666 `QueueMixin.reorder_urls`
+  - L0678 `QueueMixin.set_priority`
+  - L0688 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0706 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0744 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0777 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0803 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0825 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
+  - L0833 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0855 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0879 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0926 `QueueMixin.clear_completed` — Drop URLs in `done` status from both the in-memory job map and the
+  - L0943 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0960 `QueueMixin._log_queue_persist_failure` `[private]` — ddr-fix F7: a bulk verb's queue write failed. Memory already moved,
+  - L0966 `QueueMixin.retry`
+  - L0968 `QueueMixin.clear`
+  - L0970 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0976 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0993 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
+  - L0998 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
 ```
 
 
@@ -718,30 +722,30 @@ Schema version: 2
   - L0823 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
   - L0932 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
   - L0976 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L1196 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L1248 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L1253 `AuthMixin._maybe_start_human_challenge` `[private]` — fx-takeover-plain-browser: a takeover that stands on a Cloudflare
-  - L1305 `AuthMixin._human_challenge_wait` `[private]`
-  - L1364 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L1391 `AuthMixin.is_awaiting_manual_login`
-  - L1393 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
-  - L1408 `AuthMixin._bare_403_login_wall` `[private]` — True when the whole visible page is a bare 403/denied error (every
-  - L1419 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L1487 `AuthMixin._auth_verdict` `[private]` — fx-auth-expired-evidence (O1567): an 'auth' verdict names the
-  - L1517 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
-  - L1536 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1657 `AuthMixin._hold_for_parked_takeover` `[private]` — O1567 fx-worker-relogin-no-manual: while a manual takeover is
-  - L1672 `AuthMixin._relogin_abort_reason` `[private]` — dl95-cancel-relogin-1: why an in-flight re-login is no longer
-  - L1682 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1690 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1755 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
-  - L1810 `AuthMixin._stored_session_usable` `[private]` — Stored cookies that can still carry a session: some unexpired,
-  - L1823 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
-  - L1842 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+  - L1210 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L1262 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L1267 `AuthMixin._maybe_start_human_challenge` `[private]` — fx-takeover-plain-browser: a takeover that stands on a Cloudflare
+  - L1319 `AuthMixin._human_challenge_wait` `[private]`
+  - L1378 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L1405 `AuthMixin.is_awaiting_manual_login`
+  - L1407 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
+  - L1422 `AuthMixin._bare_403_login_wall` `[private]` — True when the whole visible page is a bare 403/denied error (every
+  - L1433 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1501 `AuthMixin._auth_verdict` `[private]` — fx-auth-expired-evidence (O1567): an 'auth' verdict names the
+  - L1531 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
+  - L1550 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1671 `AuthMixin._hold_for_parked_takeover` `[private]` — O1567 fx-worker-relogin-no-manual: while a manual takeover is
+  - L1686 `AuthMixin._relogin_abort_reason` `[private]` — dl95-cancel-relogin-1: why an in-flight re-login is no longer
+  - L1696 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1704 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1769 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1824 `AuthMixin._stored_session_usable` `[private]` — Stored cookies that can still carry a session: some unexpired,
+  - L1837 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
+  - L1856 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
-## `bulk_downloader/runner_transport.py` (123 entries)
+## `bulk_downloader/runner_transport.py` (124 entries)
 
 ```
 - L0081 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
@@ -775,98 +779,99 @@ Schema version: 2
 - L0625 `_history_pages_naming` `[private]` — Page urls of this site's download history that carry an id token the
 - L0651 `_media_for_log` `[private]` — Scheme, host and path only: a signed query is a credential.
 - L0670 `_content_range_complete_length` `[private]` — Complete length N from a 416's ``Content-Range: bytes */N``, else None.
-- L0718 `_content_length` `[private]` — Content-Length as an int (missing -> 0). bughunt ddt-fix F4: curl_cffi
-- L0734 `_is_transient_download_error` `[private]` — Whether `exc` (an `_HTTPDownloadFailed`, wrapping the original
-- L0751 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
-  - L0754 `_ParallelDailyByteAccounting.__init__` `[dunder]`
-  - L0760 `_ParallelDailyByteAccounting.add`
-  - L0764 `_ParallelDailyByteAccounting.flush`
-  - L0768 `_ParallelDailyByteAccounting.worker_finished`
-- L0855 `_reveal_trigger_for` `[private]` — `loc` when it is a visible bare Download button/role=button with no
-- L0901 `_reveal_scope_id` `[private]` — GEN 3 (lens B16-B F4): the id of the hidden element a fragment
-- L0913 `_inside_element_id` `[private]` — Whether `loc` sits inside the element with id `element_id`.
-- L0923 `_visible_anchor_keys` `[private]` — (href, text) of every visible anchor (or, G9b, of every visible
-- L0937 `_collect_download_options` `[private]` — Candidate option dicts from visible anchors (shared by the dropdown
-- L0981 `_dropdown_visible` `[private]`
-- L0988 `_dropdown_menu_has_links` `[private]`
-- L0995 `_dropdown_toggle_for` `[private]` — The toggle that opens the menu `loc` belongs to, or None.
-- L1054 `_same_element` `[private]` — Whether two locators resolve to one DOM node (the toggle is never one
-- L1065 `_open_dropdown_download_options` `[private]` — Open the dropdown behind a score-0 winner and choose a menu item.
-- L1145 `_open_reveal_download_options` `[private]` — G20: click a bare Download button and pick among the anchors that
-- L1297 `_unguard_reveal` `[private]`
-- L1318 `_reveal_trigger_is_the_download` `[private]` — GEN 4/5: the pre-click navigated a frame or popup (aborted, never
-- L1339 `_pick_download_option` `[private]` — Choose by quality preference; video items before image/zip items.
-- L1385 `_note_diverted_promote` `[private]`
-- L1390 `_take_diverted_promote` `[private]` — The path this job's bytes were actually promoted to; ``final_path`` if not diverted.
-- L1396 `_staged_direct_download` `[private]` — dl95-cumlouder-1: stage a direct download under a claimed ``.part``.
-- L1432 `_progress_rate` `[private]` — Bytes/s over the current ~1 Hz progress window. Both transfer loops start
-- L1444 `_egress_refusal` `[private]` — The exception that refuses an egress for this site. Every caller of
-- L1454 `_proxy_pool_pick` `[private]` — A member of the site's ``proxy_pool``, or None when no pool is set.
-- L1477 `_note_proxy_pool_result` `[private]` — Feed one outcome of a pool member to the pool's health record.
-- L1490 `TransportMixin` `[class]`
-  - L1491 `TransportMixin._regional_gateway_router` `[private]` — Return this runner's regional policy router, if configured.
-  - L1509 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
-  - L1533 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
-  - L1544 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
-  - L1561 `TransportMixin._start_daily_byte_accumulator` `[private]`
-  - L1570 `TransportMixin._finish_daily_byte_accumulator` `[private]`
-  - L1579 `TransportMixin._browser_download_stopped` `[private]` — dl95-porndig-3 (filthykings-1 split): Playwright's save_as blocks
-  - L1608 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
-  - L1628 `TransportMixin._flush_after_interrupted_write` `[private]`
-  - L1636 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process clients -- the one
-  - L1716 `TransportMixin._site_client_egress` `[private]` — Egress for a small in-process HTTP client built on this site's behalf.
-  - L1751 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
-  - L1864 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L2049 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L2252 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L2285 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
-  - L2308 `TransportMixin._winner_href_routes` `[private]` — True when the winner's own URL is a media file or a manifest.
-  - L2331 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
-  - L2365 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
-  - L2374 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
-  - L2383 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
-  - L2408 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L2417 `TransportMixin._header_dedup_bytes` `[private]` — Prefix length the header-stage dedup samples; 0 = gate off
-  - L2439 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
-  - L2490 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L2525 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L2668 `TransportMixin._download_from_next_tier` `[private]` — dl95-teenmegaworld-1: the winning tier was clicked and fired no
-  - L2719 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
-  - L2775 `TransportMixin._clear_late_gates` `[private]` — dl95-porndoe-1-live-2: interstitial.clear_gates for a layer that
-  - L2790 `TransportMixin._fallback_to_page_media` `[private]` — dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
-  - L2854 `TransportMixin._is_page_body` `[private]` — fx-txxx-premium-page-fallback: True when the saved bytes open as a
-  - L2871 `TransportMixin._direct_page_body_refused` `[private]` — fx-txxx-premium-page-fallback E2 (lens C2-C): True when a finished
-  - L2897 `TransportMixin._html_answer_rejects` `[private]` — fx-txxx-premium-page-fallback: True when the saved file is an HTML
-  - L2935 `TransportMixin._below_min_resolution_by_file` `[private]` — dl95-xnxx-1: the pre-click min_resolution gate (runner "Min-resolution
-  - L2994 `TransportMixin._taller_manifest_seen` `[private]` — fx-xnxx-hls-720-to-sd r3: True when the manifest watcher saw an adaptive
-  - L3009 `TransportMixin._file_below_own_media` `[private]` — fx-xnxx-hls-720-to-sd: see ``_below_min_resolution_by_file``. Only the
-  - L3035 `TransportMixin._browser_save_stopped` `[private]` — dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
-  - L3047 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L4288 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
-  - L4363 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
-  - L4411 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L5078 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L5128 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L5539 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L5572 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L5596 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
-  - L5621 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
-  - L5647 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
-  - L5667 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
-  - L5691 `TransportMixin._probe_video_height` `[private]` — ffprobe the pixel height of the primary video stream (``"v:0"``).
-  - L5716 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
-  - L5733 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
-  - L5750 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
-- L5765 `_ManifestConsumers` `[private]`
-  - L5766 `_ManifestConsumers.__init__` `[dunder]`
-  - L5769 `_ManifestConsumers.join`
-- L5776 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
-- L5824 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
-  - L5834 `HTTP3Transport.__init__` `[dunder]`
-  - L5842 `HTTP3Transport.allocate_stream_id`
-  - L5847 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
-- L5870 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
-- L5883 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
+- L0718 `_download_error_vetoed` `[private]` — Whether `exc` is a stop signal or a rate limit: never retried on the
+- L0727 `_content_length` `[private]` — Content-Length as an int (missing -> 0). bughunt ddt-fix F4: curl_cffi
+- L0743 `_is_transient_download_error` `[private]` — Whether `exc` (an `_HTTPDownloadFailed`, wrapping the original
+- L0759 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
+  - L0762 `_ParallelDailyByteAccounting.__init__` `[dunder]`
+  - L0768 `_ParallelDailyByteAccounting.add`
+  - L0772 `_ParallelDailyByteAccounting.flush`
+  - L0776 `_ParallelDailyByteAccounting.worker_finished`
+- L0863 `_reveal_trigger_for` `[private]` — `loc` when it is a visible bare Download button/role=button with no
+- L0909 `_reveal_scope_id` `[private]` — GEN 3 (lens B16-B F4): the id of the hidden element a fragment
+- L0921 `_inside_element_id` `[private]` — Whether `loc` sits inside the element with id `element_id`.
+- L0931 `_visible_anchor_keys` `[private]` — (href, text) of every visible anchor (or, G9b, of every visible
+- L0945 `_collect_download_options` `[private]` — Candidate option dicts from visible anchors (shared by the dropdown
+- L0989 `_dropdown_visible` `[private]`
+- L0996 `_dropdown_menu_has_links` `[private]`
+- L1003 `_dropdown_toggle_for` `[private]` — The toggle that opens the menu `loc` belongs to, or None.
+- L1062 `_same_element` `[private]` — Whether two locators resolve to one DOM node (the toggle is never one
+- L1073 `_open_dropdown_download_options` `[private]` — Open the dropdown behind a score-0 winner and choose a menu item.
+- L1153 `_open_reveal_download_options` `[private]` — G20: click a bare Download button and pick among the anchors that
+- L1305 `_unguard_reveal` `[private]`
+- L1326 `_reveal_trigger_is_the_download` `[private]` — GEN 4/5: the pre-click navigated a frame or popup (aborted, never
+- L1347 `_pick_download_option` `[private]` — Choose by quality preference; video items before image/zip items.
+- L1393 `_note_diverted_promote` `[private]`
+- L1398 `_take_diverted_promote` `[private]` — The path this job's bytes were actually promoted to; ``final_path`` if not diverted.
+- L1404 `_staged_direct_download` `[private]` — dl95-cumlouder-1: stage a direct download under a claimed ``.part``.
+- L1440 `_progress_rate` `[private]` — Bytes/s over the current ~1 Hz progress window. Both transfer loops start
+- L1452 `_egress_refusal` `[private]` — The exception that refuses an egress for this site. Every caller of
+- L1462 `_proxy_pool_pick` `[private]` — A member of the site's ``proxy_pool``, or None when no pool is set.
+- L1485 `_note_proxy_pool_result` `[private]` — Feed one outcome of a pool member to the pool's health record.
+- L1498 `TransportMixin` `[class]`
+  - L1499 `TransportMixin._regional_gateway_router` `[private]` — Return this runner's regional policy router, if configured.
+  - L1517 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
+  - L1541 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
+  - L1552 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
+  - L1569 `TransportMixin._start_daily_byte_accumulator` `[private]`
+  - L1578 `TransportMixin._finish_daily_byte_accumulator` `[private]`
+  - L1587 `TransportMixin._browser_download_stopped` `[private]` — dl95-porndig-3 (filthykings-1 split): Playwright's save_as blocks
+  - L1616 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
+  - L1636 `TransportMixin._flush_after_interrupted_write` `[private]`
+  - L1644 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process clients -- the one
+  - L1724 `TransportMixin._site_client_egress` `[private]` — Egress for a small in-process HTTP client built on this site's behalf.
+  - L1759 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
+  - L1872 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L2057 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L2260 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L2293 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
+  - L2316 `TransportMixin._winner_href_routes` `[private]` — True when the winner's own URL is a media file or a manifest.
+  - L2339 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
+  - L2373 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
+  - L2382 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
+  - L2391 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
+  - L2416 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L2425 `TransportMixin._header_dedup_bytes` `[private]` — Prefix length the header-stage dedup samples; 0 = gate off
+  - L2447 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
+  - L2498 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L2533 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L2676 `TransportMixin._download_from_next_tier` `[private]` — dl95-teenmegaworld-1: the winning tier was clicked and fired no
+  - L2727 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
+  - L2783 `TransportMixin._clear_late_gates` `[private]` — dl95-porndoe-1-live-2: interstitial.clear_gates for a layer that
+  - L2798 `TransportMixin._fallback_to_page_media` `[private]` — dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
+  - L2862 `TransportMixin._is_page_body` `[private]` — fx-txxx-premium-page-fallback: True when the saved bytes open as a
+  - L2879 `TransportMixin._direct_page_body_refused` `[private]` — fx-txxx-premium-page-fallback E2 (lens C2-C): True when a finished
+  - L2905 `TransportMixin._html_answer_rejects` `[private]` — fx-txxx-premium-page-fallback: True when the saved file is an HTML
+  - L2943 `TransportMixin._below_min_resolution_by_file` `[private]` — dl95-xnxx-1: the pre-click min_resolution gate (runner "Min-resolution
+  - L3002 `TransportMixin._taller_manifest_seen` `[private]` — fx-xnxx-hls-720-to-sd r3: True when the manifest watcher saw an adaptive
+  - L3017 `TransportMixin._file_below_own_media` `[private]` — fx-xnxx-hls-720-to-sd: see ``_below_min_resolution_by_file``. Only the
+  - L3043 `TransportMixin._browser_save_stopped` `[private]` — dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
+  - L3055 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L4296 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
+  - L4371 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
+  - L4420 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L5087 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L5137 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L5548 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L5581 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L5605 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L5630 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
+  - L5656 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
+  - L5676 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
+  - L5700 `TransportMixin._probe_video_height` `[private]` — ffprobe the pixel height of the primary video stream (``"v:0"``).
+  - L5725 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
+  - L5742 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
+  - L5759 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
+- L5774 `_ManifestConsumers` `[private]`
+  - L5775 `_ManifestConsumers.__init__` `[dunder]`
+  - L5778 `_ManifestConsumers.join`
+- L5785 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
+- L5833 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
+  - L5843 `HTTP3Transport.__init__` `[dunder]`
+  - L5851 `HTTP3Transport.allocate_stream_id`
+  - L5856 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
+- L5879 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
+- L5892 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
 ```
 
 
@@ -1183,4 +1188,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 1007 across 22 files._
+_Total entries: 1012 across 22 files._
