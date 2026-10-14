@@ -2734,15 +2734,24 @@ _start_storage_tier_scheduler()
 # Phase 6.4: load global concurrency cap. Stored separately from per-site
 # config in `app_config.json` so user-tunable settings survive restart.
 APP_CFG_FILE = Path("app_config.json")
+# dss-token-rotate F1: app_config.json as this process last read or wrote it.
+# _save_app_config uses it to tell a key app.py changed from a key another writer
+# changed on disk while _app_cfg still holds the old value (a rotated auth_token).
+_APP_CFG_DISK_SEEN: dict = {}
 def _load_app_config():
     from . import log as _log
     _llog = _log.get_logger(__name__)
     first_run = not APP_CFG_FILE.exists()
+    # dss-token-rotate r2: every load starts the snapshot from THIS file. Cleared only
+    # when a file existed, a load with no file kept the last file's snapshot, and that
+    # stale value made an explicit write (path_allowlist []) yield to disk.
+    _APP_CFG_DISK_SEEN.clear()
     if APP_CFG_FILE.exists():
         try:
             # v3.43.16: explicit UTF-8 encoding (consistency with sites_config).
             data=json.loads(APP_CFG_FILE.read_text(encoding="utf-8"))
             _app_cfg.update(data)
+            _APP_CFG_DISK_SEEN.update(data)
         except Exception as e:
             _llog.error("app_config.json malformed: %s", e)
     # ── v3.47.8 (#80): path allowlist auto-populate on first run ────────
@@ -2849,16 +2858,31 @@ def _save_app_config():
             # keys it manages, foreign keys survive. That is set_config's own
             # merge direction, so the two writers now agree.
             merged: dict = {}
+            _disk = {}
             try:
                 if APP_CFG_FILE.exists():
                     _disk = json.loads(APP_CFG_FILE.read_text(encoding="utf-8"))
                     if isinstance(_disk, dict):
                         merged.update(_disk)
+                    else:
+                        _disk = {}
             except Exception:
                 # An unreadable or malformed file is not a reason to refuse to
                 # save; fall back to writing what we hold rather than losing it.
                 merged = {}
-            merged.update(_app_cfg)
+                _disk = {}
+            # dss-token-rotate F1: a key another writer changed on disk since we
+            # last saw it, while _app_cfg still holds the value we saw, is that
+            # writer's value, not ours to put back (rotate_token.py rotates
+            # auth_token on disk and the app enforces it at once). Disk wins for
+            # it and _app_cfg catches up; every key app.py changed still wins.
+            for _k, _v in list(_app_cfg.items()):
+                if (_k in _disk and _k in _APP_CFG_DISK_SEEN
+                        and _disk[_k] != _APP_CFG_DISK_SEEN[_k]
+                        and _v == _APP_CFG_DISK_SEEN[_k]):
+                    _app_cfg[_k] = _disk[_k]
+                else:
+                    merged[_k] = _v
             tmp = APP_CFG_FILE.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False),
                            encoding="utf-8")
@@ -2868,6 +2892,8 @@ def _save_app_config():
             # back to the process umask (measured: 0644).
             _os.chmod(tmp, 0o600)
             tmp.replace(APP_CFG_FILE)
+            _APP_CFG_DISK_SEEN.clear()
+            _APP_CFG_DISK_SEEN.update(merged)
     except Exception as e:
         from . import log as _log
         _log.get_logger(__name__).error("app_config save failed: %s", e)

@@ -88,6 +88,23 @@ def main(argv=None) -> int:
               file=sys.stderr)
         print(file=sys.stderr)
 
+    # dss-token-rotate F3: read-modify-replace inside the app's own app_config
+    # transaction (thread lock + flock on the sibling .lock file), so a settings
+    # save in the running app cannot land between our read and our replace.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from pathlib import Path
+    from bulk_downloader.global_config import app_config_transaction
+
+    try:
+        with app_config_transaction(Path(args.config)):
+            return _rotate(args, new_token)
+    except OSError as e:
+        print(f"  ERROR: can't lock {args.config}: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        return 1
+
+
+def _rotate(args, new_token: str) -> int:
     # Load existing config (preserve every other key)
     config: dict = {}
     if os.path.exists(args.config):
