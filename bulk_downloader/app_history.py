@@ -13,10 +13,39 @@ from .db import db_vacuum
 
 history_bp = Blueprint("history", __name__)
 
+# O1789 hl-history-search F5: the largest page one request may ask for. An
+# unbounded limit returned the whole table, and >= 2**63 crashed SQLite binding.
+_HISTORY_LIMIT_MAX = 1000
+_SQLITE_INT_MAX = 2 ** 63 - 1
+
+
+def _prune_days(body):
+    """F6: whole, non-negative days, or None. A bool, null, text, fraction,
+    NaN/Infinity or negative value is refused instead of crashing (500) or
+    being silently coerced (true -> 1, 3.9 -> 3, -5 -> a NULL cutoff)."""
+    if not isinstance(body, dict):
+        return None
+    v = body.get("days", 90)
+    if isinstance(v, str) and v.strip().isascii() and v.strip().isdigit():
+        v = int(v.strip())
+    elif isinstance(v, float) and v.is_integer():
+        v = int(v)
+    if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= _SQLITE_INT_MAX:
+        return None
+    return v
+
 
 @history_bp.route("/api/history/prune",methods=["POST"])
 def api_prune():
-    days=int((request.json or {}).get("days",90))
+    # r2 (cx158 F1): a missing, malformed or non-object body is refused before
+    # anything is deleted -- never read as {} (which would prune 90 days).
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
+    days = _prune_days(body)
+    if days is None:
+        return jsonify({"ok": False,
+                        "error": "days must be a whole number >= 0"}), 400
     deleted=db_prune(days)
     return jsonify({"ok":True,"deleted":deleted,"days":days})
 @history_bp.route("/api/history/vacuum",methods=["POST"])
@@ -40,12 +69,16 @@ def api_history():
         return jsonify({"error": "limit must be a positive integer"}), 400
     if limit < 1:
         return jsonify({"error": "limit must be a positive integer"}), 400
+    limit = min(limit, _HISTORY_LIMIT_MAX)
     if cursor is not None or paginate:
         from .db import db_search_cursor
-        try:
-            after_id = int(cursor) if cursor not in (None, "") else None
-        except (TypeError, ValueError):
-            after_id = None
+        # F7: a cursor is a history id handed out as next_cursor. Anything
+        # else is refused (as library browse does) -- never a silent first page.
+        after_id = None
+        if cursor not in (None, ""):
+            if not (cursor.isascii() and cursor.isdigit()) or int(cursor) > _SQLITE_INT_MAX:
+                return jsonify({"error": "cursor_invalid"}), 400
+            after_id = int(cursor)
         rows, next_cursor = db_search_cursor(
             site_id=site_id, status=status, query=query,
             after_id=after_id, limit=limit)

@@ -50,7 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
-from .db import db_conn
+from .db import db_conn, like_contains
 
 log = logging.getLogger(__name__)
 
@@ -426,8 +426,9 @@ def library_browse(*, site_id: Optional[str] = None,
         wheres.append("l.watched=0")
     if query:
         wheres.append(
-            "(l.title LIKE ? OR l.file_path LIKE ? OR l.notes LIKE ?)")
-        q = f"%{query}%"
+            "(l.title LIKE ? ESCAPE '\\' OR l.file_path LIKE ? ESCAPE '\\'"
+            " OR l.notes LIKE ? ESCAPE '\\')")
+        q = like_contains(query)
         params.extend([q, q, q])
     # Whitelist sort keys — never f-string user input.
     # sort -> (column, column ascending?, id tiebreak ascending?)
