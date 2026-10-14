@@ -94,15 +94,21 @@ def _write_config_via_the_app(tmp_path, sites):
 
 def test_census_reads_the_shape_the_app_actually_writes(tmp_path):
     """RED against a ``.get("sites", {})`` reader: it returns {} here."""
+    # cookie-file-roots r2: the app's writer refuses a NEW download_dir outside
+    # the path allowlist, so the fixture names one inside it (any absolute
+    # path when no allowlist is configured).
+    from bulk_downloader import app as bd_app
+    roots = bd_app._app_cfg.get("path_allowlist") or ["/some"]
+    download_dir = str(Path(roots[0]) / "where")
     target = _write_config_via_the_app(
-        tmp_path, {"s1": {"name": "wow", "download_dir": "/some/where"}})
+        tmp_path, {"s1": {"name": "wow", "download_dir": download_dir}})
 
     sites, ignored = cen.load_sites(str(target))
 
     assert set(sites) == {"s1"}, (
         f"the census did not find the site the app wrote: {sites!r}. The file "
         f"is a flat {{site_id: cfg}} mapping, not {{'sites': ...}}")
-    assert sites["s1"].get("download_dir") == "/some/where"
+    assert sites["s1"].get("download_dir") == download_dir
     assert ignored == []
 
 

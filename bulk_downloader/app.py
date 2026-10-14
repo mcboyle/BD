@@ -6,7 +6,7 @@ import json, os, re, sys, time, uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, g, request, jsonify, Response, send_file, stream_with_context
+from flask import Flask, g, has_request_context, request, jsonify, Response, send_file, stream_with_context
 
 from .constants import SCREENSHOTS_DIR
 
@@ -567,6 +567,17 @@ def _on_internal_error(e):
     if request.path.startswith("/api/"):
         return _json_error(500, "internal server error")
     return e
+
+class SitesConfigRefused(ValueError):
+    """cookie-file-roots r2: the sites-config writer refused to persist a
+    cookie_file (see _save_sites_config).  Raised to a request only; the
+    handler below answers 400."""
+
+
+@app.errorhandler(SitesConfigRefused)
+def _on_sites_config_refused(e):
+    return jsonify({"ok": False, "error": str(e)}), 400
+
 
 from .dev_metrics import RequestBudgetExceeded as _RequestBudgetExceeded
 
@@ -1720,6 +1731,7 @@ def _save_sites_config():
     # a fresh snapshot after any mutation that caused it to wait.
     _sites_config_save_lock.acquire()
     saved = False
+    _refusal = None
     try:
         # Compute default cookie dir from BD_HOME or current working dir.
         # We resolve lazily on each save so a BD_HOME change picks up
@@ -1761,6 +1773,17 @@ def _save_sites_config():
                 for _k in [k for k in _entry if isinstance(k, str)
                            and k.startswith("_")]:
                     _entry.pop(_k, None)
+        # cookie-file-roots r2 (PM 23:56Z / 00:08Z): the choke point.  Every
+        # path to this file -- routes, template apply, auto-pick, teach, CSV
+        # bulk, config import, runner callbacks -- ends here, so here a NEW or
+        # CHANGED cookie_file / download_dir / spillover_dirs value the path
+        # checks refuse is not persisted: nothing is written, the value is
+        # taken back out of the live entry, and a request gets 400.
+        _refused = _sites_config_path_gate(payload, _cookie_dir)
+        if _refused:
+            raise SitesConfigRefused(
+                "sites_config not saved: " + "; ".join(
+                    f"site {_sid}: {_msg}" for _sid, _msg in _refused.items()))
         # s28: a site the loader skipped is not in s_cfg; without this the
         # first save after such a start would erase it (credentials and all)
         # from the same file.  Written back exactly as read (after the
@@ -1775,11 +1798,97 @@ def _save_sites_config():
         # renames (which this always is since tmp sits next to SITES_FILE).
         tmp.replace(SITES_FILE)
         saved = True
+    except SitesConfigRefused as e:
+        _refusal = e
+        sys.stderr.write(f"  ! {e}\n")
     except Exception as e:
         sys.stderr.write(f"  ! sites_config save failed: {e}\n")
     finally:
         _sites_config_save_lock.release()
+    if _refusal is not None and has_request_context():
+        # a runner / scheduler thread gets False like any failed save; a
+        # request is answered 400 by the SitesConfigRefused handler
+        raise _refusal
     return saved
+
+
+def _sites_config_path_gate(payload, cookie_dir):
+    """{site id: error} for each live entry about to be written with a path
+    value the write-route checks refuse: cookie_file (site and accounts[],
+    _judge_cookie_file) and download_dir / spillover_dirs (_validate_path).
+    Judged only when NEW or CHANGED versus the file on disk: a value that
+    file already holds for the site was stored before this gate, keeps
+    working and is listed at boot (PM 22:10Z) -- otherwise one old row would
+    block every save.  Never refused: the cookie path this writer fills in
+    itself (<BD_HOME>/cookies/<sid>.json).  A refused value is taken out of
+    the live entry (back to the stored one, else the default / blank; an
+    account's cookie_file is blanked) so it can neither be used nor block
+    the next save."""
+    refused, stored = {}, None
+
+    def on_disk(sid):
+        nonlocal stored
+        if stored is None:
+            try:
+                stored = json.loads(SITES_FILE.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                stored = {}
+            if not isinstance(stored, dict):
+                stored = {}
+        return stored.get(sid) if isinstance(stored.get(sid), dict) else {}
+
+    def same(a, b):
+        return type(a) is type(b) and a == b
+
+    for sid, entry in payload.items():
+        if not isinstance(entry, dict):
+            continue
+        live = s_cfg.get(sid) if isinstance(s_cfg.get(sid), dict) else None
+        default = (str(cookie_dir / f"{sid}.json")
+                   if cookie_dir is not None else None)
+        for label, index, val in _cookie_file_cells(entry):
+            ok, msg = _judge_cookie_file(label, val)
+            if ok or (isinstance(val, str) and val == default):
+                continue
+            was = on_disk(sid)
+            # r3 (lens R80-B F2): never the site's stored value moved into an
+            # account.  r4 (lens R113-D F1): any stored account's value holds
+            # the site cell too -- SiteRunner copies the active account's
+            # cookie_file there -- and every account cell (accounts reorder)
+            if any(same(v, val) for _l, _i, v in _cookie_file_cells(was)
+                   if _i is not None or index is None):
+                continue
+            refused.setdefault(sid, msg)
+            if live is None:
+                continue
+            if index is None:
+                kept = was.get("cookie_file")
+                live["cookie_file"] = (kept if isinstance(kept, str) and kept
+                                       else default or "")
+            elif (isinstance(live.get("accounts"), list)
+                  and index < len(live["accounts"])
+                  and isinstance(live["accounts"][index], dict)):
+                live["accounts"][index]["cookie_file"] = ""
+        for field in ("download_dir", "spillover_dirs"):
+            val = entry.get(field)
+            ok, msg = _validate_config_paths({field: val}) if (
+                val is None or isinstance(val, str)) else (
+                    False, f"{field} must be a string")
+            if ok:
+                continue
+            was = on_disk(sid)
+            if field in was and same(was[field], val):
+                continue
+            refused.setdefault(sid, msg)
+            if live is not None:
+                kept = was.get(field)
+                live[field] = kept if isinstance(kept, str) else ""
+    for sid in refused:
+        try:
+            runners[sid].update_config(s_cfg[sid])
+        except Exception:
+            pass
+    return refused
 
 def _build_meta(cfg: dict) -> dict:
     """Return a copy of cfg with secrets stripped — top-level password
@@ -2034,7 +2143,18 @@ def _load_sites_config():
     # retired first, and only a runner proved stopped is dropped -- otherwise
     # the old all-or-nothing rule holds and the boot caller rolls back.
     skipped = []
+    # cookie-file-roots (PM 22:10Z): a row stored before the write routes
+    # judged cookie_file keeps loading (it may be legal under an older policy)
+    # but is made visible: the write routes' validator runs over each stored
+    # row and a failing site id is listed, never the path.
+    cookie_file_flagged = []
     for sid, cfg_in in data.items():
+        try:
+            _cf_stored_ok = _validate_cookie_files(cfg_in)[0]
+        except Exception:
+            _cf_stored_ok = False
+        if not _cf_stored_ok:
+            cookie_file_flagged.append(str(sid))
         try:
             _load_one_site(sid, cfg_in)
         except Exception as site_error:
@@ -2076,6 +2196,16 @@ def _load_sites_config():
             f"{SITES_FILE.name} could not be loaded and are not running: "
             f"{', '.join(s['id'] for s in skipped)}. Their entries stay in the "
             f"file; fix them there and restart.\n")
+    if cookie_file_flagged:
+        _SITES_CONFIG_REACHABILITY = dict(
+            _SITES_CONFIG_REACHABILITY,
+            cookie_file_outside_roots=cookie_file_flagged)
+        sys.stderr.write(
+            f"  ! WARNING: {len(cookie_file_flagged)} site(s) in "
+            f"{SITES_FILE.name} hold a cookie_file (site or account) that a "
+            f"config write would now refuse (outside the path roots, "
+            f"unreadable or not a regular file): "
+            f"{', '.join(cookie_file_flagged)}.\n")
     sys.stderr.write(
         f"  ↺ restored {len(data) - len(skipped)} site(s) from {SITES_FILE.name}\n")
 
@@ -5485,6 +5615,13 @@ def _validate_config_paths(cfg: dict):
         ("download_dir", cfg.get("download_dir")),
         ("cookie_file",  cfg.get("cookie_file")),
     ]
+    # cookie-file-roots r4 (lens R114-C X1): the writer gate's own type rule,
+    # here before any route publishes -- a falsy non-string ([] / 0) passed
+    # this check, the route published, then the writer refused the save.
+    for label in ("download_dir", "spillover_dirs"):
+        val = cfg.get(label)
+        if val is not None and not isinstance(val, str):
+            return False, f"{label} must be a string"
     for label, val in path_fields:
         ok, msg = _validate_path(val, label)
         if not ok: return False, msg
@@ -5494,6 +5631,61 @@ def _validate_config_paths(cfg: dict):
         if not line: continue
         ok, msg = _validate_path(line, f"spillover_dirs line {i+1}")
         if not ok: return False, msg
+    return True, ""
+
+
+def _cookie_file_cells(cfg):
+    """(label, account index or None, value) for the site's cookie_file and
+    every accounts[] element's."""
+    if not isinstance(cfg, dict):
+        return []
+    accounts = cfg.get("accounts")
+    return [("cookie_file", None, cfg.get("cookie_file"))] + [
+        (f"accounts[{i}].cookie_file", i, acct.get("cookie_file"))
+        for i, acct in enumerate(accounts if isinstance(accounts, list) else [])
+        if isinstance(acct, dict)]
+
+
+def _judge_cookie_file(label, val):
+    """One cookie_file value -> (ok, error_string).  _validate_path (string,
+    absolute, no "..", realpath under a path allowlist root), then: the value
+    is judged as it will be stored, so padding whitespace is refused
+    (_validate_path judges the stripped text); a path the OS refuses outright
+    (name too long, no permission on a parent, a NUL byte) is refused with the
+    loader's own question, Path(cf).exists(); so is an existing path that is
+    not a regular file."""
+    ok, msg = _validate_path(val, label)
+    if not ok:
+        return False, msg
+    if isinstance(val, str) and val.strip():
+        if val != val.strip():
+            return False, f"{label} must not start or end with whitespace"
+        try:
+            if "\x00" in val:
+                raise ValueError("embedded null byte")
+            cf_path = Path(val)
+            # stat only, never open: a FIFO would block the opener for ever
+            not_a_file = cf_path.exists() and not cf_path.is_file()
+        except (OSError, ValueError) as cf_err:
+            return False, (f"{label} is not a path this host can read "
+                           f"({type(cf_err).__name__})")
+        if not_a_file:
+            return False, f"{label} must be a regular file"
+    return True, ""
+
+
+def _validate_cookie_files(cfg):
+    """cookie-file-roots (finder R38-B): the ONE cookie_file check, for the
+    site's cookie_file and every accounts[] element's (SiteRunner copies the
+    active account's over the site's and opens it).  Asked twice: by the
+    request-facing routes before they build anything (PUT, create,
+    /api/sites/import, /api/config/import: a clean 400), and by the one
+    writer of sites_config.json for every other path to that file
+    (_save_sites_config).  Returns (ok: bool, error_string: str)."""
+    for label, _index, val in _cookie_file_cells(cfg):
+        ok, msg = _judge_cookie_file(label, val)
+        if not ok:
+            return False, msg
     return True, ""
 
 
@@ -5558,6 +5750,9 @@ def _create_site(data, actor="api"):
     # Phase 26.6: validate paths BEFORE creating anything so a bad
     # request doesn't leave half-initialized state on disk
     ok, err = _validate_config_paths(data)
+    if not ok:
+        return None, err
+    ok, err = _validate_cookie_files(data)
     if not ok:
         return None, err
     # Preflight-discovered bug: non-string names (int, None, list, dict, bool)
@@ -5639,6 +5834,10 @@ def _apply_template_by_id(sid, tpl_id):
     cfg = s_cfg.get(sid, {})
     defaults = dict(tpl.get("config_defaults") or {})
     defaults.pop(CAPTCHA_EGRESS_ACK_FIELD, None)
+    # cookie-file-roots r2 (lens R58-B F1, PM 00:08Z b): a template never fills
+    # a site's cookie_file or accounts, whatever its source.
+    defaults = {_k: _v for _k, _v in defaults.items()
+                if _k not in ("cookie_file", "accounts")}
     refusal = captcha_egress_disclosure_error(defaults, cfg)
     if refusal:
         return False, refusal
@@ -5976,7 +6175,9 @@ def _gap_fill_builtin_download_template(sid, cfg, cfg_in):
         if not download:
             return None
         fill = {k: v for k, v in (tpl.get("config_defaults") or {}).items()
-                if k not in cfg_in and k != CAPTCHA_EGRESS_ACK_FIELD}
+                if k not in cfg_in and k != CAPTCHA_EGRESS_ACK_FIELD
+                # cookie-file-roots r2: a template never fills these two
+                and k not in ("cookie_file", "accounts")}
         if captcha_egress_disclosure_error(fill, cfg):
             return None
         merge_learned(cfg, json.loads(json.dumps(download)), kind="download")

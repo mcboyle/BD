@@ -52,6 +52,7 @@ from .app_sites import (
     _start_watch_folder_threads,
     _store_site_password_in_vault,
     _validate_config_paths,
+    _validate_cookie_files,
     _vault_guard_for_password,
     sites_bp,
 )
@@ -877,6 +878,16 @@ def api_clone_site(sid):
               # Phase 20: also redact webhook/integration secrets
               "stash_api_key", "plex_token", "jellyfin_api_key", "ha_token"):
         cfg[f] = ""
+    # cookie-file-roots r3 (lens R26-C F1): the clone is a NEW site, so the
+    # source's download_dir / spillover_dirs (maybe stored before the roots
+    # narrowed) get the path checks of POST /api/sites here, BEFORE anything
+    # is published: a refusal after the publish left the clone live and the
+    # next save stored it with download_dir blanked.
+    ok, err = _validate_config_paths(cfg)
+    if ok:
+        ok, err = _validate_cookie_files(cfg)
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
     s_cfg[new_sid] = cfg
     s_meta[new_sid] = _build_meta(cfg)
     _new_runner = SiteRunner(new_sid, cfg)
@@ -976,13 +987,6 @@ def api_update(sid):
         for _acct_f in ("label", "username", "password", "cookie_file", "last_failure"):
             if not isinstance(_acct.get(_acct_f), (str, type(None))):
                 return jsonify({"error": f"accounts[{_acct_i}].{_acct_f} must be a string"}), 400
-        # r2 (lens R22-B F1): SiteRunner copies the active account's
-        # cookie_file over the site's, so it gets the site's own path check.
-        if _acct.get("cookie_file"):
-            _acct_ok, _acct_err = _validate_config_paths(
-                {"cookie_file": _acct["cookie_file"]})
-            if not _acct_ok:
-                return jsonify({"error": f"accounts[{_acct_i}].{_acct_err}"}), 400
         try:
             if not isinstance(_acct.get("cooldown_until"),
                               (int, float, str, type(None))) or isinstance(
@@ -993,19 +997,12 @@ def api_update(sid):
                 raise ValueError("not finite")
         except (TypeError, ValueError, OverflowError):
             return jsonify({"error": f"accounts[{_acct_i}].cooldown_until must be a number"}), 400
-    # r2 (lens R22-B F1): the loader asks the OS about a cookie path
-    # (Path(cf).exists()) for the site and, through SiteRunner, for the active
-    # account.  A path the OS refuses outright (name too long, no permission
-    # on a parent) is refused here with the same call, not found at restart.
-    for _cf_label, _cf in [("cookie_file", data.get("cookie_file"))] + [
-            (f"accounts[{_i}].cookie_file", _a.get("cookie_file"))
-            for _i, _a in enumerate(data.get("accounts") or [])]:
-        if isinstance(_cf, str) and _cf.strip():
-            try:
-                Path(_cf).exists()
-            except (OSError, ValueError) as _cf_err:
-                return jsonify({"error": f"{_cf_label} is not a path this host can read "
-                                         f"({type(_cf_err).__name__})"}), 400
+    # r2 (lens R22-B F1) + cookie-file-roots: the site's cookie_file and every
+    # account's go through the one check all site write routes share (path
+    # roots, then the loader's own OS question).
+    _cf_ok, _cf_err = _validate_cookie_files(data)
+    if not _cf_ok:
+        return jsonify({"error": _cf_err}), 400
     # dl95-xvideos-3: auth_required is a tri-state -- True / False, or unset
     # ("" / None) for "infer from the login fields". Discovery honours only a
     # real bool, so a form's "false" string is normalised here and anything

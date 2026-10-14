@@ -38,6 +38,7 @@ from .app_sites import (
     _save_sites_config,
     _store_site_password_in_vault,
     _validate_config_paths,
+    _validate_cookie_files,
     _vault_guard_for_password,
     sites_bp,
 )
@@ -230,6 +231,14 @@ def api_sites_import():
     if _captcha_egress_error:
         return jsonify({"ok": False,
                         "errors": [_captcha_egress_error],
+                        "warnings": result["warnings"]}), 400
+    # cookie-file-roots: this inlined creation gets the cookie_file check of
+    # every site write route (site's and accounts[]) before any site identity
+    # is allocated; refused -> nothing created, nothing saved.
+    _cf_ok, _cf_err = _validate_cookie_files(cfg_in)
+    if not _cf_ok:
+        return jsonify({"ok": False,
+                        "errors": [_cf_err],
                         "warnings": result["warnings"]}), 400
     # Normalize the display name (same as api_add does)
     if "name" in cfg_in:
