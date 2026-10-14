@@ -25,6 +25,22 @@ def _app_s_cfg():
     return getattr(importlib.import_module("bulk_downloader.app_state"), "s_cfg")
 
 
+def _is_http_url(u):
+    """ext-routing r1 (F6): a real parse -- http(s) scheme and a network location."""
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(u)
+    except ValueError:
+        return False
+    return p.scheme in ("http", "https") and bool(p.netloc)
+
+
+def _subdomain_of(host, parent):
+    """ext-routing r1 (F7): host sits under parent, and parent is a dotted name --
+    a bare label ("com") is a suffix of every host beneath it, not a site."""
+    return "." in parent and host.endswith("." + parent)
+
+
 @route_urls_bp.route("/api/route_urls",methods=["POST"])
 def api_route_urls():
     """POST {"text": "url1\\nurl2\\n..."}  â†’  distributes to matching sites.
@@ -36,7 +52,7 @@ def api_route_urls():
     runners = _app_runners()
     s_cfg = _app_s_cfg()
     text = (request.json or {}).get("text", "")
-    urls = [u.strip() for u in text.splitlines() if u.strip().startswith("http")]
+    urls = [u.strip() for u in text.splitlines() if _is_http_url(u.strip())]
     if not urls: return jsonify({"ok": False, "error": "no http URLs in input"}), 400
 
     # Phase 75 (v3.38.x): AI pre-classifier. When enabled per request via
@@ -79,8 +95,12 @@ def api_route_urls():
         except Exception: target_host = ""
         best_sid = None; best_score = -1
         for sid, cfg in s_cfg.items():
+            # ext-routing r1 (F4): the shared scorer's type checks -- a
+            # corrupt entry is skipped, the rest of the batch still routes.
+            if not isinstance(cfg, dict): continue
             score = 0
-            patterns = (cfg.get("url_patterns") or "").strip()
+            patterns = cfg.get("url_patterns") or ""
+            patterns = patterns.strip() if isinstance(patterns, str) else ""
             if patterns:
                 for line in patterns.replace(",", "\n").splitlines():
                     pat = line.strip()
@@ -92,13 +112,14 @@ def api_route_urls():
                             score = max(score, 200); break
                     except re.error: continue
             for fld in ("login_url", "success_url"):
-                v = (cfg.get(fld) or "").lower()
-                if not v: continue
+                v = cfg.get(fld) or ""
+                if not isinstance(v, str) or not v: continue
+                v = v.lower()
                 try: h = (urlparse(v).hostname or "").lower()
                 except Exception: continue
                 if h and target_host:
                     if h == target_host: score = max(score, 100)
-                    elif h.endswith("." + target_host) or target_host.endswith("." + h):
+                    elif _subdomain_of(h, target_host) or _subdomain_of(target_host, h):
                         score = max(score, 50)
             if score > best_score: best_score = score; best_sid = sid
         if best_score > 0 and best_sid:
@@ -112,7 +133,15 @@ def api_route_urls():
 
     summary = {}
     for sid, site_urls in by_site.items():
-        if sid not in runners: continue
+        if sid not in runners:
+            # ext-routing r1 (F5): matched, but no runner queued it (a delete
+            # popped the runner before the config) -- report it as unrouted.
+            for res in results:
+                if res["site_id"] == sid:
+                    res.update(site_id=None, matched=False,
+                               reason=f"matched site {sid} has no runner")
+            unrouted.extend(site_urls)
+            continue
         added, dupes, *rest = runners[sid].load_urls(site_urls)
         summary[sid] = {"name": s_cfg[sid].get("name", sid),
                         "added": added, "dupes": dupes,
