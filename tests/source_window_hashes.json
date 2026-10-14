@@ -110,9 +110,9 @@
       "sha256": "4fbbbc3dc3ef501b1570f010fb5b36ba877b47fd3c5e0bf1aa35753a5fafaf23"
     },
     {
-      "bytes": 2000,
-      "key": "tests/test_v3_43_30_watch_folder.py::test_watch_thread_stopped_on_site_delete::src[del_pos:del_pos + 2000]::1",
-      "sha256": "dcc58be2a32a903fb8643e050c6aa54ecee204bbd7386e223579bf1419894bf2"
+      "bytes": 4000,
+      "key": "tests/test_v3_43_30_watch_folder.py::test_watch_thread_stopped_on_site_delete::src[del_pos:del_pos + 4000]::1",
+      "sha256": "60093079a4e9531eed9c63ba4d86b154a470ae1cbcb3e54d55b1af31f8716a1f"
     },
     {
       "bytes": 3007,
