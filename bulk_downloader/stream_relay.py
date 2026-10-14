@@ -165,18 +165,29 @@ def verify_token(token: str) -> dict:
 
 # ─── Range parsing + streaming ────────────────────────────────────────
 
-def _parse_range_header(header: str, file_size: int) -> Optional[tuple]:
-    """Parse 'bytes=START-END'. Returns (start, end_inclusive) or None."""
+# RFC 9110 14.2: a Range header with an unknown unit or an invalid
+# ranges-specifier is ignored (200, full body), not answered 416.
+RANGE_IGNORED = "ignore"
+
+
+def _parse_range_header(header: str, file_size: int) -> Optional[tuple | str]:
+    """Parse 'bytes=START-END'. Returns (start, end_inclusive), None when
+    the range is unsatisfiable (416), or RANGE_IGNORED when the header
+    must be ignored (no header, unknown unit, invalid spec)."""
     if not header or not header.startswith("bytes="):
-        return None
+        return RANGE_IGNORED
     spec = header[len("bytes="):].strip()
     if "," in spec:
         # Multi-range: not supported — take first range only
         spec = spec.split(",", 1)[0].strip()
     parts = spec.split("-")
     if len(parts) != 2:
-        return None
+        return RANGE_IGNORED
     start_s, end_s = parts[0].strip(), parts[1].strip()
+    # 1*DIGIT, ASCII only: int() alone also takes +0, 1_0, non-ASCII digits
+    if not (start_s or end_s) or not all(
+            x.isascii() and x.isdigit() for x in (start_s, end_s) if x):
+        return RANGE_IGNORED
     try:
         if start_s == "" and end_s != "":
             # Suffix: bytes=-N → last N bytes
@@ -189,7 +200,11 @@ def _parse_range_header(header: str, file_size: int) -> Optional[tuple]:
         else:
             start = int(start_s)
             end = int(end_s)
+            if end < start:
+                # last-pos < first-pos: invalid range-spec (RFC 9110 14.1.1)
+                return RANGE_IGNORED
     except ValueError:
+        # Past int()'s digit limit: valid syntax, beyond any file
         return None
     if start < 0 or start >= file_size or end < start:
         return None
@@ -205,14 +220,15 @@ def serve_range(filename: str, range_header: str = "",
     Returns (generator, headers, status_code).
       • 206 Partial Content for valid Range
       • 200 OK for no Range header
-      • 416 Range Not Satisfiable for malformed/out-of-bounds Range
+      • 200 OK for an ignored Range (unknown unit, invalid spec)
+      • 416 Range Not Satisfiable for an unsatisfiable Range
     """
     if not os.path.isfile(filename):
         return None, {"Content-Type": "text/plain"}, 404
     file_size = os.path.getsize(filename)
     rng = _parse_range_header(range_header, file_size)
-    # No range or invalid range
-    if not range_header:
+    # No range, or a Range header that must be ignored
+    if rng is RANGE_IGNORED:
         def full_stream():
             # Bounded to the file_size announced in Content-Length: a file
             # still growing (or appended to) must not send extra bytes.

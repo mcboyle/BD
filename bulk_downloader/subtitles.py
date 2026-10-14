@@ -227,6 +227,10 @@ def discover_page_track_urls(urls) -> List[dict]:
     return out
 
 
+# A caption track is text: cap what one fetch may hold in memory.
+_TRACK_MAX_BYTES = 5 * 1024 * 1024
+
+
 def download_track(
     url: str,
     dest_path,
@@ -245,7 +249,9 @@ def download_track(
 
     Returns {"ok": bool, "path": str|None, "error": str|None}.
     Never raises -- egress goes through the same SSRF-guarded
-    transport as mp4_metadata.fetch_cover.
+    transport as mp4_metadata.fetch_cover. Redirects are not followed
+    (a 3xx is an error), and a body over _TRACK_MAX_BYTES is refused
+    without being held whole.
     """
     if not url or not isinstance(url, str):
         return {"ok": False, "path": None, "error": "empty url"}
@@ -262,13 +268,19 @@ def download_track(
         headers["Referer"] = referer
     try:
         from bulk_downloader.ssrf_transport import guarded_transport, PINNED
-        with httpx.Client(timeout=timeout, follow_redirects=True,
+        with httpx.Client(timeout=timeout, follow_redirects=False,
                            transport=guarded_transport(PINNED)) as client:
-            r = client.get(url, headers=headers)
-            if r.status_code != 200:
-                return {"ok": False, "path": None,
-                        "error": f"HTTP {r.status_code}"}
-            data = r.content
+            with client.stream("GET", url, headers=headers) as r:
+                if r.status_code != 200:
+                    return {"ok": False, "path": None,
+                            "error": f"HTTP {r.status_code}"}
+                buf = bytearray()
+                for chunk in r.iter_bytes():
+                    buf += chunk
+                    if len(buf) > _TRACK_MAX_BYTES:
+                        return {"ok": False, "path": None,
+                                "error": f"track over {_TRACK_MAX_BYTES} bytes"}
+                data = bytes(buf)
     except httpx.RequestError as e:
         return {"ok": False, "path": None, "error": str(e)[:300]}
     except Exception as e:
