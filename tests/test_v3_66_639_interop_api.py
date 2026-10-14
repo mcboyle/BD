@@ -37,6 +37,12 @@ def _client():
     return a.app.test_client()
 
 
+def _in_root(kind, *parts):
+    """A path inside the per-kind interop root (O1789 F7: path item_ids must live
+    under BD_HOME/interop/<kind>/)."""
+    return os.path.join(os.environ["BD_HOME"], "interop", kind, *parts)
+
+
 def test_routes_registered():
     from bulk_downloader import app as a
     rules = {r.rule: {m for m in r.methods if m not in ("HEAD", "OPTIONS")}
@@ -73,14 +79,15 @@ def test_register_requires_item_id():
 
 def test_register_records_off_by_default():
     c = _client()
+    plug = _in_root("ytdlp_plugin", "repo", "plug")
     r = c.post("/api/interop/register",
-               json={"kind": "ytdlp_plugin", "item_id": "repo/plug", "source": "github",
+               json={"kind": "ytdlp_plugin", "item_id": plug, "source": "github",
                      "commit": "abc123"})
     rec = r.get_json()["record"]
     assert rec["risk_acknowledged"] is False and rec["enabled"] is False
     assert rec["commit"] == "abc123"
     items = c.get("/api/interop/registry").get_json()["items"]
-    assert any(it["item_id"] == "repo/plug" and it["kind"] == "ytdlp_plugin" for it in items)
+    assert any(it["item_id"] == plug and it["kind"] == "ytdlp_plugin" for it in items)
 
 
 def test_acknowledge_unregistered_is_400():
@@ -91,13 +98,14 @@ def test_acknowledge_unregistered_is_400():
 
 def test_register_then_ack_then_enable_flow():
     c = _client()
-    c.post("/api/interop/register", json={"kind": "ytdlp_plugin", "item_id": "p"})
+    p = _in_root("ytdlp_plugin", "p")
+    c.post("/api/interop/register", json={"kind": "ytdlp_plugin", "item_id": p})
     assert c.post("/api/interop/acknowledge",
-                  json={"kind": "ytdlp_plugin", "item_id": "p"}).status_code == 200
+                  json={"kind": "ytdlp_plugin", "item_id": p}).status_code == 200
     assert c.post("/api/interop/enable",
-                  json={"kind": "ytdlp_plugin", "item_id": "p", "enabled": True}).status_code == 200
+                  json={"kind": "ytdlp_plugin", "item_id": p, "enabled": True}).status_code == 200
     it = [x for x in c.get("/api/interop/registry").get_json()["items"]
-          if x["item_id"] == "p"][0]
+          if x["item_id"] == p][0]
     assert it["risk_acknowledged"] is True and it["enabled"] is True
 
 
@@ -105,7 +113,8 @@ def test_register_chromium_extension_hashes_dir_serverside():
     """For a chromium extension the server hashes the dir (provenance pin) so the
     operator does not supply a hash."""
     c = _client()
-    d = tempfile.mkdtemp()
+    d = _in_root("chromium_extension", "ext")
+    os.makedirs(d)
     with open(os.path.join(d, "manifest.json"), "w") as fh:
         fh.write('{"name":"x"}')
     rec = c.post("/api/interop/register",
