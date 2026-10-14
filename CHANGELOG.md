@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1867 - train282b: row
+
+T282b-E (train-16, integrator D2-D) on main 2a8d9073 (train-15 merged; re-kit of T282b-D per GO-pm-A4-A-harness-batch2-2229Z (a)). 4 members, each latest verdict BOARD on its TREE; PATCH-SHA256 pins verified (T282b/verify-1.log). Path-disjoint from train-15 #1250. Sweep: T282b/sweep.out (40 BACKLOG rows on c80a6883: 7 clean, 18 conflict, 11 not BD repo, 4 base not on main). request-capture-redact r2 = NOOP (content already on main via dev-console-lows r1-restack).
+FIX: O1789/bughunt/download-engine/dl-misc-r2 (BOARD per .review/VERDICT-*)
+FIX: O1789/bughunt/extension-bridge/ext-route-anchor/r2 (BOARD per .review/VERDICT-*)
+FIX: O1789/unpark/o1671-a07-oidc-secret-key/refresh-418de7e3 (BOARD per .review/VERDICT-*)
+FIX: O1789/landing/census-site-window-park/r1 (BOARD per .review/VERDICT-*)
+
+
 ## v3.66.1866 - train282a: row
 
 T282a-C = train-15 (re-kit 3: #1248 version collision, #1249 DIRTY after main moved to c80a6883; ledger v3.66.1866) (O3142 F3: on MAIN 78a18bfa (train-13 landed); disjoint from D2-D train-14 (43 paths); member list frozen at assembly; members = the BOARDed product cuts that merge clean and are disjoint from in-flight trains). Product train; BOARD per O1672; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge from a worktree (F4); gates off-hub (gates-remote.sh).

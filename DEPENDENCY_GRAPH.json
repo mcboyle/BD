@@ -2451,7 +2451,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1899,
+    "edge_count": 1900,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4287,6 +4287,7 @@
         "tools/redaction_dial_report.py"
       ],
       "bulk_downloader/registrable_domain.py": [
+        "bulk_downloader/app.py",
         "bulk_downloader/app_scrape_listing.py",
         "bulk_downloader/candidate_filter.py",
         "bulk_downloader/extension_vault.py",
@@ -5536,6 +5537,7 @@
         "bulk_downloader/phoenix_catalog.py",
         "bulk_downloader/push.py",
         "bulk_downloader/rate_limit.py",
+        "bulk_downloader/registrable_domain.py",
         "bulk_downloader/request_peer.py",
         "bulk_downloader/request_replay.py",
         "bulk_downloader/route_registry.py",

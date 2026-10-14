@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6438,
+  "edge_count": 6449,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -122,6 +122,7 @@
       "bulk_downloader/phoenix_catalog.py",
       "bulk_downloader/push.py",
       "bulk_downloader/rate_limit.py",
+      "bulk_downloader/registrable_domain.py",
       "bulk_downloader/request_peer.py",
       "bulk_downloader/request_replay.py",
       "bulk_downloader/route_registry.py",
@@ -2936,6 +2937,11 @@
       "bulk_downloader/app.py",
       "bulk_downloader/library.py"
     ],
+    "tests/test_bughunt_dl_misc.py": [
+      "bulk_downloader/download_supervisor.py",
+      "bulk_downloader/download_window.py",
+      "bulk_downloader/resume.py"
+    ],
     "tests/test_bughunt_dl_retry_policy.py": [
       "bulk_downloader/retry_policy.py"
     ],
@@ -5276,6 +5282,10 @@
     "tests/test_o1671_a07_metadata_normalizer_any_import.py": [
       "bulk_downloader/metadata_normalizer.py"
     ],
+    "tests/test_o1671_a07_oidc_secret_key.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/oidc.py"
+    ],
     "tests/test_o1671_a07_pgvector_bench_restore.py": [
       "bulk_downloader/pg_vector.py"
     ],
@@ -5411,6 +5421,13 @@
       "bulk_downloader/vector_index.py",
       "bulk_downloader/viewport_clipping_filter.py",
       "bulk_downloader/viewport_telemetry_bridge.py"
+    ],
+    "tests/test_o1789_ext_route_anchor.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_extension.py",
+      "bulk_downloader/app_route_preview.py",
+      "bulk_downloader/app_route_urls.py",
+      "bulk_downloader/content_rights.py"
     ],
     "tests/test_o1789_ext_routing.py": [
       "bulk_downloader/app.py",
