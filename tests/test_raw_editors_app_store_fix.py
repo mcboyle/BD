@@ -95,9 +95,13 @@ def test_f1_refusal_tells_the_operator_what_to_do(no_token):
     assert "log in or set a token" in r.get_json()["error"], f"F1_REFUSAL_TEXT: {r.get_json()}"
 
 
-def test_f1_login_session_is_admitted(no_token):
+def test_f1_paired_login_session_is_refused_with_the_master_token_message(no_token):
+    # dev-paired-session-scope (PM 1240Z) reversed this admission: the only login
+    # source is pair_redeem, and a paired device gets the app API, not /api/dev/*.
     no_token.set_cookie("bd_session", _login_session())
-    _dev_admitted(no_token.get(DEV, environ_base=REMOTE))
+    r = no_token.get(DEV, environ_base=REMOTE)
+    assert r.status_code == 403, f"PAIRED_SESSION_ADMITTED: {r.status_code}"
+    assert r.get_json()["error"] == "dev tools need the master token on a paired device"
 
 
 @pytest.mark.parametrize("header", ["Authorization", "X-BD-Token"])
