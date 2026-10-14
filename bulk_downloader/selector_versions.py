@@ -59,16 +59,44 @@ def _load(base_dir=None) -> dict:
         return {}
 
 
+def _set_aside_damaged(base_dir=None) -> bool:
+    """Before an append: a store that is there but is not a JSON object
+    (truncated by a full disk or a crash, hand-edited) loads as empty, and the
+    save that follows would overwrite the only copy of every template's
+    history. Move it to ``<file>.corrupt-<ns>`` first. False = the store could
+    not be read or set aside: do not save."""
+    path = _store_path(base_dir)
+    try:
+        with open(path, "r") as fh:
+            if isinstance(json.load(fh), dict):
+                return True
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    except ValueError:
+        pass
+    try:
+        os.replace(path, f"{path}.corrupt-{time.time_ns()}")
+    except OSError:
+        return False
+    return True
+
+
 def _save(doc: dict, base_dir=None) -> bool:
     """Atomic-ish write (tmp + replace). Fail-open: returns False on error."""
     path = _store_path(base_dir)
+    tmp = path + ".tmp"
     try:
-        tmp = path + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(doc, fh, indent=1)
         os.replace(tmp, path)
         return True
     except OSError:
+        try:
+            os.unlink(tmp)  # a partial temp must not outlive the failed save
+        except OSError:
+            pass
         return False
 
 
@@ -133,6 +161,8 @@ def record_template_version(template: dict, *, source: str = "save",
             return None
         selectors = _selectors_of(template)
         with _store_lock(base_dir):
+            if not _set_aside_damaged(base_dir):
+                return None
             doc = _load(base_dir)
             hist = doc.get(str(tid))
             if not isinstance(hist, list):

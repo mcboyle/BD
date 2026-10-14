@@ -92,14 +92,30 @@ def _css_to_xpath_simple(css: str) -> Optional[str]:
 
     Returns None for unsupported syntax — caller falls back to error.
     """
-    if not css:
+    if not css or not css.strip():
         return None
-    parts: list[str] = []
-    # Split on combinators preserving them
-    tokens = []
+    import re as _re
+    # Split into simple selectors and combinators. A quoted attribute value
+    # stays in its token: a[href='/a b'] holds a space that is no combinator.
+    tokens: list[str] = []
     cur = ""
-    for ch in css:
-        if ch in (">", " ", "+", "~"):
+    quote = ""
+    depth = 0
+    for ch in css.strip():
+        if quote:
+            cur += ch
+            if ch == quote:
+                quote = ""
+        elif ch in ("'", '"') and depth:
+            quote = ch
+            cur += ch
+        elif ch == "[":
+            depth += 1
+            cur += ch
+        elif ch == "]":
+            depth -= 1
+            cur += ch
+        elif ch in (">", " ", "+", "~"):
             if cur:
                 tokens.append(cur)
                 cur = ""
@@ -108,44 +124,62 @@ def _css_to_xpath_simple(css: str) -> Optional[str]:
             cur += ch
     if cur:
         tokens.append(cur)
-    # Collapse spaces inside descendant
     xpath_parts: list[str] = []
     last_combinator = None
     for tok in tokens:
-        if tok in (">", " "):
-            last_combinator = tok
+        if tok == ">":
+            if last_combinator == ">" or not xpath_parts:
+                return None  # "a > > b", or a selector that starts with ">"
+            last_combinator = ">"
+            continue
+        if tok == " ":
+            # whitespace around ">" is not a descendant combinator
+            if last_combinator is None:
+                last_combinator = " "
             continue
         if tok in ("+", "~"):
             return None  # unsupported
-        # Parse one simple selector: tag.class.class#id[attr=value]
-        import re as _re
-        m = _re.match(r"^([a-zA-Z*][a-zA-Z0-9_-]*)?", tok)
-        tag = m.group(1) if m and m.group(1) else "*"
-        rest = tok[len(m.group(0)) if m else 0:]
-        classes = _re.findall(r"\.([a-zA-Z0-9_-]+)", rest)
-        ids = _re.findall(r"#([a-zA-Z0-9_-]+)", rest)
-        attrs = _re.findall(r"\[([^\]=]+)(?:=[\"']?([^\]\"']+)[\"']?)?\]", rest)
+        # Parse one simple selector: tag.class.class#id[attr=value]. Anything
+        # this grammar does not consume (a pseudo-class, an operator such as
+        # ^=) is unsupported: ignoring it would count a different selector.
+        m = _re.fullmatch(
+            r"([a-zA-Z][a-zA-Z0-9_-]*|\*)?"
+            r"((?:\.[a-zA-Z0-9_-]+|#[a-zA-Z0-9_-]+"
+            r"|\[[a-zA-Z_][a-zA-Z0-9_:-]*(?:=(?:'[^']*'|\"[^\"]*\"|[a-zA-Z0-9_-]+))?\])*)",
+            tok)
+        if not m or not tok:
+            return None
+        tag = m.group(1) or "*"
+        rest = m.group(2)
         preds = []
-        for c in classes:
-            preds.append(f"contains(concat(' ', normalize-space(@class), ' '), ' {c} ')")
-        for i in ids:
-            preds.append(f"@id='{i}'")
-        for attr, val in attrs:
-            if val:
-                preds.append(f"@{attr}='{val}'")
+        for kind, name, attr, has_val, val in _re.findall(
+                r"([.#])([a-zA-Z0-9_-]+)"
+                r"|\[([a-zA-Z_][a-zA-Z0-9_:-]*)(=(?:'([^']*)'|\"[^\"]*\"|[a-zA-Z0-9_-]+))?\]",
+                rest):
+            if kind == ".":
+                preds.append(f"contains(concat(' ', normalize-space(@class), ' '), ' {name} ')")
+            elif kind == "#":
+                preds.append(f"@id='{name}'")
+            elif has_val:
+                raw = has_val[1:]
+                if raw[:1] in ("'", '"'):
+                    raw = raw[1:-1]
+                if "'" not in raw:
+                    preds.append(f"@{attr}='{raw}'")
+                elif '"' not in raw:
+                    preds.append(f'@{attr}="{raw}"')
+                else:
+                    return None  # XPath 1.0 has no escape for both quotes
             else:
                 preds.append(f"@{attr}")
         step = tag
         if preds:
             step += "[" + " and ".join(preds) + "]"
-        if last_combinator == ">":
-            xpath_parts.append("/" + step)
-        else:
-            # descendant (default) or space
-            xpath_parts.append("//" + step)
+        xpath_parts.append(("/" if last_combinator == ">" else "//") + step)
         last_combinator = None
+    if last_combinator == ">":
+        return None  # dangling "a >"
     return "".join(xpath_parts) if xpath_parts else None
-
 
 # ─── Fetch ────────────────────────────────────────────────────────────
 
@@ -288,11 +322,14 @@ def _fetch_playwright(url: str, *, timeout: int = 30,
 
 # ─── Selector evaluation ──────────────────────────────────────────────
 
+from .selector_check import _has_wanted_text, _split_has_text
+
+
 def evaluate_selectors(html: str, selectors: list) -> list:
     """For each selector, return {selector, syntax, count, sample,
     sample_text, sample_attrs, error}.
 
-    Auto-detects CSS vs XPath: a selector starting with '/' or '//'
+    Auto-detects CSS vs XPath: a selector starting with '/', './/' or '('
     is XPath, otherwise CSS. XPath requires lxml; CSS works via
     lxml's cssselect or BeautifulSoup."""
     if not _HAS_LXML:
@@ -310,21 +347,36 @@ def evaluate_selectors(html: str, selectors: list) -> list:
         if not sel_str:
             results.append({"selector": sel, "error": "empty selector"})
             continue
-        syntax = "xpath" if sel_str.startswith("/") or sel_str.startswith(".//") else "css"
+        # "(//a)[1]" is XPath too: no CSS selector starts with "(".
+        syntax = "xpath" if sel_str.startswith(("/", ".//", "(")) else "css"
         try:
             if syntax == "xpath":
                 matches = tree.xpath(sel_str)
-            elif _HAS_CSSSELECT:
-                matches = tree.cssselect(sel_str)
             else:
-                # No cssselect package — translate to XPath
-                xp = _css_to_xpath_simple(sel_str)
-                if not xp:
+                split = _split_has_text(sel_str)
+                if split is None:
                     results.append({"selector": sel_str, "syntax": "css",
-                                    "count": 0,
-                                    "error": "cssselect not installed and CSS too complex for fallback"})
+                                    "status": "review", "count": None,
+                                    "error": ""})
                     continue
-                matches = tree.xpath(xp)
+                css_sel, wanted = split
+                if _HAS_CSSSELECT:
+                    matches = tree.cssselect(css_sel)
+                else:
+                    # No cssselect package — translate to XPath
+                    xp = _css_to_xpath_simple(css_sel)
+                    if not xp:
+                        results.append({"selector": sel_str, "syntax": "css",
+                                        "count": 0,
+                                        "error": "cssselect not installed and CSS too complex for fallback"})
+                        continue
+                    matches = tree.xpath(xp)
+                if wanted:
+                    matches = [
+                        el for el in matches
+                        if hasattr(el, "tag")
+                        and _has_wanted_text(el.text_content() or "", wanted)
+                    ]
             count = len(matches)
             entry = {"selector": sel_str, "syntax": syntax,
                      "count": count, "error": ""}

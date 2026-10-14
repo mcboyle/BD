@@ -220,7 +220,10 @@ def audit_committed_selector_syntax() -> dict[str, Any]:
 
 
 _SESSION_STATE_KEYS = {"cookies", "origins"}
-_SAME_SITE_VALUES = ("Strict", "Lax", "None")
+# Stored spelling (lower-cased) -> Playwright's. The extension exporters write
+# "lax" / "strict" / "no_restriction" (cookies.py reads the same spellings).
+_SAME_SITE_VALUES = {"strict": "Strict", "lax": "Lax", "none": "None",
+                     "no_restriction": "None"}
 
 
 def _no_session() -> dict[str, Any]:
@@ -271,20 +274,28 @@ def _normalise_session_cookie(raw: Any, index: int) -> dict[str, Any]:
         "path": path or "/",
     }
     expires = raw.get("expires", raw.get("expirationDate"))
+    if isinstance(expires, str):
+        # A JSON export may carry the timestamp as text ("1893456000").
+        try:
+            expires = float(expires)
+        except ValueError:
+            expires = None
     # Playwright and the extension exporters both write -1 for a session
     # cookie; only a positive timestamp is a real expiry (cookies.py agrees).
     positive_expiry = (
         isinstance(expires, (int, float))
         and not isinstance(expires, bool)
-        and expires > 0
+        and 0 < expires < float("inf")
     )
     if positive_expiry:
         cookie["expires"] = float(expires)
     for flag in ("httpOnly", "secure"):
         if flag in raw:
             cookie[flag] = bool(raw[flag])
-    if raw.get("sameSite") in _SAME_SITE_VALUES:
-        cookie["sameSite"] = raw["sameSite"]
+    # An unknown or unset sameSite is left to the browser's default, as before.
+    same_site = _SAME_SITE_VALUES.get(str(raw.get("sameSite") or "").strip().lower())
+    if same_site:
+        cookie["sameSite"] = same_site
     return cookie
 
 
