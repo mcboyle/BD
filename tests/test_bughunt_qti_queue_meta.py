@@ -238,8 +238,8 @@ def test_f14_a_stored_template_with_unparseable_json_still_applies_as_empty(runn
         cx.execute("UPDATE queue_templates SET priority_map=?, force_set=? WHERE id=?",
                    ("not json", "not json", tid))
     body, code = _apply(tid)
-    assert code == 200 and body["added"] == 2
-    assert not runner.jobs["h"].get("force_download")
+    assert code == 200 and body["added"] == 1           # ddr F8: bare "h" is refused, not queued
+    assert "h" not in runner.jobs and not runner.jobs[U1].get("force_download")
 
 
 # r3 parity: create and update run the SAME check, so they refuse the same values.
