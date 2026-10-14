@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6256,
+  "edge_count": 6282,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2838,9 +2838,22 @@
       "tools/template_health_report.py",
       "tools/test_runtime_report.py"
     ],
+    "tests/test_bughunt_ddr_f8_f11.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_bughunt_ddr_fix.py": [
       "bulk_downloader/app_discovery.py",
       "bulk_downloader/discovery.py"
+    ],
+    "tests/test_bughunt_ddr_fix_r2.py": [
+      "bulk_downloader/content_rights.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/download_window.py",
+      "bulk_downloader/maintenance.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_queue.py"
     ],
     "tests/test_bughunt_ddt_fix.py": [
       "bulk_downloader/runner_transport.py",
@@ -3432,8 +3445,18 @@
     "tests/test_detect_misc_fix_r1.py": [
       "bulk_downloader/interstitial.py"
     ],
+    "tests/test_dev_exec_lows_r1.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app_dev_runtime.py",
+      "bulk_downloader/app_dev_testci.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/dev_tools.py"
+    ],
     "tests/test_dev_metrics.py": [
       "bulk_downloader/dev_metrics.py"
+    ],
+    "tests/test_dev_paired_session_scope.py": [
+      "bulk_downloader/app.py"
     ],
     "tests/test_dev_suite.py": [
       "bulk_downloader/__init__.py",
@@ -4792,6 +4815,13 @@
     "tests/test_mass_import_jobs_bounded.py": [
       "bulk_downloader/mass_import.py"
     ],
+    "tests/test_media_misc_lows_r1.py": [
+      "bulk_downloader/app_subtitles.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/stream_relay.py",
+      "bulk_downloader/subtitle_search.py",
+      "bulk_downloader/subtitles.py"
+    ],
     "tests/test_merge_url_attribute.py": [
       "bulk_downloader/learn.py",
       "bulk_downloader/runner.py"
@@ -5732,6 +5762,13 @@
     "tests/test_plugin_uninstall.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/plugins.py"
+    ],
+    "tests/test_plugins_fix_r1.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_macros.py",
+      "bulk_downloader/macro_recorder.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/tool_bridge.py"
     ],
     "tests/test_pointer_inspector.py": [
       "bulk_downloader/pointer_inspector.py"
@@ -7504,6 +7541,9 @@
     ],
     "tests/test_spatial_hit_test_fuzzer.py": [
       "bulk_downloader/spatial_hit_test_fuzzer.py"
+    ],
+    "tests/test_sse_broker_lows.py": [
+      "bulk_downloader/sse_broker.py"
     ],
     "tests/test_ssrf_public_literal.py": [
       "bulk_downloader/ssrf_transport.py"

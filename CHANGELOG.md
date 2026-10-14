@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1852 - train281j: row
+
+T281j-B = train-3 (O3141), STACKED on train-2 T281i-B head 749346c0 (v3.66.1851, bd-integrator-D2-D) -- rebased onto train-2's landed commit before merge. 7 members = the chain tails (+ dev-exec-lows r2, boarded 15:14Z) train-2 could not admit (fewest-overlap rule); product train; legs BOARD per O1672/BOARDED-for-integration.md; auto promote+deploy on green CI.
+FIX: ddr-fix r3 -- deep-dl-runner-state: db.py, runner.py, runner_queue.py (BOARDED 10:55Z).
+FIX: ddr-fix f8-f11 r2 -- runner_queue.py F8 F10 F11 + R163-A F1, stacked on ddr-fix r3; folds the r1 owed test patch OWED-qti-meta-f14.diff (BOARDED 11:05Z).
+FIX: plugins-fix r2 -- security plugins-exec-surface; R183-A F5 allowlisted reinstall closed (BOARDED 11:24Z; after pes-scrapers-fix r2 + login-flow-scrub in train-2).
+FIX: dev-paired-session-scope r1 -- HIGH; app.py + DevToolsSection.tsx paired-session scope (R244-D, BOARDED 14:05Z; after health-core-fix r1 in train-2).
+FIX: sse-broker-lows r1 -- LOW; app_stream.py merged with stream-token r1 from train-2 (R241-C, BOARDED 14:42Z).
+FIX: media-misc-lows r1 -- LOW; stream_relay.py merged with stream-token r1 from train-2 (R243-C, BOARDED 14:42Z).
+FIX: dev-exec-lows r2 -- LOW; dev-console-exec R242-D F1 4301-digit port closed (R266-B, BOARDED 15:14Z).
+
+
 ## v3.66.1851 - train281i: row
 
 T281i-B (train-2, integrator D2-D) on main 44640c61 (T281h-D merged) (18 members; product train; legs BOARD per O1672/BOARDED-for-integration.md; O3122 auto promote+deploy on green). Members path-disjoint (ORDER-pm-B-landing-throughput-1412Z item 3); selection T281i/SELECT-train2-1450Z.md.
