@@ -11,9 +11,36 @@ does not apply; state is bound to the Flask session to defend against forgery.
 """
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request, redirect, session
+import os
+
+from flask import Blueprint, current_app, jsonify, request, redirect, session
 
 oidc_bp = Blueprint("oidc", __name__)
+
+# O1671 a07: the state/nonce above live in the Flask session, which needs
+# app.secret_key; without it the first session write raised -> HTTP 500.
+SECRET_KEY_ENV = "BD_SECRET_KEY"
+_NO_KEY = (f"no Flask session secret key: set {SECRET_KEY_ENV} on the server "
+           "before enabling OIDC login")
+
+
+def install_secret_key(app) -> None:
+    """Set app.secret_key from BD_SECRET_KEY at boot. No key while OIDC is
+    enabled (or its config is unreadable) refuses to start; with OIDC off the
+    app starts keyless, as before."""
+    if app.secret_key:
+        return
+    key = (os.environ.get(SECRET_KEY_ENV) or "").strip()
+    if key:
+        app.secret_key = key
+        return
+    try:
+        from . import oidc as _o
+        enabled = _o.is_enabled()
+    except Exception:
+        enabled = True
+    if enabled:
+        raise RuntimeError(f"OIDC login is enabled but there is {_NO_KEY}")
 
 _COOKIE = "bd_user"
 
@@ -34,6 +61,8 @@ def api_oidc_login():
     from . import oidc as _o
     if not _o.is_enabled():
         return jsonify({"ok": False, "error": "OIDC not configured"}), 400
+    if not current_app.secret_key:
+        return jsonify({"ok": False, "error": f"OIDC login unavailable: {_NO_KEY}"}), 503
     state = _o.new_state()
     nonce = _o.new_state()
     session["oidc_state"] = state

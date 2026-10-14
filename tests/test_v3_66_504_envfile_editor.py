@@ -80,7 +80,10 @@ _HOST_MANAGED = {"DISPLAY", "PLAYWRIGHT_BROWSERS_PATH", "APPDATA",
                  # BD_REDIS_HOST / BD_REDIS_PORT: broker topology, set by the deploy that also
                  # provisions the broker; repointing a running process orphans in-flight work.
                  # BD_CLUSTER_RATE_MODE: cluster-wide rate policy; one node's .env cannot hold it.
-                 "BD_VAULT_KEY", "BD_REDIS_HOST", "BD_REDIS_PORT", "BD_CLUSTER_RATE_MODE"}
+                 "BD_VAULT_KEY", "BD_REDIS_HOST", "BD_REDIS_PORT", "BD_CLUSTER_RATE_MODE",
+                 # O1671 a07: BD_SECRET_KEY is the Flask session signing key -- a secret,
+                 # host-managed for the BD_VAULT_KEY reason; never a GUI .env control.
+                 "BD_SECRET_KEY"}
 
 
 # ── 1. boot loader: parse + setdefault (real env wins) ───────────────────────
