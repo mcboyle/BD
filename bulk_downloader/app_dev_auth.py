@@ -11,6 +11,7 @@ from .app_dev import (
     _dev_mode_guard,
     dev_bp,
 )
+from .app_dev_config import _bad_body, _json_object_body, _result_status
 
 
 @dev_bp.route("/api/dev/auth_map")
@@ -177,7 +178,9 @@ def api_dev_login_flow_save():
     server-side save step."""
     guard = _dev_mode_guard()
     if guard: return guard
-    body = request.json or {}
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     site_id = body.get("site_id", "")
     name = body.get("name", "")
     actions = body.get("actions") or []
@@ -185,10 +188,17 @@ def api_dev_login_flow_save():
     if not isinstance(actions, list):
         return jsonify({"ok": False,
                         "error": "actions must be a list"}), 400
+    bad = [k for k, v in (("site_id", site_id), ("name", name),
+                          ("description", description))
+           if not isinstance(v, str)]
+    if bad:
+        return jsonify({"ok": False,
+                        "error": f"{', '.join(bad)} must be a string"}), 400
     try:
         from . import login_flow_recorder as _lfr
-        return jsonify(_lfr.record_login_flow(
-            site_id, name, actions, description=description))
+        res = _lfr.record_login_flow(
+            site_id, name, actions, description=description)
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 

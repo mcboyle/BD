@@ -15,6 +15,42 @@ from .app_dev import (
 )
 
 
+def _json_object_body():
+    """A POST body as a dict: {} when the body is empty, None when it is
+    anything but a JSON object (list, string, number, null, form data,
+    malformed JSON). The route answers None with _bad_body()."""
+    if not request.get_data(cache=True):
+        return {}
+    body = request.get_json(silent=True)
+    return body if isinstance(body, dict) else None
+
+
+def _bad_body():
+    return jsonify({"ok": False,
+                    "error": "request body must be a JSON object"}), 400
+
+
+# Substrings of a tool's error that mean the server failed, not the request.
+_SERVER_FAULTS = ("write failed", "cannot create state dir",
+                  "restore failed", "app module unavailable",
+                  "import failed")
+
+
+def _result_status(res):
+    """HTTP status for a dev tool's result dict, so a client that reads
+    only the status code never takes a refusal for success: 200 unless
+    ok is False; then 404 for a missing snapshot, 500 for a server-side
+    fault, else 400."""
+    if not isinstance(res, dict) or res.get("ok") is not False:
+        return 200
+    err = str(res.get("error") or res.get("verdict") or "")
+    if err.startswith("no snapshot named"):
+        return 404
+    if any(h in err for h in _SERVER_FAULTS):
+        return 500
+    return 400
+
+
 @dev_bp.route("/api/dev/enabled")
 def api_dev_enabled():
     """Always available — tells the UI whether to show the Dev tab."""
@@ -121,10 +157,20 @@ def api_dev_cache_clear():
     guard = _dev_mode_guard()
     if guard: return guard
     _check_csrf()
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
+    targets = body.get("targets")
+    if not (targets is None or isinstance(targets, str)
+            or (isinstance(targets, list)
+                and all(isinstance(t, str) for t in targets))):
+        return jsonify({"ok": False,
+                        "error": "targets must be a string or a list of "
+                                 "strings"}), 400
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.cache_clear(
-            targets=(request.json or {}).get("targets")))
+        res = _ds.cache_clear(targets=targets)
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -136,10 +182,13 @@ def api_dev_config_snapshot():
     guard = _dev_mode_guard()
     if guard: return guard
     _check_csrf()
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.config_snapshot(
-            name=(request.json or {}).get("name")))
+        res = _ds.config_snapshot(name=body.get("name"))
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -163,10 +212,13 @@ def api_dev_config_restore():
     guard = _dev_mode_guard()
     if guard: return guard
     _check_csrf()
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.config_restore(
-            name=(request.json or {}).get("name")))
+        res = _ds.config_restore(name=body.get("name"))
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -179,8 +231,8 @@ def api_dev_config_snapshot_diff():
     if guard: return guard
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.config_snapshot_diff(
-            name=request.args.get("name")))
+        res = _ds.config_snapshot_diff(name=request.args.get("name"))
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -229,21 +281,77 @@ def api_dev_feature_flags():
         return jsonify({"error": str(e)[:200]}), 500
 
 
+def _flag_actor() -> str:
+    """The caller's credential class (app._request_actor_class), resolved on
+    the LIVE app module at call time."""
+    try:
+        import importlib
+        return importlib.import_module(
+            "bulk_downloader.app")._request_actor_class()
+    except Exception:
+        return "none"
+
+
+def _log_flag_change(op, name, value, actor, result):
+    """Audit line for every feature-flag write: name, actor class, ts."""
+    import logging
+    import time as _time
+    logging.getLogger("bulk_downloader.feature_flags").warning(
+        "feature_flag_change op=%s name=%r value=%r actor=%s result=%s ts=%.3f",
+        op, str(name)[:64], value, actor, result, _time.time())
+
+
+def _is_replayed_request() -> bool:
+    """r2 (PM F2a): True iff this request bears the request_replay marker
+    header, i.e. it is a replay of a captured request."""
+    from .request_replay import REPLAY_MARKER_HEADER
+    return request.headers.get(REPLAY_MARKER_HEADER) is not None
+
+
+def _refuse_replayed_capture_change(op, name, value, actor):
+    """A replayed request never changes request_capture (it would arrive from
+    loopback and launder the gate below). 403 + audit line, else None."""
+    if name != "request_capture" or not _is_replayed_request():
+        return None
+    _log_flag_change(op, name, value, actor, "refused-replay")
+    return jsonify({"ok": False,
+                    "error": "request_capture cannot be changed by a "
+                             "replayed request"}), 403
+
+
 @dev_bp.route("/api/dev/feature_flag_set", methods=["POST"])
 def api_dev_feature_flag_set():
     """T40/D-121 mutating — set a feature flag. Body: {name, value}.
     Value must be a literal bool. CSRF-gated."""
     guard = _dev_mode_guard()
     if guard: return guard
-    body = request.json or {}
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     name = body.get("name")
     value = body.get("value")
+    actor = _flag_actor()
+    refused = _refuse_replayed_capture_change("set", name, value, actor)
+    if refused: return refused
+    # request-capture-redact: capture records every /api/ request, so turning
+    # it ON is a master-level act -- loopback or the master token only. A
+    # session (any source, pair_redeem included) or a same-origin Referer,
+    # which pass _dev_mode_guard, do not. Turning it OFF stays open.
+    if name == "request_capture" and value is True \
+            and actor not in ("loopback", "master_token"):
+        _log_flag_change("set", name, value, actor, "refused")
+        return jsonify({"ok": False,
+                        "error": "request_capture can only be turned on from "
+                                 "loopback or with the master token"}), 403
     # JSON booleans round-trip as Python bools. If the caller sent
     # something else (e.g. the string "true") reject — silent coercion
     # is what set_flag refuses too.
     try:
         from . import feature_flags as _ff
-        return jsonify(_ff.set_flag(name, value))
+        res = _ff.set_flag(name, value)
+        _log_flag_change("set", name, value, actor,
+                         "ok" if res.get("ok") else "failed")
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
@@ -254,10 +362,17 @@ def api_dev_feature_flag_delete():
     Idempotent. CSRF-gated."""
     guard = _dev_mode_guard()
     if guard: return guard
-    body = request.json or {}
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     name = body.get("name")
+    refused = _refuse_replayed_capture_change("delete", name, None, _flag_actor())
+    if refused: return refused
     try:
         from . import feature_flags as _ff
-        return jsonify(_ff.delete_flag(name))
+        res = _ff.delete_flag(name)
+        _log_flag_change("delete", name, None, _flag_actor(),
+                         "ok" if res.get("ok") else "failed")
+        return jsonify(res), _result_status(res)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500

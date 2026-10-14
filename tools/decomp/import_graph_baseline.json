@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6369,
+  "edge_count": 6400,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -121,6 +121,7 @@
       "bulk_downloader/phoenix_catalog.py",
       "bulk_downloader/push.py",
       "bulk_downloader/rate_limit.py",
+      "bulk_downloader/request_peer.py",
       "bulk_downloader/request_replay.py",
       "bulk_downloader/route_registry.py",
       "bulk_downloader/run_history.py",
@@ -180,6 +181,7 @@
     ],
     "bulk_downloader/app_auth.py": [
       "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/request_peer.py",
       "bulk_downloader/user_accounts.py"
     ],
     "bulk_downloader/app_auth_health.py": [
@@ -310,12 +312,14 @@
     ],
     "bulk_downloader/app_dev_auth.py": [
       "bulk_downloader/app_dev.py",
+      "bulk_downloader/app_dev_config.py",
       "bulk_downloader/login_flow_recorder.py"
     ],
     "bulk_downloader/app_dev_config.py": [
       "bulk_downloader/app_dev.py",
       "bulk_downloader/dev_tools.py",
-      "bulk_downloader/feature_flags.py"
+      "bulk_downloader/feature_flags.py",
+      "bulk_downloader/request_replay.py"
     ],
     "bulk_downloader/app_dev_db.py": [
       "bulk_downloader/app_dev.py"
@@ -334,7 +338,8 @@
       "bulk_downloader/maintenance.py"
     ],
     "bulk_downloader/app_dev_net.py": [
-      "bulk_downloader/app_dev.py"
+      "bulk_downloader/app_dev.py",
+      "bulk_downloader/app_dev_config.py"
     ],
     "bulk_downloader/app_dev_obs.py": [
       "bulk_downloader/app_dev.py"
@@ -471,6 +476,9 @@
     ],
     "bulk_downloader/app_openapi.py": [
       "bulk_downloader/openapi_spec.py"
+    ],
+    "bulk_downloader/app_pair.py": [
+      "bulk_downloader/request_peer.py"
     ],
     "bulk_downloader/app_palette.py": [
       "bulk_downloader/command_palette.py"
@@ -1703,6 +1711,11 @@
     "bulk_downloader/ollama_boot_probe.py": [
       "bulk_downloader/llm_readiness.py"
     ],
+    "bulk_downloader/paths.py": [
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/library_final.py"
+    ],
     "bulk_downloader/pattern_hygiene.py": [
       "bulk_downloader/bad_terms.py"
     ],
@@ -1823,12 +1836,19 @@
     "bulk_downloader/render_diagnostics.py": [
       "bulk_downloader/ffmpeg_bin.py"
     ],
+    "bulk_downloader/request_peer.py": [
+      "bulk_downloader/global_config.py"
+    ],
     "bulk_downloader/request_replay.py": [
-      "bulk_downloader/feature_flags.py"
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/feature_flags.py",
+      "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/retention.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/paths.py",
       "bulk_downloader/tags.py"
     ],
     "bulk_downloader/retry_policy.py": [
@@ -3479,6 +3499,11 @@
     "tests/test_detect_misc_fix_r1.py": [
       "bulk_downloader/interstitial.py"
     ],
+    "tests/test_dev_console_lows.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/feature_flags.py"
+    ],
     "tests/test_dev_exec_lows_r1.py": [
       "bulk_downloader/__init__.py",
       "bulk_downloader/app_dev_runtime.py",
@@ -4171,6 +4196,11 @@
     ],
     "tests/test_duration_filter.py": [
       "bulk_downloader/detect.py"
+    ],
+    "tests/test_dva_trusted_proxies.py": [
+      "bulk_downloader/app_auth.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/global_config.py"
     ],
     "tests/test_e1_capture_events.py": [
       "bulk_downloader/plugins.py",
@@ -5687,6 +5717,12 @@
       "bulk_downloader/app.py",
       "bulk_downloader/dev_tools.py"
     ],
+    "tests/test_pair_admission_proxy_is_not_loopback.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/dev_tools.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/request_peer.py"
+    ],
     "tests/test_parallel_capture_services.py": [
       "tools/live_seed.py"
     ],
@@ -6028,6 +6064,14 @@
     ],
     "tests/test_requeue_for_dedup_can_actually_dedup.py": [
       "tools/live_seed.py"
+    ],
+    "tests/test_retention_path_dedupe.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/paths.py",
+      "bulk_downloader/retention.py",
+      "bulk_downloader/tags.py"
     ],
     "tests/test_route_index_in_sync.py": [
       "tools/build_route_index.py"
@@ -11121,6 +11165,7 @@
       "tools/cockpit_core.py"
     ],
     "tools/code_intelligence/snapshot.py": [
+      "bulk_downloader/paths.py",
       "tools/l0_extract.py"
     ],
     "tools/compat_shim_audit.py": [

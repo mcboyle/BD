@@ -494,8 +494,10 @@ def config_snapshot_diff(name=None):
         return any(h in str(k).lower() for h in _SECRET_KEY_HINTS)
 
     def _safe(k, v):
-        # never echo a secret value, regardless of section
-        return "***redacted***" if _is_secret(k) else v
+        # never echo a secret value, regardless of section; a non-secret
+        # key's value goes through the recursive _redact, so a secret
+        # nested under it is masked too (config_dump does the same).
+        return "***redacted***" if _is_secret(k) else _redact(v)
 
     live_keys, snap_keys = set(live), set(snap)
     added = sorted(live_keys - snap_keys)
@@ -507,7 +509,8 @@ def config_snapshot_diff(name=None):
                 changed.append({"key": k, "from": "***redacted***",
                                 "to": "***redacted***", "secret": True})
             else:
-                changed.append({"key": k, "from": snap[k], "to": live[k]})
+                changed.append({"key": k, "from": _safe(k, snap[k]),
+                                "to": _safe(k, live[k])})
 
     return {
         "tool": "config_snapshot_diff",

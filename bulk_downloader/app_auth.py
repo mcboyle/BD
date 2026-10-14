@@ -47,9 +47,43 @@ _COOKIE = "bd_user"
 # the verify (or in reserve) leaves the attempt counted. reserve is inside the try
 # and the release in its finally frees only this request's own attempt (owner): no
 # label outlives its request, and a refused request never frees another's.
+# The client address is _client_addr(): the peer, or behind a trusted_proxies
+# peer the forwarded client (dva-trusted-proxies).
+def _client_addr():
+    """The address a login is counted against. The peer (remote_addr), unless the
+    peer is in request_peer.trusted_proxies(): then the right-most hop that is not
+    a trusted proxy, read with request_peer's parser, in every forwarding header
+    present. The headers must all name the same client; an unparseable hop, a header
+    naming no client, or two headers that disagree key the request on the peer (one
+    shared label for all such requests), never on a client-written value. Without
+    trusted_proxies (the default) every forwarding header is ignored."""
+    from . import request_peer as _rp
+    peer = request.remote_addr or ""
+    nets = _rp._networks(_rp.trusted_proxies())
+    if not _rp._trusted(_rp.parse_addr(peer), nets):
+        return peer
+    named = set()
+    for header in _rp.FORWARDING_HEADERS:
+        value = request.headers.get(header)
+        if value is None:
+            continue
+        client = None
+        for hop in reversed(_rp._hops(header, value)):
+            addr = _rp.parse_addr(hop)
+            if addr is None:
+                break
+            if not _rp._trusted(addr, nets):
+                client = addr
+                break
+        if client is None:
+            return peer
+        named.add(client)
+    return str(named.pop()) if len(named) == 1 else peer
+
+
 def _login_labels(username):
     who = username.casefold()
-    return (("user_login", "pair", who, request.remote_addr or ""),
+    return (("user_login", "pair", who, _client_addr()),
             ("user_login", "user", who))
 
 

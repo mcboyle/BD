@@ -114,7 +114,7 @@ def _seed_history(n, tagged):
             cx.execute(
                 "INSERT INTO history(site_id, status, filename, file_size, ts) "
                 "VALUES(?,?,?,?,?)",
-                ("rs", "done", f"f{i}.bin", 1024 * 1024,
+                ("rs", "done", os.path.abspath(f"f{i}.bin"), 1024 * 1024,
                  f"2020-01-{(i % 28) + 1:02d}T00:00:{i % 60:02d}"))
         ids = [r[0] for r in cx.execute("SELECT id FROM history ORDER BY id")]
     tags.add_tag([ids[i] for i in tagged], "keep")
@@ -212,7 +212,7 @@ def _select_then(monkeypatch, after):
 def test_retention_tag_added_after_selection_survives_delete(sql_log, monkeypatch):
     ids = _seed_files(3)
     _select_then(monkeypatch, lambda: tags.add_tag([ids[1]], "keep"))
-    res = retention.apply_retention({"rs": _POLICY}, dry_run=False)
+    res = retention.apply_retention({"rs": dict(_POLICY, download_dir=os.getcwd())}, dry_run=False)
     survivors = sorted(p for p in ("f0.bin", "f1.bin", "f2.bin") if os.path.exists(p))
     assert survivors == ["f1.bin"], (
         f"M128 F1: row tagged 'keep' after selection was deleted; survivors={survivors}")
@@ -244,7 +244,7 @@ def test_retention_tag_write_waits_for_unlinks(sql_log, monkeypatch):
         return real_unlink(self, *args, **kwargs)
 
     monkeypatch.setattr(pathlib.Path, "unlink", unlink)
-    retention.apply_retention({"rs": _POLICY}, dry_run=False)
+    retention.apply_retention({"rs": dict(_POLICY, download_dir=os.getcwd())}, dry_run=False)
     assert len(attempts) == 2
     assert all("locked" in a for a in attempts), (
         f"M128 F1: a tag committed between the protect-tag re-check and the unlink: {attempts}")
@@ -263,7 +263,7 @@ def test_retention_tag_read_failure_selects_no_tagged_rows(tag_read_fault, monke
 def test_retention_recheck_failure_deletes_nothing(tag_read_fault, monkeypatch):
     _seed_files(3)
     _select_then(monkeypatch, lambda: tag_read_fault.update(armed=True))
-    res = retention.apply_retention({"rs": _POLICY}, dry_run=False)
+    res = retention.apply_retention({"rs": dict(_POLICY, download_dir=os.getcwd())}, dry_run=False)
     survivors = [p for p in ("f0.bin", "f1.bin", "f2.bin") if os.path.exists(p)]
     assert len(survivors) == 3, (
         f"M128 F2: protect-tag re-check failed and files were deleted; survivors={survivors}")
@@ -295,7 +295,7 @@ def test_retention_recheck_keeps_tags_at_chunk_edges(sql_log, monkeypatch):
     ids = _seed_files(10)
     # candidates come back oldest first, so the re-check looks up row k at slot k
     _select_then(monkeypatch, lambda: tags.add_tag([ids[k] for k in _EDGE_SLOTS], "keep"))
-    res = retention.apply_retention({"rs": _POLICY}, dry_run=False)
+    res = retention.apply_retention({"rs": dict(_POLICY, download_dir=os.getcwd())}, dry_run=False)
     deleted = sorted(k for k in range(10) if not os.path.exists(f"f{k}.bin"))
     assert deleted == [1, 2, 5, 6], (
         f"M128 F3: re-check missed tags at a chunk edge; deleted rows={deleted}")

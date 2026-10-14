@@ -10,6 +10,7 @@ from .app_dev import (
     _dev_mode_guard,
     dev_bp,
 )
+from .app_dev_config import _bad_body, _json_object_body
 
 
 @dev_bp.route("/api/dev/vpn_config")
@@ -108,7 +109,9 @@ def api_dev_tls_check():
     s_cfg = _app_s_cfg()
     guard = _dev_mode_guard()
     if guard: return guard
-    body = request.json or {}
+    body = _json_object_body()
+    if body is None:
+        return _bad_body()
     hosts = body.get("hosts")
     use_sites = bool(body.get("derive_from_sites", False))
     try:
@@ -117,9 +120,11 @@ def api_dev_tls_check():
         timeout = 5.0
     try:
         from . import dev_suite as _ds
-        return jsonify(_ds.tls_cert_check(
+        res = _ds.tls_cert_check(
             hosts=hosts,
             site_configs=(s_cfg if use_sites else None),
-            timeout=timeout))
+            timeout=timeout)
+        # A refused host list (not a list, over the host cap) is a 400.
+        return jsonify(res), (400 if res.get("ok") is False else 200)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
