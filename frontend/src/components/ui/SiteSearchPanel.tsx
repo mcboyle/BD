@@ -105,6 +105,7 @@ export function SiteSearchPanel() {
         <label className="text-xs text-muted-foreground" htmlFor="site-search-site">
           Site
         </label>
+        {/* F059: may shrink to the row, so a long site name cannot widen the page at 390px */}
         <select
           id="site-search-site"
           className="min-w-0 max-w-full rounded border px-2 py-1 text-sm bg-background"
