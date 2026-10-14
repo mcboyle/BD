@@ -955,6 +955,57 @@ def api_update(sid):
         if secret_field in data and not (data[secret_field] is None
                                          or isinstance(data[secret_field], str)):
             return jsonify({"error": f"{secret_field} must be a string"}), 400
+    # s28 (S02-C finding S28): container-typed fields.  {"accounts": "x"} was
+    # stored as sent (200) and SiteRunner then failed on it at the next start.
+    # A wrong type is refused before anything is merged or written.
+    for _ct_field, _ct_type in (
+            ("accounts", list), ("post_download_pipeline", list),
+            ("subscriptions", list), ("subtitle_languages", list),
+            ("url_fingerprint", dict), ("pre_scrape_action", dict),
+            ("learned", dict), ("draft_test_override", dict)):
+        if _ct_field not in data or data[_ct_field] is None or data[_ct_field] == "":
+            continue
+        if not isinstance(data[_ct_field], _ct_type):
+            _ct_want = "a list" if _ct_type is list else "an object"
+            return jsonify({"error": f"{_ct_field} must be {_ct_want}"}), 400
+    if "accounts" in data and data["accounts"] in (None, ""):
+        data["accounts"] = []
+    for _acct_i, _acct in enumerate(data.get("accounts") or []):
+        if not isinstance(_acct, dict):
+            return jsonify({"error": f"accounts[{_acct_i}] must be an object"}), 400
+        for _acct_f in ("label", "username", "password", "cookie_file", "last_failure"):
+            if not isinstance(_acct.get(_acct_f), (str, type(None))):
+                return jsonify({"error": f"accounts[{_acct_i}].{_acct_f} must be a string"}), 400
+        # r2 (lens R22-B F1): SiteRunner copies the active account's
+        # cookie_file over the site's, so it gets the site's own path check.
+        if _acct.get("cookie_file"):
+            _acct_ok, _acct_err = _validate_config_paths(
+                {"cookie_file": _acct["cookie_file"]})
+            if not _acct_ok:
+                return jsonify({"error": f"accounts[{_acct_i}].{_acct_err}"}), 400
+        try:
+            if not isinstance(_acct.get("cooldown_until"),
+                              (int, float, str, type(None))) or isinstance(
+                                  _acct.get("cooldown_until"), bool):
+                raise TypeError("not a number")
+            _acct_cd = float(_acct.get("cooldown_until") or 0)
+            if _acct_cd != _acct_cd or _acct_cd in (float("inf"), float("-inf")):
+                raise ValueError("not finite")
+        except (TypeError, ValueError, OverflowError):
+            return jsonify({"error": f"accounts[{_acct_i}].cooldown_until must be a number"}), 400
+    # r2 (lens R22-B F1): the loader asks the OS about a cookie path
+    # (Path(cf).exists()) for the site and, through SiteRunner, for the active
+    # account.  A path the OS refuses outright (name too long, no permission
+    # on a parent) is refused here with the same call, not found at restart.
+    for _cf_label, _cf in [("cookie_file", data.get("cookie_file"))] + [
+            (f"accounts[{_i}].cookie_file", _a.get("cookie_file"))
+            for _i, _a in enumerate(data.get("accounts") or [])]:
+        if isinstance(_cf, str) and _cf.strip():
+            try:
+                Path(_cf).exists()
+            except (OSError, ValueError) as _cf_err:
+                return jsonify({"error": f"{_cf_label} is not a path this host can read "
+                                         f"({type(_cf_err).__name__})"}), 400
     # dl95-xvideos-3: auth_required is a tri-state -- True / False, or unset
     # ("" / None) for "infer from the login fields". Discovery honours only a
     # real bool, so a form's "false" string is normalised here and anything
@@ -1047,6 +1098,10 @@ def api_update(sid):
     # position; same order as displayed).
     if "accounts" in data and isinstance(data.get("accounts"), list):
         existing = s_cfg.get(sid, {}).get("accounts") or []
+        # s28: a stored value from before the check above (still in memory
+        # until a restart) must not turn the repairing PUT into a 500.
+        existing = ([e if isinstance(e, dict) else {} for e in existing]
+                    if isinstance(existing, list) else [])
         merged = []
         for i, new_acct in enumerate(data["accounts"]):
             if not isinstance(new_acct, dict): continue

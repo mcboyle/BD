@@ -318,15 +318,19 @@ def test_failed_configured_site_restore_rolls_back_before_retry(tmp_path):
         import bulk_downloader.app as A
         from bulk_downloader import account_pool
 
-        real_runner = A.SiteRunner
+        # s28 r2 (PM 19:20Z): one runner that fails to build is now skipped
+        # per site, so it no longer fails the load.  The subject here -- a
+        # FAILED load leaves nothing behind and the retry restores all -- is
+        # planted on the load itself: both runners are built, then it raises.
+        real_load = A._load_sites_config
         failed = [False]
-        def fail_second_once(site_id, config):
-            if site_id == 'collection_second' and not failed[0]:
+        def fail_load_once():
+            real_load()
+            if not failed[0]:
                 failed[0] = True
                 raise RuntimeError('planted second-runner failure')
-            return real_runner(site_id, config)
 
-        A.SiteRunner = fail_second_once
+        A._load_sites_config = fail_load_once
         try:
             A.boot_once()
         except RuntimeError as exc:
@@ -342,7 +346,7 @@ def test_failed_configured_site_restore_rolls_back_before_retry(tmp_path):
         print('FAILED_POOLS=' + ','.join(sorted(
             item['site_id'] for item in account_pool.get_all_pools_status())))
 
-        A.SiteRunner = real_runner
+        A._load_sites_config = real_load
         retried = A.boot_once()
         retry_auto = [
             t for t in threading.enumerate()
