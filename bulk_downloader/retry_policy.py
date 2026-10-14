@@ -162,7 +162,9 @@ _RATE_PATTERNS = [
 # Transient — everything else that looks recoverable: 5xx, timeouts,
 # connection resets. This is the default class for unrecognized
 # errors (be optimistic: retry on the assumption it's transient).
-_TRANSIENT_STATUS = {500, 502, 503, 504, 522, 524}
+# 408 Request Timeout and 425 Too Early are 4xx but say "send it again
+# later", so they must not fall through to the blanket 4xx-permanent rule.
+_TRANSIENT_STATUS = {408, 425, 500, 502, 503, 504, 522, 524}
 _TRANSIENT_PATTERNS = [
     "timeout",
     "timed out",
@@ -208,7 +210,8 @@ def classify_failure(message: str = "",
     else:
         msg = message.lower()
     # Defensive: status_code might be a string from a JSON-
-    # deserialized error response. Coerce to int or None.
+    # deserialized error response. Coerce to int or None (an infinite
+    # float raises OverflowError, not ValueError).
     sc = status_code
     if sc is not None and not isinstance(sc, int):
         try:
@@ -312,8 +315,10 @@ def compute_next_delay(failure_class: str,
             and retry_after_header is not None):
         try:
             ra = int(retry_after_header)
-        except (TypeError, ValueError):
-            ra = 0
+        except (TypeError, ValueError, OverflowError):
+            # An HTTP-date Retry-After; a non-finite number parses to
+            # None here and falls back to the class backoff.
+            ra = parse_retry_after(retry_after_header) or 0
         if ra > 0:
             delay = min(ra, cfg["max_delay_s"])
             retry_after_floor = delay
@@ -353,6 +358,9 @@ def compute_next_delay(failure_class: str,
             delay = int(delay + random.uniform(-jit, jit))
             # dat-retry-class F13: jitter never pushes past the class maximum.
             delay = max(1, min(delay, cfg["max_delay_s"]))
+            # Jitter may push a Retry-After delay later, never earlier.
+            if retry_after_floor > 0:
+                delay = max(delay, retry_after_floor)
 
     return delay
 
