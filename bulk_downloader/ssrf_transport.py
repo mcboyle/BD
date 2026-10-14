@@ -17,8 +17,10 @@ seam only ADDS refusals; it never admits a host the base refused.
 the executed path (an ``_is_safe_public_host`` pre-check or request hook).
 Returns the established ``_SSRFGuardedTransport`` unchanged: hostnames are
 re-resolved in the transport, every address must classify public, and the
-connection is pinned to the vetted literal.  Literal-IP URLs are delegated as
-before -- the pre-check owns them.
+connection is pinned to the vetted literal.  Literal-IP URLs are judged by the
+same classifier (``_classify_ip``, embedded IPv4 included) and refused unless
+public: a redirect hop to ``http://127.0.0.1/`` never passes a pre-check, so the
+transport cannot leave literals to it (row ssrf-public-literal).
 
 ``PINNED`` -- for a client whose target is operator-configured (a bridge on the
 LAN, an identity provider, a VPN provider API or its gateway, a site's own
@@ -75,7 +77,8 @@ class GuardedTransportRefused(httpx.ConnectError):
 
     ``host`` is the URL host as requested; ``reason`` is a short token:
     ``unspecified``, ``multicast``, ``reserved``, ``link-local``,
-    ``resolution-failed`` or ``no-address``.
+    ``resolution-failed`` or ``no-address``; a PUBLIC_ONLY literal refusal
+    carries the classifier's code (``loopback``, ``private``, ``cgnat`` ...).
     """
 
     def __init__(self, message: str, *, host: str, reason: str) -> None:
@@ -326,7 +329,30 @@ def restoring_public_guard_cls() -> type:
     """Established public guard with only post-socket request restoration."""
     class RestoringPublicGuard(_RestoresLogicalRequest, established_guard_cls()):
         policy = PUBLIC_ONLY
+
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            # The established guard delegates IP-literal hosts unjudged; under
+            # PUBLIC_ONLY a literal must classify public like a resolved address.
+            if not self._allow_private_hosts:
+                _refuse_non_public_literal(request.url.host)
+            return super().handle_request(request)
     return RestoringPublicGuard
+
+
+def _refuse_non_public_literal(host: str) -> None:
+    """Raise ``GuardedTransportRefused`` when ``host`` is an IP literal that
+    ``_classify_ip`` does not judge public; hostnames are left to the guard."""
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return
+    from bulk_downloader.provider_resolve_impl._common import _classify_ip
+    ok, why = _classify_ip(addr, host)
+    if not ok:
+        code = getattr(why, "code", None)
+        raise GuardedTransportRefused(
+            f"guarded transport (public-only): {why}",
+            host=host, reason=getattr(code, "value", None) or "not-public")
 
 
 @contextlib.contextmanager
