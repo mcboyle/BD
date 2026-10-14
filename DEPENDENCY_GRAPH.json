@@ -1962,13 +1962,14 @@
         "bulk_downloader/template_normalize.py",
         "bulk_downloader/user_accounts.py"
       ],
-      "route_count": 7,
+      "route_count": 8,
       "routes": [
         "ROUTE /api/automation/drift_repair",
         "ROUTE /api/automation/drift_repair/run",
         "ROUTE /api/automation/drift_repair/toggle",
         "ROUTE /api/template_manager",
         "ROUTE /api/template_manager/disable",
+        "ROUTE /api/template_manager/draft",
         "ROUTE /api/template_manager/promote",
         "ROUTE /api/template_manager/promote_check"
       ],
@@ -2451,7 +2452,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1900,
+    "edge_count": 1901,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2894,6 +2895,7 @@
         "bulk_downloader/element_pick.py",
         "bulk_downloader/network_log_reducer.py",
         "bulk_downloader/request_replay.py",
+        "bulk_downloader/template_manager.py",
         "bulk_downloader/template_normalize.py",
         "bulk_downloader/wacz_export.py",
         "tools/audit/witnesses/cap01_witnesses.py",
@@ -7799,6 +7801,7 @@
       "bulk_downloader/template_manager.py": [
         "bulk_downloader/affordance_learning.py",
         "bulk_downloader/bad_terms.py",
+        "bulk_downloader/capture_artifact_redact.py",
         "bulk_downloader/dry_run.py",
         "bulk_downloader/lifecycle_drift.py",
         "bulk_downloader/pattern_hygiene.py",
