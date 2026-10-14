@@ -242,7 +242,7 @@
     {
       "bytes": 1080,
       "key": "tests/test_v3_43_40_extension_routing.py::test_popup_js_loads_sites_lazily::src[pos:pos + 1000]::1",
-      "sha256": "b3acd03242d38010bcbbd09ced2058cbe7a6e0afd27d7706d49f36ab164bb5fc"
+      "sha256": "2248d883d7e08e74fd565684dd8af10f0152fda8df9b77d3faaf5c0c1434fb14"
     },
     {
       "bytes": 1070,
