@@ -63,8 +63,8 @@ def _fake_tree(td: str, claude_body: str, changelog_body: str = "") -> str:
     (root / "CLAUDE.md").write_text(claude_body)
     if changelog_body:
         (root / "CHANGELOG.md").write_text(changelog_body)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, timeout=120)
+    subprocess.run(["git", "add", "."], cwd=root, check=True, timeout=120)
     return str(root)
 
 
@@ -101,7 +101,7 @@ def test_a_root_document_other_than_the_contract_also_joins_the_corpus():
         root = _fake_tree(td, "See `bulk_downloader/real_module.py`.\n")
         Path(root, "ARCHITECTURE.md").write_text(
             "Described in `bulk_downloader/never_existed.py`.\n")
-        subprocess.run(["git", "add", "ARCHITECTURE.md"], cwd=root, check=True)
+        subprocess.run(["git", "add", "ARCHITECTURE.md"], cwd=root, check=True, timeout=120)
         r = _run(["--work", root], cwd=root)
         assert r.returncode == 1, (
             "a dead reference in a non-CLAUDE root document was not seen; "
