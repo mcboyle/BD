@@ -71,6 +71,10 @@ class TaskStatePauseDrainEngine:
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._tasks: Dict[str, TaskRecord] = {}
+        # dl-runner r3 (cx180 F1): bumped each time drain_task starts a drain,
+        # so a hold observed under one drain cannot be lifted by a stale
+        # resume after a newer drain (resume_task(drain_generation=...)).
+        self._drain_generations: Dict[str, int] = {}
 
     def register_task(
         self,
@@ -91,15 +95,44 @@ class TaskStatePauseDrainEngine:
             return task
 
     def acquire_operation(self, task_id: str, op_id: Optional[str] = None) -> str:
-        """Register an active in-flight operation for a task."""
+        """Register an active in-flight operation for a task.
+
+        dl-runner #9: new work ends a settled drain. A DRAINED (or TIMED_OUT)
+        task that admits an operation is RUNNING again, never "drained" with
+        in-flight work. PAUSED and DRAINING keep their state: a drain in
+        progress waits for this operation too."""
         with self._lock:
             task = self._tasks.get(task_id)
             if not task:
                 task = self.register_task(task_id)
+            if task.state in (TaskState.DRAINED.value, TaskState.TIMED_OUT.value):
+                task.state = TaskState.RUNNING.value
             op = str(op_id) if op_id else f"op-{uuid.uuid4().hex[:8]}"
             task.in_flight_ops.add(op)
             task.updated_at = time.time()
             return op
+
+    def try_acquire_operation(self, task_id: str, op_id: Optional[str] = None) -> Optional[str]:
+        """dl-runner r2 (cx162 F1): admit NEW work only while no drain holds the
+        task. Returns the op id, or None while the task is DRAINING, DRAINED or
+        TIMED_OUT: a drain's empty-work decision is taken under this same lock,
+        so work admitted here is either counted by that drain or refused until
+        resume_task(). acquire_operation() stays unconditional for callers that
+        already hold work."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task and task.state in (TaskState.DRAINING.value,
+                                       TaskState.DRAINED.value,
+                                       TaskState.TIMED_OUT.value):
+                return None
+            return self.acquire_operation(task_id, op_id)
+
+    def drain_generation(self, task_id: str) -> int:
+        """dl-runner r3 (cx180 F1): how many drains task_id has started. Read
+        it BEFORE try_acquire_operation: a refusal is then held by that drain
+        or a newer one, never an older one."""
+        with self._lock:
+            return self._drain_generations.get(task_id, 0)
 
     def release_operation(self, task_id: str, op_id: str) -> bool:
         """Release an active in-flight operation and signal waiting drainers."""
@@ -165,6 +198,7 @@ class TaskStatePauseDrainEngine:
 
             task.state = TaskState.DRAINING.value
             task.updated_at = started
+            self._drain_generations[task_id] = self._drain_generations.get(task_id, 0) + 1
 
         deadline = started + timeout
         with self._lock:
@@ -205,13 +239,24 @@ class TaskStatePauseDrainEngine:
     def resume_task(
         self,
         task_id: str,
+        drain_generation: Optional[int] = None,
     ) -> Tuple[TaskRecord, Dict[str, Any]]:
-        """Transition task from PAUSED/DRAINED/TIMED_OUT to RUNNING and return restored checkpoint."""
+        """Transition task from PAUSED/DRAINED/TIMED_OUT to RUNNING and return restored checkpoint.
+
+        dl-runner r3 (cx180 F1): with drain_generation, only lift the hold of
+        THAT drain: a task no longer held (DRAINING/DRAINED/TIMED_OUT), or held
+        by a newer drain, is left unchanged."""
         with self._lock:
             task = self._tasks.get(task_id)
             now = time.time()
             if not task:
                 task = self.register_task(task_id)
+                return task, {}
+            if drain_generation is not None and (
+                    task.state not in (TaskState.DRAINING.value,
+                                       TaskState.DRAINED.value,
+                                       TaskState.TIMED_OUT.value)
+                    or self._drain_generations.get(task_id, 0) != drain_generation):
                 return task, {}
 
             task.state = TaskState.RUNNING.value

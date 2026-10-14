@@ -1307,6 +1307,68 @@ class StartOutcome(str, enum.Enum):
     TEARDOWN_PENDING = "worker_teardown"
 
 
+_DRAIN_HELD = object()
+
+
+def _acquire_drain_op(runner, held=None):
+    """dl-runner #9: register one URL as in-flight work with the task drain
+    engine BEFORE it is claimed, so SiteRunner.drain() measures real work
+    instead of answering 'drained' over running downloads. Returns a handle
+    for _release_drain_op, _DRAIN_HELD while a drain holds the task (r2,
+    cx162 F1: the claim must wait), or None if the engine is unusable;
+    never raises into the worker. `held`, if given, receives the drain
+    generation read before the attempt (r3, cx180 F1)."""
+    try:
+        from .task_drain_engine import get_task_drain_engine
+        engine = get_task_drain_engine()
+        task_id = runner.site_id
+        if held is not None:
+            held[0] = engine.drain_generation(task_id)
+        op = engine.try_acquire_operation(task_id)
+        if op is None:
+            return _DRAIN_HELD
+        return engine, task_id, op
+    except Exception:
+        return None
+
+
+def _await_drain_release(runner):
+    """dl-runner r2 (cx162 F1): park a worker whose URL is not yet claimed
+    while a drain holds the site's task. The hold lasts while the runner is
+    paused (drain() pauses first); once anything un-pauses it, the drain is
+    over and the task is reopened here -- but only from the drain that held
+    this worker (r3, cx180 F1): an un-pause observed before a newer drain must
+    not reopen that drain. Returns a drain handle (or None if the engine is
+    unusable), or _DRAIN_HELD if the runner stopped meanwhile."""
+    held = [0]
+    while True:
+        handle = _acquire_drain_op(runner, held)
+        if handle is not _DRAIN_HELD:
+            return handle
+        if runner._stop.is_set():
+            return _DRAIN_HELD
+        if runner._pause.is_set():
+            try:
+                from .task_drain_engine import get_task_drain_engine
+                get_task_drain_engine().resume_task(
+                    runner.site_id, drain_generation=held[0])
+            except Exception:
+                return None
+            continue
+        runner._stop.wait(0.2)
+
+
+def _release_drain_op(handle):
+    """Release a handle from _acquire_drain_op (None is a no-op)."""
+    if handle is None:
+        return
+    engine, task_id, op = handle
+    try:
+        engine.release_operation(task_id, op)
+    except Exception:
+        pass
+
+
 def _pending_url_already_downloadable(url):
     """Row 776: True when `url` is already an accepted direct-media href
     per candidate_filter, with no page fetched and no selectors involved.
@@ -4669,9 +4731,20 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     def _process_worker_url(self, worker_idx, browser, url,
                             persistent_ctx=None, run_generation=None):
         """Claim, map, and process one URL with an unambiguous result."""
-        claim_result, run_generation = self._claim_worker_item(
-            worker_idx, url, run_generation)
+        # dl-runner #9 / r2 (cx162 F1): the drain operation is registered
+        # BEFORE the claim publishes the URL as running, so a concurrent
+        # drain either counts this URL or holds it unclaimed until resume.
+        drain_op = _await_drain_release(self)
+        if drain_op is _DRAIN_HELD:  # stopped while a drain held the task
+            return self._WORKER_CLAIM_INELIGIBLE
+        try:
+            claim_result, run_generation = self._claim_worker_item(
+                worker_idx, url, run_generation)
+        except BaseException:
+            _release_drain_op(drain_op)
+            raise
         if claim_result != "claimed":
+            _release_drain_op(drain_op)
             return claim_result
         url_span = None  # Row 1061: this URL's trace span (runner_telemetry)
         try:
@@ -4689,6 +4762,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             end_url_trace_span(url_span, exc)
             raise
         finally:
+            _release_drain_op(drain_op)
             with self._worker_heartbeats_lock:
                 if (self._worker_url_generations.get(worker_idx) == run_generation
                         and self._worker_current_urls.get(worker_idx) == url):
