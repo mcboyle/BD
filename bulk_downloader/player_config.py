@@ -85,45 +85,78 @@ class PlayerConfig:
 
 # ── Balanced brace extractor ──────────────────────────────────────────────────
 
-def _find_balanced_object(text: str, start_index: int) -> Optional[tuple[str, int]]:
-    """Extract a balanced `{...}` substring starting from start_index."""
-    brace_start = text.find("{", start_index)
+# Every head scans from its own "{" to the end of an unclosed object, so n heads
+# on one page cost O(n^2) ("jwplayer().setup({" x n, 144 KB: 89 s). One budget
+# per extract_player_configs call keeps a page linear; heads after it is spent
+# are skipped.
+_SCAN_BUDGET_FACTOR = 4
+_SCAN_BUDGET_FLOOR = 65536
+_OBJECT_SPECIAL_RE = re.compile(r'[{}"\'`\\]')
+_STRING_SPECIAL_RE = {q: re.compile("[\\\\" + q + "]") for q in "\"'`"}
+
+
+class _ScanBudget:
+    """Characters _find_balanced_object may still walk for one page, plus the
+    last text.find("{") answer (heads arrive in order, so it is reused)."""
+
+    def __init__(self, text: str):
+        self.left = _SCAN_BUDGET_FACTOR * len(text) + _SCAN_BUDGET_FLOOR
+        self.brace_from = 0
+        self.brace_at = -2
+
+    def next_brace(self, text: str, start_index: int) -> int:
+        if not (self.brace_from <= start_index and (self.brace_at == -1 or start_index <= self.brace_at)):
+            self.brace_from = start_index
+            self.brace_at = text.find("{", start_index)
+        return self.brace_at
+
+
+def _find_balanced_object(
+    text: str, start_index: int, budget: Optional[_ScanBudget] = None
+) -> Optional[tuple[str, int]]:
+    """Extract a balanced `{...}` substring starting from start_index.
+
+    With a budget, walk at most budget.left characters and charge them."""
+    if budget is None:
+        brace_start = text.find("{", start_index)
+        stop = len(text)
+    else:
+        brace_start = budget.next_brace(text, start_index)
+        stop = min(len(text), brace_start + budget.left)
     if brace_start == -1:
         return None
 
+    # Jump between the characters that change state (all others are inert):
+    # outside a string { } quotes and backslash, inside one its quote and
+    # backslash. A backslash skips the next character either way.
     depth = 0
-    in_string = False
-    quote_char = ""
-    escaped = False
-
-    for i in range(brace_start, len(text)):
+    special = _OBJECT_SPECIAL_RE
+    i = brace_start
+    while True:
+        m = special.search(text, i, stop)
+        if not m:
+            break
+        i = m.start()
         char = text[i]
-
-        if escaped:
-            escaped = False
-            continue
-
         if char == "\\":
-            escaped = True
+            i += 2
             continue
-
-        if in_string:
-            if char == quote_char:
-                in_string = False
-            continue
-
-        if char in ('"', "'", "`"):
-            in_string = True
-            quote_char = char
-            continue
-
-        if char == "{":
+        if special is not _OBJECT_SPECIAL_RE:
+            special = _OBJECT_SPECIAL_RE  # the closing quote
+        elif char == "{":
             depth += 1
         elif char == "}":
             depth -= 1
             if depth == 0:
+                if budget is not None:
+                    budget.left -= i + 1 - brace_start
                 return text[brace_start : i + 1], i + 1
+        else:
+            special = _STRING_SPECIAL_RE[char]
+        i += 1
 
+    if budget is not None:
+        budget.left -= stop - brace_start
     return None
 
 
@@ -224,13 +257,47 @@ def _find_tokens_in_dict(data: Any, tokens: dict[str, str], depth: int = 0) -> N
 
 # ── Configuration Extractors ─────────────────────────────────────────────────
 
-_JWPLAYER_SETUP_RE = re.compile(r'jwplayer\s*\([^)]*\)\s*\.\s*setup\s*\(', re.IGNORECASE)
-_VIDEOJS_CALL_RE = re.compile(r'videojs\s*\([^,]+,\s*', re.IGNORECASE)
+# jwplayer(...).setup( and videojs(<first arg>, are found by _call_heads, not
+# by one regex: r'jwplayer\s*\([^)]*\)...' restarts its [^)]* run at every
+# head, so a page of "jwplayer(" x n with no ")" cost O(n^2) (144 KB: 1.5 s).
+_JWPLAYER_HEAD_RE = re.compile(r'jwplayer\s*\(', re.IGNORECASE)
+_JWPLAYER_TAIL_RE = re.compile(r'\s*\.\s*setup\s*\(', re.IGNORECASE)
+_VIDEOJS_HEAD_RE = re.compile(r'videojs\s*\(', re.IGNORECASE)
+_VIDEOJS_TAIL_RE = re.compile(r'\s*')
 _DATA_SETUP_RE = re.compile(r'data-setup\s*=\s*(["\'])(.*?)\1', re.IGNORECASE | re.DOTALL)
 _INITIAL_STATE_RE = re.compile(
     r'(?:window\.)?__(?:INITIAL_STATE|INITIAL_PLAYER_STATE|PLAYER_CONFIG)__\s*=\s*',
     re.IGNORECASE
 )
+
+
+def _call_heads(text: str, head_re, stop: str, tail_re, min_run: int) -> list[int]:
+    """End offsets of head_re + [^stop]{min_run,} + stop + tail_re, left to
+    right and non-overlapping, exactly as re.finditer reports that regex.
+
+    A negated run can only end at the first `stop` after its head, so that
+    offset is found once and reused by every head before it: linear in text.
+    """
+    ends: list[int] = []
+    pos = 0
+    next_stop = -1
+    while True:
+        head = head_re.search(text, pos)
+        if not head:
+            return ends
+        run_start = head.end()
+        if next_stop < run_start:
+            next_stop = text.find(stop, run_start)
+            if next_stop == -1:
+                return ends
+        tail = None
+        if next_stop - run_start >= min_run:
+            tail = tail_re.match(text, next_stop + 1)
+        if tail:
+            ends.append(tail.end())
+            pos = tail.end()
+        else:
+            pos = head.start() + 1
 
 
 def _tolerant_int(value) -> Optional[int]:
@@ -288,10 +355,11 @@ def _parse_source_entry(entry: dict[str, Any]) -> Optional[PlayerSource]:
     )
 
 
-def _extract_jwplayer_configs(text: str) -> list[PlayerConfig]:
+def _extract_jwplayer_configs(text: str, budget: Optional[_ScanBudget] = None) -> list[PlayerConfig]:
+    budget = budget or _ScanBudget(text)
     configs: list[PlayerConfig] = []
-    for match in _JWPLAYER_SETUP_RE.finditer(text):
-        obj_info = _find_balanced_object(text, match.end() - 1)
+    for end in _call_heads(text, _JWPLAYER_HEAD_RE, ")", _JWPLAYER_TAIL_RE, 0):
+        obj_info = _find_balanced_object(text, end - 1, budget)
         if not obj_info:
             continue
         obj_text, _ = obj_info
@@ -345,7 +413,8 @@ def _extract_jwplayer_configs(text: str) -> list[PlayerConfig]:
     return configs
 
 
-def _extract_videojs_configs(text: str) -> list[PlayerConfig]:
+def _extract_videojs_configs(text: str, budget: Optional[_ScanBudget] = None) -> list[PlayerConfig]:
+    budget = budget or _ScanBudget(text)
     configs: list[PlayerConfig] = []
 
     # 1. Video.js HTML data-setup attribute
@@ -381,8 +450,8 @@ def _extract_videojs_configs(text: str) -> list[PlayerConfig]:
                 )
 
     # 2. Video.js JS function calls: videojs("id", {...})
-    for match in _VIDEOJS_CALL_RE.finditer(text):
-        obj_info = _find_balanced_object(text, match.end())
+    for end in _call_heads(text, _VIDEOJS_HEAD_RE, ",", _VIDEOJS_TAIL_RE, 1):
+        obj_info = _find_balanced_object(text, end, budget)
         if not obj_info:
             continue
         obj_text, _ = obj_info
@@ -418,10 +487,11 @@ def _extract_videojs_configs(text: str) -> list[PlayerConfig]:
     return configs
 
 
-def _extract_generic_configs(text: str) -> list[PlayerConfig]:
+def _extract_generic_configs(text: str, budget: Optional[_ScanBudget] = None) -> list[PlayerConfig]:
+    budget = budget or _ScanBudget(text)
     configs: list[PlayerConfig] = []
     for match in _INITIAL_STATE_RE.finditer(text):
-        obj_info = _find_balanced_object(text, match.end())
+        obj_info = _find_balanced_object(text, match.end(), budget)
         if not obj_info:
             continue
         obj_text, _ = obj_info
@@ -465,8 +535,9 @@ def extract_player_configs(html_or_js: str) -> list[PlayerConfig]:
         return []
 
     results: list[PlayerConfig] = []
-    results.extend(_extract_jwplayer_configs(html_or_js))
-    results.extend(_extract_videojs_configs(html_or_js))
-    results.extend(_extract_generic_configs(html_or_js))
+    budget = _ScanBudget(html_or_js)
+    results.extend(_extract_jwplayer_configs(html_or_js, budget))
+    results.extend(_extract_videojs_configs(html_or_js, budget))
+    results.extend(_extract_generic_configs(html_or_js, budget))
 
     return results
