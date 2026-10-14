@@ -12,6 +12,11 @@ F2  A non-build install dir (no .git, no build_info.json) spawned
 F3  The non-sites site-lifecycle stripe was acquired BEFORE _check_token, so
     an unauthenticated POST queued on it and then got 401.
 
+F4  (r2) _attach_sites_config_health read flask.g unguarded; outside an
+    app/request context (boot, config-load child) the proxy raised
+    RuntimeError and the boot path died (T281i FIXFWD note). Without a
+    context the flag is unset = full payload.
+
 Every failure message starts with APPCORE-F<n>.
 """
 import json
@@ -255,3 +260,22 @@ def test_f3_authenticated_post_still_takes_the_stripe(client, stripe):
     assert r.status_code == 200, (url, r.status_code)
     assert taken == ["appcoresite"], (
         f"APPCORE-F3-CONTROL authenticated POST {url} took {taken}")
+
+
+# ── F4 (r2) ───────────────────────────────────────────────────────────────
+
+def test_f4_health_outside_an_app_context_does_not_raise(monkeypatch):
+    from flask import has_app_context
+    import bulk_downloader.app_health as H
+    assert not has_app_context(), "APPCORE-F4 precondition: test must run with no app context pushed"
+    monkeypatch.setattr(H, "_app_sites_config_reachability",
+                        lambda: {"ok": True, "path": "/srv/bd/sites.json"})
+    payload = {"ok": True}
+    try:
+        H._attach_sites_config_health(payload)
+    except RuntimeError as exc:
+        pytest.fail(f"APPCORE-F4 health outside an app context raised: {exc}")
+    assert payload.get("sites_config", {}).get("path") == "/srv/bd/sites.json", (
+        "APPCORE-F4 outside a context the flag is unset = full payload; "
+        f"path withheld: {payload!r}")
+    assert payload["ok"] is True, f"APPCORE-F4 reachable config marked not ok: {payload!r}"

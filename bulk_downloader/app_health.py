@@ -434,8 +434,11 @@ def _attach_sites_config_health(payload: dict) -> None:
     # app-core F1: /api/health is open to callers with no credential (deploy
     # reads it that way); the absolute config path is shown only to a caller
     # _check_token saw present one. Unset (auth off, other routes) = full.
-    from flask import g
-    if getattr(g, "bd_health_full", True) is not True:
+    # hcf r2: g is app-context scoped; read outside a context (boot / config
+    # load child) raises on the proxy, so without a context it is unset = full.
+    from flask import g, has_app_context
+    full = getattr(g, "bd_health_full", True) if has_app_context() else True
+    if full is not True:
         state.pop("path", None)
     payload["sites_config"] = state
     if state.get("ok") is not True:
