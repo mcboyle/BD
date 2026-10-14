@@ -50,6 +50,8 @@ SITE_ACTION_KEYS: dict[str, str] = {"x": "pause", "u": "resume", "t": "retry"}
 
 # Arrow keys arrive as escape sequences once the terminal is in cbreak mode.
 _ARROW_KEYS = {"[A": "up", "[B": "down"}
+# Longest escape sequence read_key takes in one go (CSI parameters included).
+_MAX_ESCAPE_LEN = 32
 
 
 def _as_dict(value: Any) -> dict:
@@ -371,24 +373,46 @@ class TerminalDashboardController:
             timestamp=time.time(),
         )
         snapshot.alerts = self.evaluate_alerts(snapshot)
-        # The cursor follows its site by id, not row number, across a refresh --
-        # a failed poll that lists no sites included -- so a key typed while a
-        # poll was in flight acts on the site the operator saw selected. While
-        # that site is absent nothing is selected (x/u/t send nothing) until it
-        # is back or j/k picks another.
+        self.latest_snapshot = snapshot
+        self._sync_view()
+        self.refresh_requested = False
+        return snapshot
+
+    def visible_sites(self) -> list[SiteOperationalStatus]:
+        """The snapshot's sites as the table shows them: only those whose id or
+        name contains `filter_query` (case-insensitive), ordered by `sort_field`
+        -- name A-Z, a count largest first, ties by site id -- and flipped by
+        `sort_reverse`."""
+        query = self.state.filter_query.lower()
+        sites = [s for s in self.latest_snapshot.sites
+                 if not query or query in s.site_id.lower() or query in s.name.lower()]
+        field_name = self.state.sort_field.value
+        if self.state.sort_field == SortField.NAME:
+            sites.sort(key=lambda s: (s.name.lower(), s.site_id))
+        else:
+            sites.sort(key=lambda s: (-getattr(s, field_name), s.site_id))
+        if self.state.sort_reverse:
+            sites.reverse()
+        return sites
+
+    def _sync_view(self) -> None:
+        """Make current_site_ids the rows on screen (visible_sites).
+
+        The cursor follows its site by id, not row number, across a refresh, a
+        sort or a filter -- a failed poll that lists no sites included -- so a
+        key typed while a poll was in flight acts on the site the operator saw
+        selected. While that site is absent nothing is selected (x/u/t send
+        nothing) until it is back or j/k picks another."""
         idx = self.state.selected_site_index
         if 0 <= idx < len(self.current_site_ids):
             self.selected_site_id = self.current_site_ids[idx]
-        self.latest_snapshot = snapshot
-        self.current_site_ids = [s.site_id for s in sites]
+        self.current_site_ids = [s.site_id for s in self.visible_sites()]
         if self.selected_site_id in self.current_site_ids:
             self.state.selected_site_index = self.current_site_ids.index(self.selected_site_id)
         elif self.selected_site_id is None:
-            self.state.move_selection(0, len(sites))  # nothing chosen yet: the first site
+            self.state.move_selection(0, len(self.current_site_ids))  # nothing chosen yet: the first site
         else:
             self.state.selected_site_index = -1
-        self.refresh_requested = False
-        return snapshot
 
     def evaluate_alerts(self, snapshot: OperationalSnapshot) -> list[str]:
         """Detect operational alerts and anomalies from cluster telemetry."""
@@ -486,7 +510,8 @@ class TerminalDashboardController:
         ]
         if self.state.view_mode == ViewMode.SITES:
             lines.append(f"{'Site':20} {'Run':4} {'Queue':6} {'Done':6} {'Fail':5} {'Health':8}")
-            for idx, s in enumerate(self.latest_snapshot.sites):
+            self._sync_view()
+            for idx, s in enumerate(self.visible_sites()):
                 prefix = "> " if idx == self.state.selected_site_index else "  "
                 lines.append(
                     f"{prefix}{s.name[:18]:18} {s.running:4} {s.queued:6} {s.done:6} {s.failed:5} {s.health_status:8}"
@@ -539,10 +564,12 @@ class TerminalDashboardController:
             content_table.add_column("Failed", justify="right", style="red")
             content_table.add_column("Health", justify="center")
 
-            if not self.latest_snapshot.sites:
+            self._sync_view()
+            sites = self.visible_sites()
+            if not sites:
                 content_table.add_row("", "(no sites active)", "-", "-", "-", "-", "-")
             else:
-                for idx, s in enumerate(self.latest_snapshot.sites):
+                for idx, s in enumerate(sites):
                     sel = "▶" if idx == self.state.selected_site_index else " "
                     health_style = "green" if s.health_status == "healthy" else "bold red"
                     content_table.add_row(
@@ -626,8 +653,24 @@ def terminal_key_reader(stream: Any = None) -> Iterator[Callable[[float], str | 
         key = os.read(fd, 1).decode("utf-8", "replace")
         if key != "\x1b":
             return key
-        more, _, _ = select.select([fd], [], [], 0.05)
-        return _ARROW_KEYS.get(os.read(fd, 2).decode("utf-8", "replace") if more else "")
+        # Read the whole sequence, so no byte of it is taken as a key later
+        # (\x1b[1;5x must not leave an "x" that pauses the selected site):
+        # ESC + one byte (alt-key), or ESC [ / ESC O + parameter bytes + one
+        # final byte (@ to ~). Only the arrows mean anything here.
+        seq = ""
+        while len(seq) < _MAX_ESCAPE_LEN:
+            more, _, _ = select.select([fd], [], [], 0.05)
+            if not more:
+                break
+            ch = os.read(fd, 1).decode("utf-8", "replace")
+            if not ch:  # hangup / EOF: readable forever, nothing more to read
+                break
+            seq += ch
+            if len(seq) == 1 and ch not in "[O":
+                break
+            if len(seq) > 1 and "@" <= ch <= "~":
+                break
+        return _ARROW_KEYS.get(seq)
 
     tty.setcbreak(fd)
     try:

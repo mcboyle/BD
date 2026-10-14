@@ -707,12 +707,21 @@ class BypassResult:
 
 
 _LEGACY_TIMED_OUT = object()
+_LEGACY_BUSY = object()
+# Legacy fetch threads that outlived their caller's timeout. A thread cannot be
+# stopped, so each keeps its browser until fetch() returns; while one runs no
+# new legacy fetch starts -- stuck browsers do not pile up one per bypass.
+# Fetches still inside their budget are not tracked: concurrent healthy
+# bypasses run side by side as before.
+_legacy_lock = threading.Lock()
+_legacy_stragglers: set = set()
 
 
 def _fetch_legacy_bounded(fetcher, url: str, timeout_s: float):
     """Run `fetcher.fetch(url)` in a daemon thread for at most
-    `timeout_s`. Returns the page, `_LEGACY_TIMED_OUT`, or re-raises
-    the fetch's own exception."""
+    `timeout_s` in all. Returns the page, `_LEGACY_TIMED_OUT`,
+    `_LEGACY_BUSY` (an earlier timed-out fetch still ran when the budget
+    ended; nothing started), or re-raises the fetch's own exception."""
     box: dict = {}
 
     def _run():
@@ -721,10 +730,21 @@ def _fetch_legacy_bounded(fetcher, url: str, timeout_s: float):
         except BaseException as e:  # re-raised in the caller's thread
             box["error"] = e
 
-    worker = threading.Thread(target=_run, name="scrapling-legacy-fetch", daemon=True)
-    worker.start()
-    worker.join(timeout_s)
+    deadline = time.monotonic() + timeout_s
+    with _legacy_lock:
+        prior = list(_legacy_stragglers)
+    for thread in prior:  # an earlier timed-out fetch may finish inside this budget
+        thread.join(max(0.0, deadline - time.monotonic()))
+    with _legacy_lock:
+        _legacy_stragglers.difference_update([t for t in _legacy_stragglers if not t.is_alive()])
+        if _legacy_stragglers:
+            return _LEGACY_BUSY
+        worker = threading.Thread(target=_run, name="scrapling-legacy-fetch", daemon=True)
+        worker.start()
+    worker.join(max(0.0, deadline - time.monotonic()))
     if worker.is_alive():
+        with _legacy_lock:
+            _legacy_stragglers.add(worker)
         return _LEGACY_TIMED_OUT
     if "error" in box:
         raise box["error"]
@@ -775,10 +795,12 @@ def bypass_turnstile(
             # Older Scrapling: positional URL + minimal kwargs. That
             # call takes no timeout, so bound it with a daemon thread.
             page = _fetch_legacy_bounded(StealthyFetcher, url, timeout_s)
-            if page is _LEGACY_TIMED_OUT:
+            if page is _LEGACY_TIMED_OUT or page is _LEGACY_BUSY:
                 _bump("turnstile_failed")
                 return BypassResult(
-                    ok=False, error="legacy_fetch_timeout",
+                    ok=False,
+                    error=("legacy_fetch_timeout" if page is _LEGACY_TIMED_OUT
+                           else "legacy_fetch_busy"),
                     elapsed_s=time.monotonic() - start,
                 )
     except Exception as e:
