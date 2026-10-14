@@ -16,6 +16,7 @@ is open. POST endpoints expect a JSON body with a `url` key.
 """
 from __future__ import annotations
 
+import math
 import sys
 from urllib.parse import unquote
 
@@ -106,7 +107,8 @@ def captcha_start_solve():
                         "session_id": session_id,
                         "url": url,
                         "status": "resolved",
-                        "clearance": cached_clearance,
+                        # F9: the clearance value stays in the cache (cloak injects
+                        # it); the client is told only that one was used.
                     },
                 })
     except Exception:
@@ -118,8 +120,31 @@ def captcha_start_solve():
         return _err(str(e), 409)
     except Exception as e:
         sys.stderr.write(f"[captcha-api] start_solve raised: {e}\n")
-        return _err(f"unexpected error: {e}", 500)
+        return _err("unexpected error; see the server log", 500)    # F16: no exception text to the client
+    if info.get("ok") is False:                  # F5: the starter opened no browser; still pending
+        return _err(info.get("error") or "takeover could not start", 409)
     return jsonify({"ok": True, "session": info})
+
+
+DEFAULT_CLEARANCE_TTL_S = 7200.0
+MAX_CLEARANCE_TTL_S = 7 * 86400.0
+
+
+def _clearance_ttl(raw):
+    """F15: ttl_seconds from the body -> seconds in (0, MAX_CLEARANCE_TTL_S], or
+    None when it is not a finite number in range (inf never expired, nan was
+    stored, a negative one was pre-expired, "abc" was dropped silently)."""
+    if raw is None:
+        return DEFAULT_CLEARANCE_TTL_S
+    if isinstance(raw, bool):
+        return None
+    try:
+        ttl = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(ttl) or not 0 < ttl <= MAX_CLEARANCE_TTL_S:
+        return None
+    return ttl
 
 
 @captcha_bp.route("/api/captcha/resolved", methods=["POST"]) if captcha_bp else (lambda f: f)
@@ -131,18 +156,21 @@ def captcha_resolved():
     url = (data.get("url") or "").strip()
     if not url:
         return _err("body.url required")
+    clearance = data.get("clearance") or data.get("cookies") or data.get("token")
+    ttl = _clearance_ttl(data.get("ttl_seconds"))
+    if clearance and ttl is None:
+        # Refused BEFORE mark_resolved: a bad ttl leaves the captcha pending.
+        return _err(f"ttl_seconds must be a number in (0, {int(MAX_CLEARANCE_TTL_S)}]")
     egress_ip = _server_side_egress_ip(url)      # from the pending record, before it is resolved
     ok = captcha_relay.mark_resolved(url)
     if not ok:
         return _err("url not pending", 404)
 
-    clearance = data.get("clearance") or data.get("cookies") or data.get("token")
     if clearance:
         try:
             from .login_impl.token_manager import get_default_cache
 
             domain = urlparse(url).netloc
-            ttl = float(data.get("ttl_seconds") or 7200.0)
             get_default_cache().set_clearance(egress_ip, domain, clearance, ttl_seconds=ttl)
         except Exception:
             pass

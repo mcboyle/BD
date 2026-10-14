@@ -103,7 +103,7 @@ def test_token_reuse_across_repeated_sessions_captcha_relay(monkeypatch):
     assert data["ok"] is True
     assert data.get("cached") is True
     assert data["session"]["status"] == "resolved"
-    assert data["session"]["clearance"] == cookie_payload
+    assert "clearance" not in data["session"] and "solved-turnstile-token" not in res.get_data(as_text=True)  # F9: never echoed
 
 
 def test_automatic_renewal_when_upstream_verification_expires():
@@ -270,6 +270,6 @@ def test_routes_ignore_a_client_supplied_egress_ip_and_scope_by_the_servers_iden
     cache.set_clearance(own_ip, "protected.test", mine, ttl_seconds=3600.0)
     captcha_relay.mark_captcha_needed("site-own", url, "turnstile")
     res = client.post("/api/captcha/start_solve", json={"url": url})
-    assert res.get_json().get("cached") is True and res.get_json()["session"]["clearance"] == mine
+    assert res.get_json().get("cached") is True and "own-clearance" not in res.get_data(as_text=True)  # F9: never echoed
     # a URL with no pending record has no site: UNKNOWN identity, never a body value
     assert app_captcha_relay._server_side_egress_ip("https://nowhere.test/x") == "UNKNOWN"

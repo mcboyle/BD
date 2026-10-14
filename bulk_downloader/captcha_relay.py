@@ -205,6 +205,9 @@ class PendingCaptcha:
 _pending: dict[str, PendingCaptcha] = {}
 _lock = threading.RLock()
 
+# F6: URLs whose takeover starter call is in flight (guarded by _lock).
+_starting: set[str] = set()
+
 # (site_id, captcha_type) -> last_push_ts. Dedupe push notifications.
 _last_push_ts: dict[tuple[str, str], float] = {}
 
@@ -392,12 +395,15 @@ def mark_captcha_needed(site_id: str, url: str, captcha_type: str,
                 return
 
         existing = _pending.get(url)
-        if existing and existing.status in ("solving",):
+        if existing and (existing.status in ("solving",) or url in _starting):
             # User already working on it — don't re-notify.
             existing.detected_at = time.time()
             return
 
-        if existing and existing.status == "pending":
+        # F18: the entry is keyed by URL, so a second site marking the same URL
+        # must take it over while it is still `pending` -- folding the mark into
+        # the first site's entry sent the solve/requeue to the wrong runner.
+        if existing and existing.status == "pending" and existing.site_id == site_id:
             existing.detected_at = time.time()
             # Audit 2026-05 (Phase 5): still attempt push if we never
             # successfully notified for this URL. Previous behavior was
@@ -494,41 +500,61 @@ def start_solve(url: str) -> dict:
             raise RuntimeError(f"URL not pending: {url}")
         if p.status not in ("pending",):
             raise RuntimeError(f"URL not in 'pending' state (currently {p.status!r})")
+        # F6: the starter call below runs unlocked; reserve the URL first so a
+        # second click cannot open a second browser for the same captcha.
+        if url in _starting:
+            raise RuntimeError("a solve is already starting for this URL")
         site_id = p.site_id
-
-    if _takeover_starter is None:
-        raise RuntimeError(
-            "no takeover_starter registered — runner.py must call "
-            "captcha_relay.register_takeover_starter() at startup"
-        )
+        starter = _takeover_starter
+        if starter is None:
+            raise RuntimeError(
+                "no takeover_starter registered — runner.py must call "
+                "captcha_relay.register_takeover_starter() at startup"
+            )
+        _starting.add(url)
 
     try:
-        info = _takeover_starter(site_id, url)
-    except Exception as e:
-        raise RuntimeError(f"takeover starter raised: {e}") from e
+        try:
+            info = starter(site_id, url)
+        except Exception as e:
+            # F16: the exception text (paths, URLs) stays in the server log;
+            # the client gets a fixed message.
+            sys.stderr.write(f"[captcha-relay] takeover starter raised for {site_id}: {e!r}\n")
+            raise RuntimeError("takeover starter raised; see the server log") from e
+        # F5: a starter that reports failure opened no browser -- leave the
+        # entry `pending` (retryable), invent no session id and open no
+        # takeover channel (a driverless session would accept input).
+        if isinstance(info, dict) and info.get("ok") is False:
+            sys.stderr.write(
+                f"[captcha-relay] takeover starter failed for {site_id}: {info.get('error')!r}\n")
+            return {"ok": False, "error": "takeover could not start; the captcha is still pending",
+                    "session_id": None, "url": url}
 
-    session_id = (info or {}).get("session_id") or f"solve-{int(time.time())}"
-    with _lock:
-        p = _pending.get(url)
-        if p is None:
-            return info or {}
-        # Audit 2026-05 (Phase 5): also guard against a concurrent
-        # mark_dismissed / mark_resolved that flipped the status during
-        # the (unlocked) takeover_starter call. Without this, we'd
-        # overwrite a "dismissed" entry's status back to "solving" and
-        # the takeover ender that already fired would be inconsistent
-        # with our state.
-        if p.status not in ("pending",):
-            return info or {}
-        p.status = "solving"
-        p.solve_session_id = session_id
-        p.last_input_at = time.time()  # A-5b: idle clock starts at solve start
-        # MOD-1 C-6: persist the effective mode + reason so the polled cockpit
-        # can show a downgrade instead of dropping it (it only lived in the
-        # one-shot start_solve reply before).
-        p.mode = (info or {}).get("mode")
-        p.mode_reason = (info or {}).get("mode_reason")
-        p.vnc_url = (info or {}).get("vnc_url")
+        session_id = (info or {}).get("session_id") or f"solve-{int(time.time())}"
+        with _lock:
+            p = _pending.get(url)
+            if p is None:
+                return info or {}
+            # Audit 2026-05 (Phase 5): also guard against a concurrent
+            # mark_dismissed / mark_resolved that flipped the status during
+            # the (unlocked) takeover_starter call. Without this, we'd
+            # overwrite a "dismissed" entry's status back to "solving" and
+            # the takeover ender that already fired would be inconsistent
+            # with our state.
+            if p.status not in ("pending",):
+                return info or {}
+            p.status = "solving"
+            p.solve_session_id = session_id
+            p.last_input_at = time.time()  # A-5b: idle clock starts at solve start
+            # MOD-1 C-6: persist the effective mode + reason so the polled cockpit
+            # can show a downgrade instead of dropping it (it only lived in the
+            # one-shot start_solve reply before).
+            p.mode = (info or {}).get("mode")
+            p.mode_reason = (info or {}).get("mode_reason")
+            p.vnc_url = (info or {}).get("vnc_url")
+    finally:
+        with _lock:
+            _starting.discard(url)
     # MOD-1: open the per-session takeover channel so the cockpit screencast
     # route can subscribe, and audit the takeover start (session-summary
     # granularity -- NOT per input frame/event).
@@ -779,6 +805,7 @@ def _reset_for_tests() -> None:
     global _takeover_starter, _takeover_ender, _session_census, _vnc_census
     with _lock:
         _pending.clear()
+        _starting.clear()
     _last_push_ts.clear()
     _takeover_starter = None
     _takeover_ender = None
