@@ -34,6 +34,7 @@ URLs are recorded (with their signing query params redacted) and left for
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from datetime import datetime, timezone
@@ -87,6 +88,7 @@ class SessionCapture:
         self.redact = redact
         self._seq = 0
         self.network_log: List[Dict[str, Any]] = []
+        self.network_log_dropped = 0  # entries refused past _NETWORK_LOG_MAX
         self._pending: Dict[str, Dict[str, Any]] = {}
         # WebSocket/SSE capture (additive, metadata-only by default). Frame
         # payloads are NOT captured unless capture_ws_payloads is explicitly
@@ -96,6 +98,9 @@ class SessionCapture:
         self._ws: Dict[str, Dict[str, Any]] = {}
         self.capture_ws_payloads: bool = False
         self.frame_hierarchy: Optional[Dict[str, Any]] = None
+        # The start URL (often an OAuth callback carrying code/token) is
+        # scrubbed like every network_log URL before it is stored.
+        url = self._scrub_url(url)
         self.page_context: Dict[str, Any] = {
             "capture_version": RECON_CAPTURE_VERSION,
             "captured_at": _iso(),
@@ -112,6 +117,9 @@ class SessionCapture:
         if url:
             self._seed_url(url)
 
+    def _scrub_url(self, url: Optional[str]) -> Optional[str]:
+        return active_redactor().query(url) if (self.redact and url) else url
+
     def _seed_url(self, url: str) -> None:
         try:
             parts = urlsplit(url)
@@ -127,6 +135,8 @@ class SessionCapture:
     # ── page context ──────────────────────────────────────────────
     def set_page_context(self, **fields) -> None:
         """Set top-level page-context fields (title, user_agent, etc.)."""
+        if fields.get("url"):
+            fields["url"] = self._scrub_url(fields["url"])
         for k, v in fields.items():
             self.page_context[k] = v
         if "url" in fields and fields["url"]:
@@ -199,6 +209,9 @@ class SessionCapture:
             "seq": self._seq,
         }
         self._seq += 1
+        if len(self.network_log) >= _NETWORK_LOG_MAX:
+            self.network_log_dropped += 1
+            return entry
         self.network_log.append(entry)
         return entry
 
@@ -291,6 +304,9 @@ class SessionCapture:
         out = dict(self.page_context)
         out["network_log"] = list(self.network_log)
         out["network_log_count"] = len(self.network_log)
+        if self.network_log_dropped:
+            out["network_log_capped"] = True
+            out["network_log_dropped"] = self.network_log_dropped
         if self.websocket_log:
             out["websocket_log"] = list(self.websocket_log)
             out["websocket_log_count"] = len(self.websocket_log)
@@ -327,6 +343,11 @@ _CDP_WS_CLOSED = "Network.webSocketClosed"
 # Bounds (storage/perf): cap frames per connection; cap any opt-in payload.
 _WS_MAX_FRAMES = 1000
 _WS_MAX_PAYLOAD = 2048
+# Same for HTTP: requests that never finish (oldest evicted) and the log.
+_PENDING_MAX = 2000
+_NETWORK_LOG_MAX = 10000
+# Epoch seconds past datetime's year 9999 cannot be rendered by _iso.
+_TS_MAX_S = 253402300799
 
 
 def get_protocol_dispatcher():
@@ -366,6 +387,8 @@ def feed_cdp_event(capture: SessionCapture, method: str,
             _finalize(capture, rid, response=redirect,
                       ts_ms=_ts_ms(params), type_override="redirect")
         req = params.get("request", {}) or {}
+        if rid not in capture._pending and len(capture._pending) >= _PENDING_MAX:
+            capture._pending.pop(next(iter(capture._pending)), None)
         capture._pending[rid] = {
             "method": req.get("method", "GET"),
             "url": req.get("url", ""),
@@ -466,11 +489,13 @@ def _hdr_list(headers) -> Optional[list]:
 
 def _ts_ms(params) -> Optional[int]:
     # CDP timestamps are monotonic seconds (float); wallTime is epoch s.
+    # A non-finite, negative or out-of-range value is ignored, never raised
+    # (_iso cannot render below datetime's year 1, ~-6.2e10 s; R210-D F22).
     wt = params.get("wallTime")
-    if isinstance(wt, (int, float)):
+    if isinstance(wt, (int, float)) and math.isfinite(wt) and 0 <= wt <= _TS_MAX_S:
         return int(wt * 1000)
     ts = params.get("timestamp")
-    if isinstance(ts, (int, float)):
+    if isinstance(ts, (int, float)) and math.isfinite(ts) and 0 <= ts <= _TS_MAX_S:
         return int(ts * 1000)
     return None
 
