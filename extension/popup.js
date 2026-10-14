@@ -229,15 +229,6 @@ function bgCall(action, payload) {
   });
 }
 
-function registrableDomainFromUrl(url) {
-  try {
-    const u = new URL(url);
-    const parts = u.hostname.split(".").filter(Boolean);
-    if (parts.length <= 2) return parts.join(".");
-    return parts.slice(-2).join(".");
-  } catch { return ""; }
-}
-
 async function refreshVaultPill() {
   const pill = document.getElementById("vault-pill");
   const dot = document.getElementById("vault-dot");
@@ -273,13 +264,15 @@ async function refreshVaultPill() {
   label.textContent = "Vault: active";
   lockBtn.style.display = "inline-block";
 
-  // Per-site silent toggle: derive current page's eTLD+1
+  // Per-site silent toggle. The background owns the key rule (public-suffix
+  // aware, fail closed); a second copy here would drift and show the wrong site.
   const tab = await getCurrentTab();
   if (tab && tab.url && tab.url.startsWith("http")) {
-    const etld1 = registrableDomainFromUrl(tab.url);
+    const key = await bgCall("vault_silent_key", { origin: tab.url });
+    const etld1 = (key && key.ok && key.etld1) || "";
     if (etld1) {
       silentRow.style.display = "flex";
-      const isAllowed = (s.silent_origins || []).includes(etld1);
+      const isAllowed = !!key.allowed;
       silentBtn.textContent = isAllowed ? `on for ${etld1}` : `off for ${etld1}`;
       silentBtn.style.background = isAllowed ? "#0e3a23" : "#2a2e34";
       silentBtn.style.color = isAllowed ? "#86efac" : "#e8eaed";
