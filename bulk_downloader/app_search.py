@@ -44,6 +44,16 @@ def _app_s_cfg():
     return getattr(importlib.import_module("bulk_downloader.app_state"), "s_cfg")
 
 
+def _match_all(query: str, site_id=None, status=None) -> list:
+    """Every history row db_search_fts matches for query/site_id/status, uncapped:
+    the one set /api/search's count and the facets strip both count (O1789 ssqh-f3)."""
+    from . import db as _db
+    with _db.db_conn() as cx:
+        every = int(cx.execute("SELECT COUNT(*) FROM history").fetchone()[0])
+    return _db.db_search_fts(query, site_id=site_id or None,
+                             status=status or None, limit=max(1, every))
+
+
 def _facet_counts(query: str = "", site_id: str = "", status: str = "") -> dict:
     """Group matching history rows by site_id and by status. Read-only; the same
     filter fields a saved search uses, so the UI can show 'N matches across M
@@ -53,10 +63,7 @@ def _facet_counts(query: str = "", site_id: str = "", status: str = "") -> dict:
     from . import db as _db
     if query and query.strip():
         try:
-            with _db.db_conn() as cx:
-                every = int(cx.execute("SELECT COUNT(*) FROM history").fetchone()[0])
-            rows = _db.db_search_fts(query, site_id=site_id or None,
-                                     status=status or None, limit=max(1, every))
+            rows = _match_all(query, site_id, status)
         except Exception:
             return {"by_site": {}, "by_status": {}, "total": 0}
         by_site, by_status = {}, {}
@@ -114,7 +121,9 @@ def api_search():
     fields with <mark>...</mark> highlights for the matching terms.
 
     Empty query returns empty results (not all-rows). Capped at 500
-    results regardless of limit param to prevent runaway payloads."""
+    results regardless of limit param to prevent runaway payloads.
+    ``count`` is every match, not the page (O1789 ssqh-f3: it read len(results),
+    so 150 matches showed "100 matches" beside a facets total of 150)."""
     q = (request.args.get("q", "") or "").strip()
     if not q:
         return jsonify({"results": [], "count": 0, "query": ""})
@@ -127,7 +136,8 @@ def api_search():
     try:
         from . import db as _db
         results = _db.db_search_fts(q, site_id=site_id, status=status, limit=limit)
-        return jsonify({"results": results, "count": len(results), "query": q})
+        count = len(results) if len(results) < limit else len(_match_all(q, site_id, status))
+        return jsonify({"results": results, "count": count, "query": q})
     except Exception as e:
         return jsonify({"results": [], "count": 0, "query": q,
                         "error": str(e)[:200]}), 500
