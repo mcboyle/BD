@@ -30,8 +30,35 @@ def _dest_in_dir(dl_dir, rendered):
     matching runner_transport's `filename=final_path.name` and the history
     contract that cut-25b's resolver depends on.
     """
-    output_path = str(safe_dest(_P(dl_dir) / rendered))
+    output_path = str(safe_dest(_P(dl_dir) / _contained_name(dl_dir, rendered)))
     return output_path, os.path.basename(output_path)
+
+
+def _contained_name(dl_dir, rendered):
+    """bughunt ah-fix F1/F3: a rendered name that leaves the download dir
+    ("..", an absolute path) is flattened to one safe basename. A plugin
+    result's raw ``ext``/``title`` and the library extractor's raw-title
+    fallback reached the join unsanitised and the transport has no containment
+    check of its own. A name that stays inside (template subdirs included) is
+    returned unchanged."""
+    rendered = str(rendered)
+    base = os.path.normpath(os.path.abspath(str(dl_dir)))
+    dest = os.path.normpath(os.path.join(base, rendered))
+    if dest != base and os.path.commonpath([base, dest]) == base:
+        return rendered
+    return re.sub(r"[^\w.\- ]", "_", rendered).lstrip(".") or "download"
+
+
+def _config_min_res(config):
+    """bughunt ah-fix F12: ``min_resolution`` as an int height. "720p" and other
+    non-numeric shapes degrade to their leading number (else 0, no preference)
+    instead of raising out of the fallbacks' five-value contract."""
+    raw = config.get("min_resolution", DEFAULT_MIN_RESOLUTION)
+    try:
+        return int(float(raw or 0))
+    except (TypeError, ValueError, OverflowError):
+        m = re.match(r"\s*(\d+)", str(raw))
+        return int(m.group(1)) if m else 0
 
 # Cut 665 (2.5): a yt-dlp --limit-rate value must be a bare number with an
 # optional K/M/G suffix (e.g. "2M", "500K", "1048576", "4.2M"). Anything else
@@ -204,8 +231,11 @@ def _build_ytdlp_cmd(*, ytdlp, dl_dir, url, proxy_url=None, cookie_file="",
     knows by name (dailymotion, vimeo, ...) is fetched; anything else -> "Unsupported URL"."""
     import os as _os
     prefix = list(ytdlp) if isinstance(ytdlp, (list, tuple)) else [ytdlp]
+    # bughunt ah-fix F4: --no-playlist does not apply to a page that IS a
+    # playlist (a generic page with several <video>): every entry was fetched
+    # and only one was recorded. One job records one file, so fetch one entry.
     cmd = prefix + ["--no-progress", "--no-warnings",
-           "--no-playlist", "--restrict-filenames",
+           "--no-playlist", "--playlist-items", "1", "--restrict-filenames",
            "--output", _os.path.join(dl_dir, "%(title)s-%(id)s.%(ext)s")]
     proxy = _socks_remote_dns(proxy_url)
     if proxy:
@@ -286,6 +316,18 @@ def _build_gallerydl_cmd(*, gallerydl, dl_dir, url, proxy_url=None,
     if netns:
         cmd = netns_isolation.netns_exec_argv(netns, cmd)
     return cmd
+
+
+def _gallerydl_written_paths(stdout):
+    """The files a gallery-dl run reports on stdout, as real paths. One path per
+    line; a leading "# " marks a file it skipped because it already existed."""
+    out = set()
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        out.add(os.path.realpath(line))
+    return out
 
 
 # dl95-hqporner-2: a landed clip this short, picked with no known height, is a
@@ -432,7 +474,7 @@ class ExtractorsMixin:
             raise
         cookie_file = (self.config.get("cookie_file") or "").strip()
         # Quality preference (Phase 67 — uses min_resolution as a hint)
-        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))  # v3.66.527: float() -> non-API fractional truncates, no ValueError
+        min_res = _config_min_res(self.config)  # v3.66.527: float() -> non-API fractional truncates, no ValueError
         plugin_dirs = _permitted_plugin_dirs("ytdlp_plugin", self.config)
         # Cut 665: download-engine tuning (2.2 segment-parallel, 2.5 bandwidth
         # cap). Both inert by default; the builder validates/omits, so a bad
@@ -441,7 +483,7 @@ class ExtractorsMixin:
             concurrent_fragments = int(float(self.config.get("ytdlp_concurrent_fragments", 0) or 0))
         except (TypeError, ValueError):
             concurrent_fragments = 0
-        rate_limit = (self.config.get("download_rate_limit") or "").strip()
+        rate_limit = str(self.config.get("download_rate_limit") or "").strip()
         # F5 (v3.66.689): confine the yt-dlp subprocess to a per-capture netns
         # when the site opts in. capture_netns yields None (no isolation, path
         # unchanged) unless netns_isolation is enabled; on opt-in it creates +
@@ -563,7 +605,7 @@ class ExtractorsMixin:
                         f"-- failing closed (gallery-dl not run): {e}", None, 0, 0)
             raise
         cookie_file = (self.config.get("cookie_file") or "").strip()
-        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        min_res = _config_min_res(self.config)
         plugin_dirs = _permitted_plugin_dirs("gallerydl_plugin", self.config)
         # F5 (v3.66.689): per-capture netns confinement (see _try_ytdlp_fallback).
         # capture_netns yields None when the site does not opt in (path unchanged);
@@ -600,6 +642,11 @@ class ExtractorsMixin:
                     return (False, f"gallery-dl exit {r.returncode}: {err}", None, 0, 0)
                 # Newly-written file (largest new file wins if several -- the media,
                 # not a sidecar .json metadata file).
+                # bughunt ah-fix F5: "new in the tree" alone also matches another
+                # job's file landing in the same dir meanwhile (its .part was
+                # recorded as this job's output). gallery-dl prints every path it
+                # wrote on stdout; only those are this job's.
+                named = _gallerydl_written_paths(r.stdout or "")
                 filename = None
                 size = 0
                 try:
@@ -607,7 +654,7 @@ class ExtractorsMixin:
                     for root, _dirs, files in os.walk(dl_dir):
                         for fn in files:
                             p = os.path.join(root, fn)
-                            if p not in before:
+                            if p not in before and os.path.realpath(p) in named:
                                 try:
                                     new_files.append((os.path.getsize(p), p))
                                 except Exception:
@@ -1064,6 +1111,8 @@ class ExtractorsMixin:
                 continue
             if p.lower() in ("best", "highest", "max"):
                 qpref.append("best")
+            elif p.lower() in ("worst", "lowest", "min"):
+                qpref.append("worst")      # bughunt ah-fix F10: was dropped -> best
             else:
                 try:
                     qpref.append(int(p.rstrip("p")))

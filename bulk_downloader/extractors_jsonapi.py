@@ -96,7 +96,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 log = logging.getLogger(__name__)
 
@@ -162,19 +162,22 @@ def probe_site(
     headers = {"Accept": "application/json"}
     if user_agent:
         headers["User-Agent"] = user_agent
-    cookies = cookies or {}
+    # bughunt ah-fix F2: the client's jar starts EMPTY. A jar cookie made from
+    # a flat dict has no domain and rides every redirect; the site's cookies
+    # are attached per hop by _get_keeping_cookies_home instead.
+    site_cookies, cookies = cookies or {}, {}
 
     outcome = ProbeOutcome(ok=False)
     try:
         from bulk_downloader.ssrf_transport import guarded_transport, PINNED
-        with httpx.Client(timeout=timeout_s, follow_redirects=True,
+        with httpx.Client(timeout=timeout_s, follow_redirects=False,
                           cookies=cookies, headers=headers,
                           transport=guarded_transport(PINNED)) as client:
             for host in hosts:
                 for path in DEFAULT_PROBE_PATHS:
                     full = host + path
                     try:
-                        r = client.get(full)
+                        r = _get_keeping_cookies_home(client, full, site_cookies)
                         status = r.status_code
                         body = r.text or ""
                     except Exception as e:
@@ -207,6 +210,76 @@ def probe_site(
     except Exception as e:
         outcome.error = f"{type(e).__name__}: {str(e)[:200]}"
     return outcome
+
+
+_MAX_REDIRECTS = 5
+
+
+def _origin(url: str) -> tuple:
+    p = urlparse(url)
+    return ((p.scheme or "").lower(), (p.hostname or "").lower(), p.port)
+
+
+def _get_keeping_cookies_home(client, url: str, cookies: Optional[dict]):
+    """GET ``url`` following redirects by hand. bughunt ah-fix F2: the site's
+    cookies are a flat {name: value} with no domain, so an auto-followed
+    redirect carried every one of them to whatever host the API pointed at.
+    They are sent to the configured origin only; a hop to another origin
+    (scheme, host or port differs) is followed without them.
+
+    r3 (lens R1, R2-1): the client's jar decides everything else. An explicit
+    Cookie header replaces the jar for that request, so the header for a hop
+    to the configured origin is what the jar would send to that URL (a cookie
+    the origin set on an earlier hop OR an earlier request of this client, a
+    parent-Domain cookie from a sibling host, a refreshed session), plus the
+    site cookies the jar does not already name. Another origin's hops carry
+    the jar's cookies for that origin and nothing of the site's.
+
+    r4 (lens R3-1): the jar's header is kept as ordered pairs, never folded by
+    name. One name at two paths is two cookies, most specific path first (RFC
+    6265 5.4); a site cookie of a name the jar holds yields to every jar value
+    of that name, in the jar's order. Valueless cookies pass through as-is."""
+    home = _origin(url)
+    site = {str(k): str(v) for k, v in (cookies or {}).items()}
+    r = None
+    for _ in range(_MAX_REDIRECTS + 1):
+        headers = {}
+        if site and _origin(url) == home:
+            jar = _jar_cookie_pairs(client, url)
+            held = {name for name, _ in jar}
+            parts = []
+            for k, v in site.items():
+                if k in held:
+                    parts.extend(raw for name, raw in jar if name == k)
+                else:
+                    parts.append(f"{k}={v}")
+            parts.extend(raw for name, raw in jar if name not in site)
+            headers = {"Cookie": "; ".join(parts)}
+        r = client.get(url, headers=headers)
+        location = (r.headers.get("location") or ""
+                    if r.status_code in (301, 302, 303, 307, 308) else "")
+        if not location:
+            return r
+        url = urljoin(url, location)
+    return r
+
+
+def _jar_cookie_pairs(client, url: str) -> list:
+    """[(name, raw)] for every cookie the client's jar would send to ``url``
+    (its own host/Domain/path/secure matching), in the jar's order. ``raw`` is
+    the jar's own "name=value" (or bare name) text; duplicates are kept."""
+    try:
+        header = client.build_request("GET", url).headers.get("cookie")
+    except Exception:
+        return []
+    if not isinstance(header, str):
+        return []
+    out = []
+    for part in header.split(";"):
+        raw = part.strip()
+        if raw:
+            out.append((raw.partition("=")[0], raw))
+    return out
 
 
 def _looks_like_protocol_response(data) -> bool:
@@ -298,17 +371,19 @@ def _extract_scene_id(url: str, id_regex: str = "") -> str:
         except re.error:
             pass
     parsed = urlparse(url)
-    # Try ?id= or ?scene= or ?v=
-    if parsed.query:
-        for key in ("id", "scene", "scene_id", "v", "video"):
-            m = re.search(rf"(?:^|&){key}=([^&]+)", parsed.query)
-            if m:
-                return m.group(1)
+    # bughunt ah-fix F8: the documented order. Query keys used to win over the
+    # path, so /scene/12345?v=2 fetched scene "2" and ?video=hd scene "hd".
     # Try last numeric segment
     segs = [s for s in parsed.path.split("/") if s]
     for seg in reversed(segs):
         if seg.isdigit():
             return seg
+    # Try ?id= or ?scene= or ?v= ; an id is an id, never a path (../../account)
+    if parsed.query:
+        for key in ("id", "scene", "scene_id", "v", "video"):
+            m = re.search(rf"(?:^|&){key}=([^&]+)", parsed.query)
+            if m and re.fullmatch(r"[A-Za-z0-9_-]+", m.group(1)):
+                return m.group(1)
     # Try slugified last segment
     if segs:
         last = segs[-1]
@@ -354,21 +429,24 @@ def fetch_scene(
         scene_id = _extract_scene_id(scene_url_or_id, id_regex)
     else:
         scene_id = scene_url_or_id.strip()
-    if not scene_id:
+    if not scene_id or scene_id in (".", ".."):
         log.debug("jsonapi: couldn't extract scene_id from %r",
                   scene_url_or_id)
         return None
 
-    full_url = api_base.rstrip("/") + "/" + scene_id
+    # bughunt ah-fix F8: the id is one path segment of the API URL.
+    full_url = api_base.rstrip("/") + "/" + quote(scene_id, safe="")
     headers = {"Accept": "application/json"}
     if user_agent:
         headers["User-Agent"] = user_agent
+    # bughunt ah-fix F2: empty client jar, cookies attached per hop (probe_site).
+    site_cookies, cookies = cookies or {}, None
     try:
         from bulk_downloader.ssrf_transport import guarded_transport, PINNED
-        with httpx.Client(timeout=timeout_s, follow_redirects=True,
+        with httpx.Client(timeout=timeout_s, follow_redirects=False,
                           cookies=cookies or {}, headers=headers,
                           transport=guarded_transport(PINNED)) as client:
-            r = client.get(full_url)
+            r = _get_keeping_cookies_home(client, full_url, site_cookies)
             if r.status_code != 200:
                 log.debug("jsonapi: %s returned %d", full_url, r.status_code)
                 return None
@@ -386,6 +464,25 @@ def fetch_scene(
 # ─── Normalization ──────────────────────────────────────────────────
 
 
+def _parse_height(value) -> int:
+    """bughunt ah-fix F10: a source's height from the shapes APIs send: 1080,
+    "1080p", "1080.0", "1920x1080", "4K". 0 when it cannot be read (it used to
+    be 0 for every shape but the first two, which sorted the tier last)."""
+    if isinstance(value, bool) or value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        return int(value) if value > 0 else 0
+    text = str(value).strip().lower()
+    m = re.fullmatch(r"(\d+)k", text)
+    if m:
+        return {4: 2160, 5: 2880, 6: 3160, 8: 4320}.get(int(m.group(1)), 0)
+    m = re.fullmatch(r"\d+\s*[x×]\s*(\d+)", text)
+    if m:
+        return int(m.group(1))
+    m = re.fullmatch(r"(\d+)(?:\.\d+)?p?", text)
+    return int(m.group(1)) if m else 0
+
+
 def _normalize_source(entry: dict) -> Optional[JsonApiSource]:
     """One source entry from media[].sources[] or encodings[].videoSources[]."""
     if not isinstance(entry, dict):
@@ -399,11 +496,9 @@ def _normalize_source(entry: dict) -> Optional[JsonApiSource]:
         v = entry.get(k)
         if v is None:
             continue
-        try:
-            height = int(str(v).rstrip("p"))
+        height = _parse_height(v)
+        if height:
             break
-        except (ValueError, TypeError):
-            continue
     width = 0
     if isinstance(entry.get("width"), int):
         width = entry["width"]
@@ -412,7 +507,10 @@ def _normalize_source(entry: dict) -> Optional[JsonApiSource]:
         size = entry["size"]
     return JsonApiSource(
         url=url, height=height, width=width, size_bytes=size,
-        is_hls=url.endswith(".m3u8") or "/master.m3u8" in url,
+        # bughunt ah-fix F7: a signed playlist (index.m3u8?token=...) ends
+        # with its query string, not ".m3u8"; look at the path.
+        is_hls=(urlparse(url).path.lower().endswith(".m3u8")
+                or "/master.m3u8" in url),
     )
 
 
@@ -603,6 +701,13 @@ def pick_source(
     for pref in quality_pref:
         if isinstance(pref, str) and pref.lower() in ("best", "highest", "max"):
             return uniq[0]
+        # bughunt ah-fix F10: "worst" was not a number, so it fell through to
+        # the highest tier. Lowest KNOWN height; unknown (0) is not "worst".
+        if isinstance(pref, str) and pref.lower() in ("worst", "lowest", "min"):
+            known = [s for s in uniq if s.height > 0] or uniq
+            low = min(s.height for s in known)
+            # within the lowest tier the usual tiebreaks hold (codec, MP4 > HLS)
+            return max((s for s in known if s.height == low), key=_key)
         try:
             target = int(str(pref).rstrip("p"))
         except (ValueError, TypeError):

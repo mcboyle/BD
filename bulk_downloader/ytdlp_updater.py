@@ -162,6 +162,26 @@ def is_stale(*, threshold_days: int = 30) -> bool:
     return age is not None and age > threshold_days
 
 
+def _in_own_environment(exe: str) -> bool:
+    """True iff ``exe`` sits beside BD's interpreter (the same venv/bin), i.e.
+    it is the console script of the yt-dlp that ``sys.executable -m pip`` owns."""
+    if not sys.executable:
+        return False
+    return (os.path.dirname(os.path.abspath(exe))
+            == os.path.dirname(os.path.abspath(sys.executable)))
+
+
+def _forced_failure_keeps_no_stamp(force: bool, update_key, last: float) -> None:
+    """r2 (lens A2): a FAILED operator-forced update does not start the 24 h
+    limit, or one failed pip would lock the operator's retry out for a day.
+    An automatic (non-forced) failure keeps its stamp, as before."""
+    if force:
+        if last:
+            _LAST_UPDATE_CHECK[update_key] = last
+        else:
+            _LAST_UPDATE_CHECK.pop(update_key, None)
+
+
 def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool, str]:
     """Opt-in self-update via pip. Returns (ran_update, message).
 
@@ -169,7 +189,7 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
       • Won't run unless `force=True` OR yt-dlp is older than
         `threshold_days` days
       • Won't run more than once per 24h regardless of how many
-        site configs trigger this
+        site configs trigger this, `force` included
       • Skipped silently if no usable local yt-dlp command is resolved
       • Skipped if running from a packaged binary (no pip to call)
 
@@ -183,12 +203,25 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
     now = time.time()
     update_key = (source, tuple(argv))
     last = _LAST_UPDATE_CHECK.get(update_key, 0.0)
-    if not force and (now - last) < 86400:
+    # bughunt ah-fix F13: `force` skips the staleness check only. It also
+    # skipped this limit, so every forced call launched pip again.
+    if (now - last) < 86400:
         return (False, "update check rate-limited (24h)")
+    # The version before the run, for the message below. A forced run does not
+    # probe for it (it never did); it uses what the last probe cached.
+    old_ver = (_VERSION_CACHE.get("version")
+               if _VERSION_CACHE.get("key") == update_key else None)
     if not force:
-        age = version_age_days(_version_probe(_resolved=resolved)["version"])
+        old_ver = _version_probe(_resolved=resolved)["version"]
+        age = version_age_days(old_ver)
         if age is None or age <= threshold_days:
             return (False, f"yt-dlp is fresh (≤{threshold_days}d old)")
+    # bughunt ah-fix F13: pip upgrades the yt-dlp of BD's own interpreter. A
+    # yt-dlp resolved from elsewhere on PATH is not that install: pip ran, the
+    # command BD runs stayed as it was, and the call still said "upgraded".
+    if source == "path" and not _in_own_environment(argv[0]):
+        return (False, f"yt-dlp at {argv[0]} is outside BD's Python environment; "
+                       "pip cannot update it (use the system package manager)")
     # Find a python that owns pip. Prefer sys.executable so we update
     # the yt-dlp that lives in the same environment as BD.
     py = sys.executable or "python"
@@ -198,10 +231,13 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
         r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
             tail = (r.stderr or r.stdout or "")[-300:]
+            _forced_failure_keeps_no_stamp(force, update_key, last)
             return (False, f"pip install --upgrade yt-dlp failed: {tail}")
     except subprocess.TimeoutExpired:
+        _forced_failure_keeps_no_stamp(force, update_key, last)
         return (False, "pip install --upgrade timed out after 2min")
     except Exception as e:
+        _forced_failure_keeps_no_stamp(force, update_key, last)
         return (False, f"pip install --upgrade raised: {e}")
     # Invalidate the version cache so the next current_version() call
     # picks up the upgraded version.
@@ -215,6 +251,8 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
         latest_version(allow_fetch=True)
     except Exception:
         pass
+    if new_ver and new_ver == old_ver:
+        return (True, f"yt-dlp already at the newest version ({new_ver})")
     return (True, f"yt-dlp upgraded to {new_ver or 'unknown version'}")
 
 

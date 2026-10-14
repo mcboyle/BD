@@ -61,6 +61,7 @@ import os
 import re
 import threading
 from typing import Optional
+from urllib.parse import urlsplit
 
 log = logging.getLogger(__name__)
 
@@ -73,7 +74,11 @@ log = logging.getLogger(__name__)
 # the dict key.
 _EXTRACTOR_PATTERNS: dict = {
     "youtube": [
-        re.compile(r"(?:youtube\.com|youtu\.be)/(?:watch\?v=|shorts/|v/|embed/)?(?P<id>[A-Za-z0-9_-]{11})"),
+        # bughunt ah-fix F9: the path prefix was optional and the id unbounded,
+        # so /embed/videoseries and /subscription_center produced ids.
+        re.compile(r"youtube\.com/(?:watch\?(?:[^&#]+&)*v=|shorts/|v/|embed/(?!videoseries))"
+                   r"(?P<id>[A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])"),
+        re.compile(r"youtu\.be/(?P<id>[A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])"),
     ],
     "pornhub": [
         re.compile(r"pornhub\.com/view_video\.php\?(?:[^&]+&)*viewkey=(?P<id>[A-Za-z0-9]+)"),
@@ -119,6 +124,14 @@ _EXTRACTOR_PATTERNS: dict = {
 }
 
 
+# The same patterns, anchored at the start of "<host><path>?<query>": the site
+# domain must be the host itself or a parent domain of it.
+_HOST_ANCHORED: dict = {
+    name: [re.compile(r"(?:[^/?#]*\.)?" + p.pattern) for p in pats]
+    for name, pats in _EXTRACTOR_PATTERNS.items()
+}
+
+
 def derive_id(url: str) -> Optional[tuple]:
     """Best-effort URL → (extractor, video_id).
 
@@ -127,9 +140,20 @@ def derive_id(url: str) -> Optional[tuple]:
     """
     if not url or not isinstance(url, str):
         return None
-    for extractor, patterns in _EXTRACTOR_PATTERNS.items():
+    # bughunt ah-fix F9: match on the URL's own host. Searching the whole URL
+    # also matched a look-alike host (notredtube.com) and a site name inside
+    # another site's query string, and try_skip_for_url then skipped them.
+    try:
+        parts = urlsplit(url if "://" in url else "//" + url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return None
+    if not host:
+        return None
+    target = host + parts.path + ("?" + parts.query if parts.query else "")
+    for extractor, patterns in _HOST_ANCHORED.items():
         for pat in patterns:
-            m = pat.search(url)
+            m = pat.match(target)
             if m:
                 vid = m.group("id")
                 if vid:
@@ -223,8 +247,20 @@ def append_entry(
         parent = os.path.dirname(canon)
         if parent and not os.path.exists(parent):
             os.makedirs(parent, exist_ok=True)
+        # bughunt ah-fix F9: a file whose last line has no newline (hand-edited,
+        # or written by another tool) would get this entry glued onto it and
+        # both ids stop matching.
+        lead = ""
+        try:
+            with open(canon, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                if f.tell() > 0:
+                    f.seek(-1, os.SEEK_END)
+                    lead = "" if f.read(1) == b"\n" else "\n"
+        except FileNotFoundError:
+            pass
         with open(canon, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+            f.write(lead + line + "\n")
         # Invalidate cache so subsequent reads see the new entry
         with _cache_lock:
             _archive_cache.pop(canon, None)
