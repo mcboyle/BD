@@ -180,11 +180,12 @@
         "bulk_downloader/backup.py",
         "bulk_downloader/backup_verify.py"
       ],
-      "route_count": 7,
+      "route_count": 8,
       "routes": [
         "ROUTE /api/backup/create",
         "ROUTE /api/backup/drift",
         "ROUTE /api/backup/history",
+        "ROUTE /api/backup/list",
         "ROUTE /api/backup/preview",
         "ROUTE /api/backup/restore",
         "ROUTE /api/backup/smoke_restore",
@@ -2432,7 +2433,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1861,
+    "edge_count": 1862,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4709,6 +4710,7 @@
       ],
       "bulk_downloader/template_backup.py": [
         "bulk_downloader/automation_pipeline.py",
+        "bulk_downloader/backup_verify.py",
         "bulk_downloader/lifecycle_drift.py",
         "bulk_downloader/template_keystone.py"
       ],
@@ -6246,7 +6248,8 @@
       ],
       "bulk_downloader/backup_verify.py": [
         "bulk_downloader/db.py",
-        "bulk_downloader/global_config.py"
+        "bulk_downloader/global_config.py",
+        "bulk_downloader/template_backup.py"
       ],
       "bulk_downloader/bandwidth_shape.py": [
         "bulk_downloader/bandwidth_aggregator.py",

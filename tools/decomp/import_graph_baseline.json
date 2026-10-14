@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6340,
+  "edge_count": 6349,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -895,7 +895,8 @@
     ],
     "bulk_downloader/backup_verify.py": [
       "bulk_downloader/db.py",
-      "bulk_downloader/global_config.py"
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/template_backup.py"
     ],
     "bulk_downloader/bandwidth_shape.py": [
       "bulk_downloader/bandwidth_aggregator.py",
@@ -2872,6 +2873,9 @@
       "bulk_downloader/app.py",
       "bulk_downloader/library.py"
     ],
+    "tests/test_bughunt_dl_retry_policy.py": [
+      "bulk_downloader/retry_policy.py"
+    ],
     "tests/test_bughunt_dva_accounts.py": [
       "bulk_downloader/user_accounts.py"
     ],
@@ -2882,6 +2886,11 @@
     ],
     "tests/test_bughunt_edge_deploy_fixes.py": [
       "bulk_downloader/edge_deploy.py"
+    ],
+    "tests/test_bughunt_migrations_integrity.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/runner_integrity.py"
     ],
     "tests/test_bughunt_pes_scrapers.py": [
       "bulk_downloader/app.py",
@@ -4221,6 +4230,10 @@
       "bulk_downloader/capture_template.py",
       "bulk_downloader/capture_workbench.py"
     ],
+    "tests/test_f020_backup_list.py": [
+      "bulk_downloader/app_backup.py",
+      "bulk_downloader/db.py"
+    ],
     "tests/test_f044_notification_readiness_perf.py": [
       "tools/autonomy_housekeeping.py",
       "tools/cockpit_console.py",
@@ -4231,6 +4244,10 @@
       "tools/spa_population.py"
     ],
     "tests/test_fed_auth_r1.py": [
+      "bulk_downloader/federation.py",
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_fed_replay_r1.py": [
       "bulk_downloader/federation.py",
       "bulk_downloader/global_config.py"
     ],

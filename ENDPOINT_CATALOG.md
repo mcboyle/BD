@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (826)
+## /api/* routes (827)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -75,6 +75,7 @@ GET     /api/automation/status                                 CSRF: no
 POST    /api/backup/create                                     CSRF: yes  — Create a backup zip and return as download. Body params:
 POST    /api/backup/drift                                      CSRF: yes
 GET     /api/backup/history                                    CSRF: no
+GET     /api/backup/list                                       CSRF: no   — F020: every backup BD keeps on disk -- metadata only (name, size, created, kind).
 POST    /api/backup/preview                                    CSRF: yes  — Preview what a backup would contain WITHOUT actually creating it.
 POST    /api/backup/restore                                    CSRF: yes  — Restore a backup. Accepts multipart/form-data with `file` (the
 POST    /api/backup/smoke_restore                              CSRF: yes
