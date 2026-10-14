@@ -67,6 +67,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import asdict, dataclass
@@ -112,6 +113,8 @@ def _launch_timeout_s() -> int:
 
 # Where active-recording metadata persists across restarts.
 STATE_FILE_NAME = "recordings.json"
+# The last state file that parsed, kept beside it; _load_state falls back to it.
+STATE_BAK_SUFFIX = ".bak"
 
 # M101: pending-room probes per scheduler tick. Each probe is a blocking
 # `streamlink --json` (20 s timeout), so probing every pending room in one pass
@@ -306,6 +309,16 @@ _subprocesses: dict[str, subprocess.Popen] = {}  # recording_id -> Popen
 _egress_carriers: dict[str, Any] = {}
 _lock = threading.RLock()
 
+# F2 (staging-integrity): one state writer at a time. A snapshot takes its
+# sequence number under _lock; the writer skips a snapshot older than the one
+# already on disk, so overlapping saves can neither tear the file nor regress it.
+_save_lock = threading.Lock()
+_save_seq = 0
+_saved_seq = 0
+# True after a load that found state on disk but could not read any of it; the
+# .bak is then left alone until a later load succeeds.
+_load_failed = False
+
 # Set to True once the scheduler thread has started.
 _scheduler_started = False
 _scheduler_stop = threading.Event()
@@ -362,22 +375,43 @@ def _load_state() -> None:
     active when the server stopped. Subprocesses are NOT restored (PIDs
     are stale across restarts) -- they get re-spawned when the scheduler
     next sees the room go live."""
+    global _load_failed
     f = _state_file()
-    if not f or not f.exists():
+    if not f:
         return
-    try:
-        text = f.read_text(encoding="utf-8")
-        data = json.loads(text)
-    except Exception as e:
-        sys.stderr.write(
-            f"[live-recorder] failed to read {f}: {e} -- starting fresh\n"
-        )
+    bak = f.with_name(f.name + STATE_BAK_SUFFIX)
+    items = None
+    unreadable = []
+    if f.exists():
+        try:
+            items = _parse_state(f.read_bytes())
+        except (OSError, ValueError, TypeError) as e:
+            aside = _set_aside(f)
+            unreadable.append(f"{f}: {e} (kept as {aside})")
+            sys.stderr.write(
+                f"[live-recorder] ERROR: cannot read {f}: {e} -- kept as {aside}\n"
+            )
+    from_bak = items is None and bak.exists()
+    if from_bak:
+        try:
+            items = _parse_state(bak.read_bytes())
+            sys.stderr.write(
+                f"[live-recorder] restored {len(items)} watch(es) from {bak}\n"
+            )
+        except (OSError, ValueError, TypeError) as e:
+            unreadable.append(f"{bak}: {e}")
+    if items is None:
+        _load_failed = bool(unreadable)
+        if unreadable:
+            msg = "; ".join(unreadable)
+            sys.stderr.write(
+                f"[live-recorder] ERROR: no readable state, starting with no "
+                f"watches: {msg}\n"
+            )
+            _maybe_push("Live recorder watch list unreadable",
+                        f"started with no watches; {msg}")
         return
-    if not isinstance(data, dict):
-        return
-    items = data.get("recordings", [])
-    if not isinstance(items, list):
-        return
+    _load_failed = False
     with _lock:
         _recordings.clear()
         for raw in items:
@@ -422,24 +456,96 @@ def _load_state() -> None:
                 sys.stderr.write(
                     f"[live-recorder] skipping malformed entry: {e}\n"
                 )
+    if from_bak:
+        _save_state()   # the main file was set aside; write it back now
+
+
+def _parse_state(raw: bytes) -> list:
+    """The recordings list of a state file; ValueError/TypeError when it is not one."""
+    data = json.loads(raw.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise TypeError("state file is not a JSON object")
+    items = data.get("recordings", [])
+    if not isinstance(items, list):
+        raise TypeError("state file 'recordings' is not a list")
+    return items
+
+
+def _set_aside(f: Path) -> str:
+    """Move an unreadable state file to <name>.corrupt-<UTC> (never overwrite)."""
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    target = f.with_name(f"{f.name}.corrupt-{stamp}")
+    n = 1
+    while target.exists():
+        target = f.with_name(f"{f.name}.corrupt-{stamp}-{n}")
+        n += 1
+    try:
+        os.rename(str(f), str(target))
+    except OSError as e:
+        sys.stderr.write(f"[live-recorder] ERROR: could not set aside {f}: {e}\n")
+        return f"(not moved: {e})"
+    return str(target)
+
+
+def _write_file_atomic(path: Path, data: bytes) -> None:
+    """Unique temp file in the same dir, fsync, os.replace."""
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".",
+                               suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _keep_backup(f: Path) -> None:
+    """Copy the current state file to the .bak if it parses."""
+    try:
+        raw = f.read_bytes()
+    except FileNotFoundError:
+        return
+    try:
+        _parse_state(raw)
+    except (ValueError, TypeError):
+        return
+    _write_file_atomic(f.with_name(f.name + STATE_BAK_SUFFIX), raw)
 
 
 def _save_state() -> None:
-    """Atomic write of current recordings to disk."""
+    """Write current recordings to disk: one writer at a time, unique temp
+    file, fsync, os.replace; the previous good file is kept as the .bak."""
+    global _save_seq, _saved_seq
     f = _state_file()
     if not f:
         return
     with _lock:
+        _save_seq += 1
+        seq = _save_seq
         payload = {
             "recordings": [r.to_dict() for r in _recordings.values()],
             "saved_at": time.time(),
         }
-    try:
-        tmp = f.with_suffix(f.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        os.replace(str(tmp), str(f))
-    except Exception as e:
-        sys.stderr.write(f"[live-recorder] state save failed: {e}\n")
+    with _save_lock:
+        if seq < _saved_seq:
+            return   # a newer snapshot is already on disk
+        try:
+            data = json.dumps(payload, indent=2).encode("utf-8")
+            if not _load_failed:
+                try:
+                    _keep_backup(f)
+                except OSError as e:
+                    sys.stderr.write(f"[live-recorder] state backup failed: {e}\n")
+            _write_file_atomic(f, data)
+            _saved_seq = seq
+        except Exception as e:
+            sys.stderr.write(f"[live-recorder] state save failed: {e}\n")
 
 
 # ─── Public API: watch / unwatch / list ─────────────────────────────
@@ -1076,8 +1182,9 @@ def _maybe_push(title: str, body: str) -> None:
 
 def _reset_for_tests() -> None:
     """Wipe in-memory state. Tests only."""
-    global _scheduler_started, _egress_prepare
+    global _scheduler_started, _egress_prepare, _load_failed
     _scheduler_stop.set()
+    _load_failed = False
     with _lock:
         for proc in _subprocesses.values():
             try:
