@@ -544,6 +544,15 @@ def _on_request_too_large(e):
                            limit_bytes=app.config.get("MAX_CONTENT_LENGTH"))
     return e
 
+# q-misc L7 (O1789 bughunt): request.json on a non-JSON Content-Type raises werkzeug's 415, whose
+# default body is an HTML page. API clients get the JSON error contract instead (same prefixes as VR-P09).
+@app.errorhandler(415)
+def _on_unsupported_media_type(e):
+    if request.path.startswith(("/api/", "/cockpit/api/")):
+        return _json_error(415, "request body must be JSON",
+                           hint="send Content-Type: application/json")
+    return e
+
 @app.errorhandler(500)
 def _on_internal_error(e):
     # Last-resort catch — log, capture blackbox snapshot, and return generic JSON to API clients
