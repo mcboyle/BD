@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import socket
 import sys
+import threading
 import time
 from typing import Optional
 from urllib.parse import urlparse, urljoin
@@ -64,24 +65,80 @@ def _record(site_id: str, kind: str, ok: bool,
 
 # ─── Individual probes ────────────────────────────────────────────────
 
+# sl-dns r2 (cx178 F1): a lookup abandoned at a probe's deadline keeps its daemon thread until the resolver
+# returns, so a stalled resolver must not get a fresh thread on every probe. One outstanding lookup per hostname
+# (a later probe for that host waits on it) and at most _DNS_MAX_OUTSTANDING hosts at once; past the cap a probe
+# fails at once as "dns resolver busy" instead of starting another thread.
+_DNS_MAX_OUTSTANDING = 4
+# sl-dns r3 (cx206 F1): "busy" is this process's capacity, not the site's DNS. It is stored under its own kind,
+# left out of probe_one's overall_ok and of site_status, so a healthy site does not read down while slots are held.
+_DNS_BUSY_KIND = "dns_busy"
+_dns_lock = threading.Lock()
+_dns_inflight: dict = {}  # hostname -> (thread, box) while its lookup runs
+
+
+class DNSResolverBusy(RuntimeError):
+    """Every lookup slot is held by an outstanding lookup: the probed host was not asked."""
+
+
+def _dns_lookup(hostname: str, box: dict) -> None:
+    try:
+        box["ip"] = socket.gethostbyname(hostname)
+    except Exception as e:  # handed to the caller(s) waiting on box
+        box["error"] = e
+    finally:
+        with _dns_lock:
+            entry = _dns_inflight.get(hostname)
+            if entry is not None and entry[0] is threading.current_thread():
+                del _dns_inflight[hostname]
+
+
+def _resolve_bounded(hostname: str, timeout: float) -> str:
+    """socket.gethostbyname(hostname), bounded by `timeout` seconds.
+
+    sl-dns (O1789 sites-lifecycle row 4): the lookup runs in a daemon thread and the caller waits at most
+    `timeout`. The process-global socket.setdefaulttimeout is never touched -- setting it for the lookup gave
+    every socket another thread created meanwhile (downloads, runners) the probe's timeout, a finally could
+    clobber a concurrent caller's value, and gethostbyname does not honour it anyway. A lookup still running
+    at the deadline is reported as a timeout and left to finish; its thread is reused, not repeated (above)."""
+    with _dns_lock:
+        entry = _dns_inflight.get(hostname)
+        if entry is None:
+            if len(_dns_inflight) >= _DNS_MAX_OUTSTANDING:
+                raise DNSResolverBusy(
+                    f"dns resolver busy: {len(_dns_inflight)} lookups still outstanding")
+            box: dict = {}
+            t = threading.Thread(target=_dns_lookup, args=(hostname, box),
+                                 name=f"bd-dns-probe-{hostname}"[:60], daemon=True)
+            entry = _dns_inflight[hostname] = (t, box)
+            t.start()
+    t, box = entry
+    t.join(timeout)
+    if t.is_alive():
+        raise TimeoutError(f"dns lookup timed out after {timeout:g}s")
+    if "error" in box:
+        raise box["error"]
+    return box["ip"]
+
+
 def probe_dns(site_id: str, hostname: str, *,
              timeout: float = 5.0) -> dict:
-    """Try to resolve the hostname."""
+    """Try to resolve the hostname within `timeout` seconds (global socket default untouched)."""
     started = time.time()
-    original_timeout = socket.getdefaulttimeout()
     try:
-        socket.setdefaulttimeout(timeout)
-        ip = socket.gethostbyname(hostname)
+        ip = _resolve_bounded(hostname, timeout)
         latency = int((time.time() - started) * 1000)
         _record(site_id, "dns", True, latency_ms=latency)
         return {"ok": True, "ip": ip, "latency_ms": latency}
+    except DNSResolverBusy as e:  # local capacity: the site's DNS is unknown, not failed
+        latency = int((time.time() - started) * 1000)
+        _record(site_id, _DNS_BUSY_KIND, False, latency_ms=latency, error=str(e)[:200])
+        return {"ok": False, "busy": True, "error": str(e)[:200], "latency_ms": latency}
     except Exception as e:
         latency = int((time.time() - started) * 1000)
         _record(site_id, "dns", False, latency_ms=latency,
                 error=str(e)[:200])
         return {"ok": False, "error": str(e)[:200], "latency_ms": latency}
-    finally:
-        socket.setdefaulttimeout(original_timeout)
 
 
 # v3.66.550 (F-COREBD17-02): the config-derived probe URL (weather_url/homepage_url/
@@ -191,7 +248,7 @@ def probe_one(site_id: str, site_cfg: dict) -> dict:
         out["probes"]["dns"] = probe_dns(site_id, hostname)
     out["probes"]["http"] = probe_http(site_id, probe_url)
     # Roll up
-    out["overall_ok"] = all(p.get("ok") for p in out["probes"].values())
+    out["overall_ok"] = all(p.get("ok") for p in out["probes"].values() if not p.get("busy"))
     return out
 
 
@@ -227,9 +284,9 @@ def site_status(site_id: str, *,
         with _db.db_conn() as cx:
             rows = cx.execute("""SELECT ok, status_code, latency_ms
                                   FROM site_weather_log
-                                  WHERE site_id = ? AND ts >= ?
+                                  WHERE site_id = ? AND ts >= ? AND kind != ?
                                   ORDER BY ts DESC""",
-                              (site_id, cutoff)).fetchall()
+                              (site_id, cutoff, _DNS_BUSY_KIND)).fetchall()
     except Exception:
         return {"site_id": site_id, "color": "gray", "error": "DB"}
     if not rows:
