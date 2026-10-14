@@ -130,18 +130,20 @@ def _runner(tmp_path, monkeypatch):
 
 
 def test_precondition_the_dom_best_is_a_720_badge_guess_below_1080(monkeypatch):
-    """The evidence shape: the DOM scorer's best is a related card's 'HD' badge (720, size unknown).
+    """The evidence shape: the DOM scorer's best is an 'HD' badge (720, size unknown) with no identity proof.
 
     Since dl95-africancasting-4 (_title_shaped_label_only) a card whose text carries a TITLE no longer
     scores on its tier word, so the measured "HD | 27:38 | <title>" card yields no DOM candidate and
-    row 722's no-candidate arm takes the page media. A badge-only card (no title) still yields the
-    sub-min UNKNOWN guess, which is what reaches the refusal arm under test here."""
+    row 722's no-candidate arm takes the page media. Since dl95-xvideos-2 (_is_other_scene_link) a
+    badge-only card linking ANOTHER same-site scene is refused as other_scene, so the badge-only card
+    here links this scene's own page: it still yields the sub-min UNKNOWN guess, which is what reaches
+    the refusal arm under test here."""
     from bulk_downloader.detect import find_best_download
 
     with _page([OWN_1080]) as page:
         assert not find_best_download(page), "a titled related card scored as this scene's quality"
-    badge_only = ('<a class="thumb" href="/video/other-scene-one-1001.html"><div class="badge">HD</div>'
-                  '<div class="dur">27:38</div></a>')
+    badge_only = ('<a class="thumb" href="/video/fixture-scene-looking-for-a-meal-2651.html">'
+                  '<div class="badge">HD</div><div class="dur">27:38</div></a>')
     monkeypatch.setattr(sys.modules[__name__], "CARDS", badge_only)
     with _page([OWN_1080]) as page:
         best = find_best_download(page)
