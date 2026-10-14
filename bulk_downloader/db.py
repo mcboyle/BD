@@ -3704,6 +3704,47 @@ def run_intent_is_running(site_id):
         return False
 
 
+
+# ── ddr-fix F4: window-parked mark, durable across a restart ──────────
+# A download window resumes only the sites it parked itself. Run intent cannot
+# carry that: the window's "stopped" exit action calls stop(), which records
+# the same False an operator Stop does, and a restart cannot tell them apart.
+def _ensure_site_window_park_table(cx):
+    cx.execute("""CREATE TABLE IF NOT EXISTS site_window_park(
+        site_id TEXT PRIMARY KEY,
+        parked INTEGER NOT NULL DEFAULT 0,
+        ts_updated TEXT DEFAULT(strftime('%Y-%m-%dT%H:%M:%S','now')))""")
+
+
+def window_park_set(site_id, parked):
+    """Record whether the download window parked ``site_id``. Returns False
+    when the write failed (the caller logs; nothing raises)."""
+    try:
+        with db_conn() as cx:
+            _ensure_site_window_park_table(cx)
+            cx.execute(
+                "INSERT INTO site_window_park(site_id, parked, ts_updated) "
+                "VALUES(?,?,strftime('%Y-%m-%dT%H:%M:%S','now')) "
+                "ON CONFLICT(site_id) DO UPDATE SET parked=excluded.parked, "
+                "ts_updated=excluded.ts_updated",
+                (str(site_id), 1 if parked else 0))
+        return True
+    except Exception:
+        return False
+
+
+def window_park_is_set(site_id):
+    """True only when a readable row says the window parked the site. An
+    unreadable store is not permission to start anything: it answers False."""
+    try:
+        with db_conn() as cx:
+            _ensure_site_window_park_table(cx)
+            row = cx.execute("SELECT parked FROM site_window_park WHERE site_id=?",
+                             (str(site_id),)).fetchone()
+        return bool(row and row[0])
+    except Exception:
+        return False
+
 # ── EXT-3: per-host throughput store (adaptive multi-conn count) ──────
 def _ensure_host_throughput_table(cx):
     """Idempotently create the per-host throughput table. One row per host,
