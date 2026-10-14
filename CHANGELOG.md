@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1861 - train281w: row
+
+T281w-A (train-12, integrator D2-D) on main 7450ba69 (train-9 merged): RESTAGE of train-10 (bd-integrator-B, pool B hard-stopped; ASK-dispatch-A-integrators-train10-2052Z, O3167 item 6) (4 members; product train; legs BOARD per O1672/BOARDED-for-integration.md). rcr r2 + ext-route-anchor r2m deferred: app.py (+5 rcr paths) shared with in-flight train-11 (A) (ORDER-pm-B-landing-5fix-1620Z F3).
+FIX: streaming-manifest-url-filter r1 -- streaming_manifest HLS/DASH local-host refusal (LOW, R228-C); stacked on manifest-url-filter r1 (landed train-4).
+FIX: appfeat F042 -- ai_chat / ai_provider (APPFEAT F042).
+TEST: o1670-r5-flaky -- exec-failure log before EOF + teardown watcher not starved (unpark w3).
+FIX: o1671-a15 -- bdenv.sh TMP PYTHONPATH scope (unpark).
+
+
 ## v3.66.1859 - train281v: row
 
 T281v-A (train-9, integrator D2-D, MAP-1 per RULING-pm-A4-A-trainmap-MAP1-2017Z) on main 418de7e3 (train-8 merged) (2 members; product train; legs BOARD per O1672/BOARDED-for-integration.md). Path-disjoint from each other and from train-10 (B). SEC-2 r3-restack-d (lens not yet seated) stays FRONT of train-11 (A).
