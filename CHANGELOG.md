@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1859 - train281v: row
+
+T281v-A (train-9, integrator D2-D, MAP-1 per RULING-pm-A4-A-trainmap-MAP1-2017Z) on main 418de7e3 (train-8 merged) (2 members; product train; legs BOARD per O1672/BOARDED-for-integration.md). Path-disjoint from each other and from train-10 (B). SEC-2 r3-restack-d (lens not yet seated) stays FRONT of train-11 (A).
+FIX: fed-input-lows r1-restack -- federation input bounds LOW findings (AGY-08; clean carry of r1, BOARD stands, lensrouter-A 20:11Z).
+FIX: sl-fix refresh -- sites lifecycle keepalive toggle + reconnect (boarded tree ffc350aa; worktree's later unboarded tests/mutants/sl_fix.json NOT carried).
+
+
 ## v3.66.1858 - train281p: row
 
 T281p-E = train-8 (O3141/O3142 F3: on MAIN 1e334559 = train-6 T281n-F landed; lane C per RULING-pm-B2-B-integrators-1905Z + ANSWER-dispatch-B-integrator-A-trainnum-1925Z; member list frozen at assembly; 2 members (migrations-integrity-fix r3, BD-BACKUP-LIST r3 refresh, row875-latency-isolation r1, sl-dns r3 dropped: ALREADY LANDED in train-6; BD-SEC-2 r3-restack-c dropped: 3 gitleaks findings in its test fixtures, ejected from train-6 for the same reason (T281n/EJECT-sec2-r3-restack-c-1830Z.md) -- restack-d (DONE 19:52Z, lens pending) rides the next train FRONT), pairwise path-disjoint, greedy by priority then BOARD age, <=15). Product train; legs BOARD per O1672/BOARDED-for-integration.md; merge = gh pr merge --auto --merge on green required checks (F5); band post-merge (F4); gates off-hub (gates-remote.sh). Waiting for train-9+ (T281g/wait-T281p-A.tsv): request-capture-redact r2 HIGH, ext-route-anchor r2 HIGH, dev-console-lows r1-restack, dss-type-500s r3 (all app.py vs SEC-2), ext-csrf-token r1 (chain tail of rcr), retention-path-dedupe r3 (group hold).
