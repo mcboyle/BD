@@ -7081,9 +7081,11 @@ def _is_url_public(url: str) -> bool:
 
 def _rate_check(action: str) -> bool:
     """Return True if the request should be allowed, False if rate
-    limited. Uses request.remote_addr as the key; behind a proxy you'd
-    want X-Forwarded-For but we don't trust proxy headers by default."""
-    ip = request.remote_addr or "unknown"
+    limited. Keyed on request_peer.client_addr: the forwarded client
+    when the peer is a configured trusted proxy (trusted_proxies, empty by
+    default), else request.remote_addr (proxy-peer-key)."""
+    from . import request_peer as _rp
+    ip = _rp.client_addr(request, _rp.trusted_proxies()) or "unknown"
     key = (ip, action)
     now = time.time()
     with _rate_lock:

@@ -9,6 +9,7 @@ forwarded client is itself loopback. 127.0.0.0/8, ::1 and IPv4-mapped loopback (
 Every loopback admission goes through client_is_loopback(request, trusted_proxies()): the /api/dev gate
 (app._dev_request_authorized) and the /api/pair mint (app_pair._pair_mint_authorized). A raw
 request.remote_addr loopback comparison anywhere else is refused by tests/test_pair_admission_proxy_is_not_loopback.py.
+Per-client buckets key on client_addr(request, trusted_proxies()): the forwarded client only from a trusted proxy.
 """
 
 import ipaddress
@@ -84,24 +85,51 @@ def client_is_loopback(request, trusted_proxies=()) -> bool:
     peer = parse_addr(request.remote_addr)
     if peer is None or not peer.is_loopback:
         return False
-    present = [(h, request.headers.get(h)) for h in FORWARDING_HEADERS if request.headers.get(h) is not None]
-    if not present:
-        return True
     nets = _networks(trusted_proxies)
+    clients = _forwarded_clients(request, nets)
+    if not clients:
+        return True
     if not _trusted(peer, nets):
         return False
-    for header, value in present:
+    return all(client is not None and client.is_loopback for client in clients)
+
+
+def client_addr(request, trusted_proxies=()) -> str:
+    """The client address a per-client bucket keys on (app._rate_check, app_stream._stream_slot_acquire; proxy-peer-key).
+
+    - Peer (remote_addr) in `trusted_proxies` and every forwarding header present names the same client (the
+      right-most hop not in `trusted_proxies`): that client, as a bare address (no port, IPv4-mapped unwrapped).
+    - Anything else: request.remote_addr unchanged -- an untrusted peer's headers are client-written, and a trusted
+      proxy whose headers name no client, an unparseable hop, or two different clients cannot say who it is.
+    """
+    raw = request.remote_addr or ""
+    nets = _networks(trusted_proxies)
+    if not _trusted(parse_addr(raw), nets):
+        return raw
+    clients = set(_forwarded_clients(request, nets))
+    if len(clients) != 1 or None in clients:
+        return raw
+    return str(clients.pop())
+
+
+def _forwarded_clients(request, nets) -> list:
+    """For each forwarding header present: the right-most hop not in `nets` (the client that header names), or None
+    when a hop is unparseable or every hop is trusted. The one hop walk client_is_loopback and client_addr share."""
+    clients = []
+    for header in FORWARDING_HEADERS:
+        value = request.headers.get(header)
+        if value is None:
+            continue
         client = None
         for hop in reversed(_hops(header, value)):
             addr = parse_addr(hop)
             if addr is None:
-                return False
+                break
             if not _trusted(addr, nets):
                 client = addr
                 break
-        if client is None or not client.is_loopback:
-            return False
-    return True
+        clients.append(client)
+    return clients
 
 
 def trusted_proxies() -> list:
