@@ -201,6 +201,17 @@ def _host_public(url: str):
     return _is_safe_public_host(host)
 
 
+def _host_by_name(url: str) -> bool:
+    """True when a connect to ``url`` looks its host up by name, so the address
+    judged before the send must be the one connected to (DNS-rebinding pin)."""
+    import ipaddress
+    try:
+        ipaddress.ip_address(urlparse(url).hostname or "")
+    except ValueError:
+        return True
+    return False
+
+
 def fetch_page(url: str, *, headers: Optional[dict] = None,
               cookies: Optional[dict] = None,
               timeout: int = 30,
@@ -235,8 +246,15 @@ def fetch_page(url: str, *, headers: Optional[dict] = None,
             _hop_ok, _hop_why = _host_public(cur)
             if not _hop_ok:
                 raise SSRFBlocked(_hop_why)
-            r = requests.get(cur, headers=hdrs, cookies=cookies or {},
-                            timeout=timeout, allow_redirects=False)
+            if _host_by_name(cur):
+                # Rebind pin: connect only to an address judged at connect time.
+                from bulk_downloader import deep_http as _dh
+                with _dh.pinned_session(_dh.public_address_allowed) as session:
+                    r = session.get(cur, headers=hdrs, cookies=cookies or {},
+                                    timeout=timeout, allow_redirects=False)
+            else:
+                r = requests.get(cur, headers=hdrs, cookies=cookies or {},
+                                timeout=timeout, allow_redirects=False)
             loc = r.headers.get("Location") if getattr(r, "headers", None) else None
             if r.status_code in (301, 302, 303, 307, 308) and loc:
                 cur = urljoin(cur, loc)

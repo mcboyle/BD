@@ -227,6 +227,18 @@ def _signed_bytes(timestamp: str, delivery_id: str, body: bytes) -> bytes:
     return f"{timestamp}.{delivery_id}.".encode("utf-8") + body
 
 
+def _host_by_name(url: str) -> bool:
+    """True when a connect to ``url`` looks its host up by name, so the address
+    judged before the send must be the one connected to (DNS-rebinding pin)."""
+    import ipaddress
+    import urllib.parse
+    try:
+        ipaddress.ip_address(urllib.parse.urlsplit(url).hostname or "")
+    except ValueError:
+        return True
+    return False
+
+
 def _deliver_one(item: dict) -> dict:
     """POST one queued item. Returns {ok, status, error}."""
     try:
@@ -268,7 +280,14 @@ def _deliver_one(item: dict) -> dict:
         headers["X-BD-Signature"] = "sha256=" + _sign(
             secret, _signed_bytes(headers["X-BD-Timestamp"],
                                   headers["X-BD-Delivery-Id"], body_bytes))
+    session = None
     try:
+        if _host_by_name(url):
+            # Rebind pin: the address connected to is judged at connect time
+            # (link-local / cloud metadata, CGNAT refused; LAN as validated).
+            # The pinned session stands in for the requests module below.
+            from . import deep_http as _dh  # lazy: no static import edge
+            session = requests = _dh.pinned_session(_dh.hook_address_allowed)
         r = requests.post(url, data=body_bytes, headers=headers,
                          timeout=10, allow_redirects=False)
         if r.status_code < 300:
@@ -287,6 +306,9 @@ def _deliver_one(item: dict) -> dict:
         return out
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+    finally:
+        if session is not None:
+            session.close()
 
 
 def _drain_once(*, max_items: int = 50) -> dict:
