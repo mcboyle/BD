@@ -39,6 +39,7 @@ SUPPORT_EXEMPTIONS = {
     "tests/_cut_quality_test_support.py": "support module or fixture input; not a collected test suite",
     "tests/_env.py": "support module or fixture input; not a collected test suite",
     "tests/_event_loop_guard.py": "support module or fixture input; not a collected test suite",
+    "tests/_land_trio.py": "shared land-trio fixtures, helper not a test module",
     "tests/_phase_scripts/__init__.py": "support module or fixture input; not a collected test suite",
     "tests/_phase_scripts/phase02_selector.py": "support module or fixture input; not a collected test suite",
     "tests/_phase_scripts/phase03_live_template.py": "support module or fixture input; not a collected test suite",
