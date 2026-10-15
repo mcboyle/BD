@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6615,
+  "edge_count": 6627,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2213,6 +2213,7 @@
       "bulk_downloader/ramdisk_stage.py",
       "bulk_downloader/rate_limit.py",
       "bulk_downloader/resume.py",
+      "bulk_downloader/runner_accounts.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/spa_media_extract.py",
       "bulk_downloader/sse_broker.py",
@@ -7765,6 +7766,19 @@
     "tests/test_run03_resolve_safe_no_secret_log.py": [
       "bulk_downloader/runner_util.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_runner_account_jar_r1.py": [
+      "bulk_downloader/account_pool.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/cookies.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/profile_sync.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_accounts.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/session_keeper.py",
+      "bulk_downloader/vault_sync.py"
     ],
     "tests/test_runner_manual_characterization.py": [
       "bulk_downloader/runner.py",
