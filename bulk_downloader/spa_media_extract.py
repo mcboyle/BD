@@ -963,6 +963,23 @@ def hls_master_variants(text: str, master_url: str) -> List[Dict[str, Any]]:
     return out
 
 
+# dl95-porndoe-1-live-3: porndoe's player loads ONE rendition's playlist,
+# <id>-<n>-<q>p[-hd]-<kbps>[-index].m3u8 (measured 480p-1000); the guest master
+# <id>-<n>.m3u8 beside it lists every rendition (up to 1080p-hd-6000).
+_PORNDOE_RENDITION_RE = re.compile(
+    r"^(?P<stem>.*/[0-9a-f]+-\d+)-\d{3,4}p(?:-hd)?-\d+(?:-index)?\.m3u8$", re.IGNORECASE)
+
+
+def porndoe_master_url(url: str) -> Optional[str]:
+    """The master beside a porndoe rendition playlist; None for anything else."""
+    p = urlparse(str(url or ""))
+    host = (p.hostname or "").lower()
+    if p.scheme not in ("http", "https") or not (host == "porndoe.com" or host.endswith(".porndoe.com")):
+        return None
+    m = _PORNDOE_RENDITION_RE.match(p.path)
+    return p._replace(path=m.group("stem") + ".m3u8").geturl() if m else None
+
+
 def best_hls_variant(variants: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """The highest variant: resolution first, then bandwidth."""
     return max(variants, key=lambda v: (v["height"], v["bandwidth"])) if variants else None
@@ -1034,6 +1051,31 @@ FETCH_TEXT_JS = """async (url) => {
     // live on youjizz's master), and a signed CDN URL needs no cookie.
     const r = await fetch(url);
     return [r.status, (await r.text()).slice(0, 200000)];
+  } catch (e) { return [0, '']; }
+}"""
+
+# dl95-porndoe-1-live-3 r2: a master is ranked whole or not at all.  FETCH_TEXT_JS
+# keeps a prefix with no sign it was cut; this reads up to *cap* bytes and
+# answers [status, null] past them (the saved-body rule, hls-variant-lowest-1).
+FETCH_MASTER_TEXT_JS = """async ([url, cap]) => {
+  try {
+    const r = await fetch(url);
+    const parts = [];
+    let n = 0;
+    if (r.body) {
+      const rd = r.body.getReader();
+      for (;;) {
+        const {done, value} = await rd.read();
+        if (done) break;
+        n += value.byteLength;
+        if (n > cap) { rd.cancel(); return [r.status, null]; }
+        parts.push(value);
+      }
+    }
+    const buf = new Uint8Array(n);
+    let at = 0;
+    for (const p of parts) { buf.set(p, at); at += p.byteLength; }
+    return [r.status, new TextDecoder().decode(buf)];
   } catch (e) { return [0, '']; }
 }"""
 

@@ -1694,6 +1694,7 @@ class ExtractorsMixin:
         # sg-yj1-xhamster-xnxx: a master of UNKNOWN height stays with
         # _spa_measure_hls_masters (tpl95-xnxx-1), which labels it, logs the
         # measurement and lets the min_resolution hold judge it.
+        sibling_masters = {}
         for cand in [c for c in cands if int(c.get("height") or 0)
                      and re.search(r"\.m3u8(\?|$)", c.get("url") or "", re.IGNORECASE)][:3]:
             try:
@@ -1702,6 +1703,29 @@ class ExtractorsMixin:
                 status, text = 0, ""
             best = (_spa.best_hls_variant(_spa.hls_master_variants(text, cand["url"]))
                     if 0 < int(status or 0) < 400 else None)
+            # dl95-porndoe-1-live-3: a porndoe rendition playlist is ranked by
+            # its master <id>-<n>.m3u8; only a taller variant replaces it.
+            master = None if best else _spa.porndoe_master_url(cand["url"])
+            if master:
+                if master not in sibling_masters:
+                    try:
+                        sibling_masters[master] = page.evaluate(
+                            _spa.FETCH_MASTER_TEXT_JS, [master, _HLS_MASTER_BODY_CAP]) or (0, "")
+                    except Exception:
+                        sibling_masters[master] = (0, "")
+                    if sibling_masters[master][1] is None:
+                        # r2: never a partial ranking -- past the cap the master stays unread.
+                        self.log_event("spa_api_hls_sibling_master_unread",
+                                       f"porndoe master over {_HLS_MASTER_BODY_CAP} B, not ranked: "
+                                       f"{master[:120]}", url=url)
+                m_status, m_text = sibling_masters[master]
+                top = (_spa.best_hls_variant(_spa.hls_master_variants(m_text, master))
+                       if m_text is not None and 0 < int(m_status or 0) < 400 else None)
+                if top and int(top["height"] or 0) > int(cand.get("height") or 0):
+                    self.log_event("spa_api_hls_sibling_master",
+                                   f"porndoe master {top['height']}p over {cand.get('height')}p: "
+                                   f"{master[:120]}", url=url)
+                    best = top
             if best:
                 cand["url"] = best["url"]
                 cand["height"] = best["height"] or cand.get("height") or 0
