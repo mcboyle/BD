@@ -743,7 +743,8 @@ def verify_login_replay(config, profile_dir, member_url=None,
         from .. import cloak as _cloak
         launch_args = ["--no-sandbox",
                        "--disable-blink-features=AutomationControlled"]
-        verify_extra = {"viewport": {"width": 1366, "height": 800}}
+        verify_extra = {"viewport": {"width": 1366, "height": 800},
+                        "service_workers": "block"}  # BD-SEC-3 r5 (R2)
         if config.get("use_real_chrome", True):
             verify_extra["channel"] = "chrome"
 
@@ -758,6 +759,14 @@ def verify_login_replay(config, profile_dir, member_url=None,
                 _cloak.log_choice("login verify", backend, "persistent")
                 try:
                     page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    # BD-SEC-3 r3: member_url (request-supplied) and login_url are
+                    # navigated on this page: every request it makes is judged.
+                    try:
+                        from .. import outbound_guard as _outbound_guard
+                        _outbound_guard.install_page_guard(page, backend=backend)
+                    except Exception as e:
+                        import sys as _sys
+                        _sys.stderr.write(f"  {site_tag()}login: verify: outbound guard install failed: {str(e)[:80]}\n")
                     # v3.43.56: apply playwright-stealth if configured
                     try:
                         from .. import stealth as _stealth
@@ -900,6 +909,8 @@ def _probe_member_url(page, member_url, timeout):
     member_probe_error = ""
     member_started = time.time()
     try:
+        from .. import outbound_guard as _outbound_guard
+        _outbound_guard.check_url(member_url, unresolved_ok=True)  # BD-SEC-3 r3: refused = the probe's error
         page.goto(member_url, wait_until="domcontentloaded",
                     timeout=int(timeout * 1000))
         page.wait_for_timeout(1000)

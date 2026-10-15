@@ -348,9 +348,17 @@ def replay_standalone(site_id: str, name: str, *,
         # Canonical backend (CloakBrowser when resolved, else vanilla
         # Playwright) so a replayed login/nav macro hits the site through the
         # SAME stealth path as a real capture. cloaked_page owns teardown.
-        with _cloak.cloaked_page(headless=headless) as page:
+        # BD-SEC-3 r5 (R2): no service workers on the macro browser.
+        with _cloak.cloaked_page(
+                headless=headless,
+                context_options={"service_workers": "block"}) as page:
+            # BD-SEC-3 r3: start_url comes from the request; every request this
+            # page makes is judged, and a refused start_url is an error row.
+            from . import outbound_guard as _outbound_guard
+            _outbound_guard.install_page_guard(page)
             if start_url:
                 try:
+                    _outbound_guard.check_url(start_url, unresolved_ok=True)
                     page.goto(start_url,
                               wait_until="domcontentloaded",
                               timeout=30000)

@@ -1081,6 +1081,16 @@ class BrowserMixin:
         before every page's own scripts on every navigation. Uses the
         BrowserContext-level add_init_script so we don't have to remember
         to install per-page."""
+        # BD-SEC-3 r3: the outbound guard at CONTEXT level, independent of the
+        # stealth toggle. A page set up by _apply_stealth_library_to_page has
+        # its own route (asset filter + the same guard) and that one answers
+        # first; this one judges the pages nobody set up -- a popup the site
+        # opens, a probe page, the blank page of a persistent profile.
+        try:
+            from . import outbound_guard as _outbound_guard
+            _outbound_guard.install_page_guard(ctx)
+        except Exception as e:
+            sys.stderr.write(f"  outbound guard (context) install failed: {str(e)[:80]}\n")
         # EME detection recorder: always installed, independent of the stealth
         # toggle. Detection only (records requestMediaKeySystemAccess, calls
         # through) -- never circumvents. See eme_detect.py.
@@ -1125,15 +1135,32 @@ class BrowserMixin:
         (a sub-crawler, an alternate harness) falls back to its own
         ``config["headless"]`` -- the same default ``_launch_browser`` uses --
         so a headless worker is never silently left unfiltered.
+
+        BD-SEC-3 r3: the same route carries the outbound guard, and THAT part is
+        installed on every page this runner makes -- headless or headed, asset
+        filter on or off -- because every queued URL, warmup URL and takeover
+        URL is navigated through a page set up here.  A request whose scheme is
+        not http(s)/ws(s) or whose host resolves to a never-admissible address
+        (link-local incl. the cloud-metadata endpoint, unspecified, multicast,
+        reserved; LAN and loopback stay admitted, as on the httpx download
+        path) is aborted before the asset rules are consulted.
         """
-        if not self.config.get("browser_asset_filter", True):
-            return
+        from . import outbound_guard as _outbound_guard
+
+        def _refused(url, why):
+            try:
+                self.log_event("outbound_refused", why[:200], url=url[:500])
+            except Exception:
+                sys.stderr.write(f"  outbound guard: {why[:200]}\n")
+
+        refuse = _outbound_guard.page_guard(_outbound_guard.LAN_OK, _refused)
+        filtering = bool(self.config.get("browser_asset_filter", True))
         if headless is None:
             headless = getattr(self, "_launched_headless", None)
         if headless is None:
             headless = bool(self.config.get("headless", True))
         if headless is not True:
-            return
+            filtering = False
         blocked_types = self._ASSET_FILTER_BLOCKED_TYPES
         telemetry_types = self._TELEMETRY_TYPES
         telemetry_hosts = self._TELEMETRY_HOSTS
@@ -1150,6 +1177,11 @@ class BrowserMixin:
             return host == page_host or host.endswith("." + page_host) or page_host.endswith("." + host)
 
         def filter_request(route, request):
+            if refuse(route, request):
+                return
+            if not filtering:
+                _outbound_guard.pass_on(route)
+                return
             resource_type = str(getattr(request, "resource_type", "") or "")
             if resource_type in blocked_types:
                 route.abort()

@@ -210,6 +210,23 @@ def _first_path_segment(path: str) -> Optional[str]:
     return candidate.lower()
 
 
+def _real_host(url: str) -> str:
+    """BD-SEC-3 r3: the host a URL parser (streamlink, ffmpeg, a browser) connects to. The
+    allow-list regexes below capture everything up to the first "/", which keeps "?", "#" and
+    userinfo: ``https://169.254.169.254?.chaturbate.com/room`` matched the cam allow-list while
+    every fetcher goes to 169.254.169.254. A URL whose captured text is not its real host is
+    not a cam URL."""
+    from urllib.parse import urlsplit
+
+    try:
+        host = (urlsplit(url.strip()).hostname or "").lower()
+    except ValueError:
+        return ""
+    # A backslash, whitespace or any other byte a hostname cannot carry is read differently by
+    # different parsers (a browser takes "\\" as "/"): such a URL has no host to allow-list.
+    return host if re.fullmatch(r"[a-z0-9.-]+", host) else ""
+
+
 def parse_live_url(url: str) -> Optional[tuple[str, str]]:
     """Parse a URL like https://chaturbate.com/somemodel/ into
     (site_id, room_id). Returns None if the URL doesn't match any
@@ -231,6 +248,8 @@ def parse_live_url(url: str) -> Optional[tuple[str, str]]:
     # Strip port if present.
     if ":" in host:
         host = host.split(":", 1)[0]
+    if not host or host != _real_host(url):
+        return None  # BD-SEC-3 r3: the allow-list must judge the host a fetcher will use
     for host_re, extractor in _SITE_PATTERNS:
         if host_re.search(host):
             room = extractor(path)
@@ -254,6 +273,8 @@ def _host_on_cam_allowlist(url: str) -> bool:
     if not m:
         return False
     host = m.group(1).lower().split(":", 1)[0]
+    if not host or host != _real_host(url):
+        return False  # BD-SEC-3 r3
     return any(host_re.search(host) for host_re, _ in _SITE_PATTERNS)
 
 

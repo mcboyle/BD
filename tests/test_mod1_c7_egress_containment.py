@@ -62,7 +62,9 @@ def test_launch_routes_through_cloak_with_unix_display_and_netns(monkeypatch):
     calls = {}
 
     class _FakeBrowser:
-        def new_page(self):
+        def new_page(self, **kw):
+            # BD-SEC-3 r5 (R2): the takeover page is opened with service workers blocked.
+            calls["new_page"] = kw
             return type("P", (), {"goto": lambda self, u: None})()
         def is_connected(self):
             return True
@@ -73,11 +75,17 @@ def test_launch_routes_through_cloak_with_unix_display_and_netns(monkeypatch):
         calls.update(kw)
         return _FakeBrowser(), None, "playwright"      # cloak-parity: THIS is the seam
     monkeypatch.setattr(cloak, "launch_browser", _fake_launch)
+    # BD-SEC-3 r3: the takeover page is guarded; the fake page has no route, so record the install.
+    from bulk_downloader import outbound_guard
+    monkeypatch.setattr(outbound_guard, "install_page_guard",
+                        lambda page, **kw: calls.setdefault("guard", kw))
 
     tv.launch({"captcha_vnc_display": "evil-host:5"}, "vnc-cloak")
     assert calls["headless"] is False                 # headful on X
     assert calls["netns"] == "bd_takeover_xyz"         # egress confinement threaded
     assert calls["env"]["DISPLAY"] == ":5"             # unix form, host stripped
+    assert calls["new_page"] == {"service_workers": "block"}
+    assert calls["guard"] == {"backend": "playwright"}
     tv.teardown("vnc-cloak")
     _reset()
 

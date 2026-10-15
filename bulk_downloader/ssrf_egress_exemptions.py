@@ -33,6 +33,9 @@ ACCOUNTED = {
         "guarded",
         "PinnedUrlOpener resolves every host answer, rejects a disallowed one, "
         "and dispatches urllib only to the selected vetted IP literal (row 728)"),
+    # BD-SEC-3 r3: ai_provider (_http_post + the three health_check GETs) and
+    # request_replay.replay no longer call urllib themselves; they go through
+    # outbound_guard.urlopen, which dispatches on PinnedUrlOpener.open above.
     # deep_http.guarded_open no longer dispatches urllib itself: row 839 routes
     # it through http_client.proxy_open(direct_open=_OPENER.open), so the
     # census no longer derives a site there (the _NoRedirect opener + _check
@@ -75,22 +78,6 @@ ACCOUNTED = {
         "only a validated relative path; it cannot select a destination host"),
 
     # -- exempt: no attacker-reachable input steers the destination -------
-    "bulk_downloader/ai_provider.py::AIProvider._http_post": (
-        "exempt",
-        "the provider endpoint comes from the operator's own AI configuration, "
-        "never from a request, and the path is fixed by the provider class"),
-    "bulk_downloader/ai_provider.py::OllamaProvider.health_check": (
-        "exempt",
-        "GETs /api/tags on the operator-configured Ollama endpoint; no caller "
-        "input reaches the URL"),
-    "bulk_downloader/ai_provider.py::OpenAIProvider.health_check": (
-        "exempt",
-        "GETs /v1/models on the operator-configured OpenAI endpoint with the "
-        "operator's own key; no caller input reaches the URL"),
-    "bulk_downloader/ai_provider.py::GeminiProvider.health_check": (
-        "exempt",
-        "GETs /v1beta/models on the operator-configured Gemini endpoint with "
-        "the operator's own key; no caller input reaches the URL"),
     "bulk_downloader/app_health.py::api_health_v2": (
         "exempt",
         "the Ollama reachability probe is the literal http://127.0.0.1:11434 "
@@ -104,10 +91,6 @@ ACCOUNTED = {
         "every call builds the URL from AudioTranscriber's declared satellite "
         "endpoint attribute plus a fixed path (row856); tests inject a "
         "fixture transport and never reach this function"),
-    "bulk_downloader/request_replay.py::replay": (
-        "exempt",
-        "replays a captured request against the operator's own app, whose "
-        "base_url defaults to loopback and is an operator argument"),
     "bulk_downloader/cli_dashboard.py::_fetch_status": (
         "exempt",
         "polls the operator's own BD instance at the api_base the operator "

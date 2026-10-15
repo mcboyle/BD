@@ -2315,6 +2315,9 @@ def do_login(config, allow_manual_takeover=False):
         # no_viewport=True tells Playwright to track Chrome's actual window
         # rather than fixing it to a virtual size. Critical for headed mode.
         ctx_opts["no_viewport"] = True
+        # BD-SEC-3 r5 (R2): a service worker's fetches and sockets are outside every
+        # page route; the login browser needs none.
+        ctx_opts["service_workers"] = "block"
         if _hc.get("cdp_url"):
             # the session that passed: its own context and page, no injected scripts
             ctx=browser.contexts[0]
@@ -2328,6 +2331,13 @@ def do_login(config, allow_manual_takeover=False):
             except Exception as e:
                 sys.stderr.write(f"  {site_tag()}login: stealth install failed: {str(e)[:80]}\n")
         page=ctx.pages[-1] if _hc.get("cdp_url") and ctx.pages else ctx.new_page()
+        # BD-SEC-3 r3: login_url is a per-site setting a request can write: every
+        # request the login page makes is judged.
+        try:
+            from .. import outbound_guard as _outbound_guard
+            _outbound_guard.install_page_guard(page, backend=backend)
+        except Exception as e:
+            sys.stderr.write(f"  {site_tag()}login: outbound guard install failed: {str(e)[:80]}\n")
         # v3.43.56: apply playwright-stealth library if configured
         try:
             from .. import stealth as _stealth

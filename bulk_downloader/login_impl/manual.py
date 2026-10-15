@@ -296,7 +296,9 @@ class ManualLoginSession:
         launch_args = common_kwargs["args"]
         # Combined kwargs accepted by both .launch() and .launch_persistent_context()
 
-        ctx_opts = {"no_viewport": True}
+        # BD-SEC-3 r5 (R2): no service workers in the manual-login / captcha-solve browser
+        # (their requests and sockets are outside every route).
+        ctx_opts = {"no_viewport": True, "service_workers": "block"}
         fp = config.get("fingerprint") or {}
         if fp.get("user_agent"): ctx_opts["user_agent"] = fp["user_agent"]
         if fp.get("timezone"): ctx_opts["timezone_id"] = fp["timezone"]
@@ -410,6 +412,14 @@ class ManualLoginSession:
         except Exception as e: sys.stderr.write(f"  manual_login: recorder add_init_script failed: {e}\n")
         try: ctx.add_init_script(self._banner_js)
         except Exception as e: sys.stderr.write(f"  manual_login: banner add_init_script failed: {e}\n")
+
+        # BD-SEC-3 r3: this browser opens login_url, or the captcha URL of a queued
+        # job (/api/captcha/start_solve): every request of every page of the
+        # context (popups too) is judged.
+        try:
+            from .. import outbound_guard as _outbound_guard
+            _outbound_guard.install_page_guard(ctx, backend=backend)
+        except Exception as e: sys.stderr.write(f"  manual_login: outbound guard install failed: {e}\n")
 
         # For persistent ctx, ctx.pages already contains a blank tab from
         # the launch — reuse it if present, else create one
@@ -560,17 +570,24 @@ class ManualLoginSession:
             # _ManualDownloadSession. 3 consecutive misses before declaring death.
             liveness_misses = 0
             # MOD-1 A-4: screencast state. sc["sid"] is None in visible mode /
-            # before start_screencast, and the loop below is then byte-for-byte
-            # the pre-A-4 behavior (timeout=2, liveness probe). When active, the
-            # loop polls fast so CDP frame events flush to the on-frame handler
-            # and queued operator input drains at interactive cadence.
+            # before start_screencast. When active, the loop polls fast so CDP
+            # frame events flush to the on-frame handler and queued operator
+            # input drains at interactive cadence.
+            # BD-SEC-3 r10 (r9 lens A7 F1): the context carries the outbound
+            # guard's route, which sync Playwright runs only while this thread
+            # is inside a Playwright call -- so the visible-mode idle tick
+            # waits IN Playwright (_outbound_guard.idle_in_playwright), never
+            # on the queue alone, or every request the operator's page makes
+            # after first paint is held until a command arrives. The liveness
+            # probe and autofill keep their ~2s cadence.
+            from .. import outbound_guard as _outbound_guard
             sc = {"cdp": None, "sid": None, "probe_skip": 0}
             self._sc = sc
+            next_probe = time.monotonic() + 2
             while True:
                 sc_on = sc["sid"] is not None
                 try:
-                    cmd, payload, response_q = self._cmd_q.get(
-                        timeout=0.02 if sc_on else 2)
+                    cmd, payload, response_q = self._cmd_q.get(timeout=0.02)
                 except queue.Empty:
                     if sc_on:
                         # Pump frames: a short playwright call flushes pending CDP
@@ -586,6 +603,11 @@ class ManualLoginSession:
                         if sc["probe_skip"] < 100:
                             continue
                         sc["probe_skip"] = 0
+                    else:
+                        _outbound_guard.idle_in_playwright(ctx, 0.25)
+                        if time.monotonic() < next_probe:
+                            continue
+                        next_probe = time.monotonic() + 2
                     # Idle tick — gentle liveness probe
                     alive = True
                     try:

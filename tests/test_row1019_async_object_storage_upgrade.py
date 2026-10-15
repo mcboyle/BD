@@ -770,6 +770,24 @@ def test_f2_positive_control_allow_private_hosts_admits_loopback_at_connect(monk
         server.shutdown()
 
 
+def test_allow_private_hosts_refuses_cloud_metadata_in_lan_ranges_and_by_name():
+    """BD-SEC-3 r4 (F2): fd00:ec2::254 is ULA and metadata.google.internal is a name -- neither is
+    a link-local literal, both are the metadata service. A LAN MinIO stays admitted."""
+    from bulk_downloader import async_object_storage as aos
+    from bulk_downloader.ssrf_transport import GuardedTransportRefused
+
+    for endpoint in ("http://[fd00:ec2::254]:9000", "http://100.100.100.200/latest",
+                     "http://[fd00:ec2::254%2]:9000", "http://[fd00:ec2::23%1]:9000",  # r5: zone id
+                     "http://[::100.100.100.200]:9000", "http://[64:ff9b:1::6464:64c8]:9000",
+                     "http://[64:ff9b:1:64:64:64c8::]:9000", "http://[64:ff9b:1:0:64:6464:c800:0]:9000",  # r6
+                     "http://metadata.google.internal:9000", "http://Metadata.Google.Internal.:9000"):
+        with pytest.raises(GuardedTransportRefused):
+            aos._precheck_endpoint(endpoint, True)
+            pytest.fail(f"BD-SEC-3-R4-F2-S3-METADATA-ADMITTED: {endpoint}")
+    for endpoint in ("http://[fd00::10]:9000", "http://10.0.0.5:9000", "http://minio.lan:9000"):
+        assert aos._precheck_endpoint(endpoint, True) is None, f"BD-SEC-3-R4-F2-NEG-S3-LAN-REFUSED: {endpoint}"
+
+
 def test_f2_allow_private_hosts_still_refuses_metadata_literal(monkeypatch):
     """A literal IP never reaches aiohttp's resolver, so it is judged at construction."""
     from bulk_downloader import async_object_storage as aos

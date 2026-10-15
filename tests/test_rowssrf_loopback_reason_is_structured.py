@@ -107,6 +107,10 @@ _EXPECTED_RUNTIME_CONSUMERS = {
         "_is_safe_public_host": 2,
         "_via:_guard_url": 2,
     },
+    # BD-SEC-3 r3. outbound_guard.address_refusal (PUBLIC_ONLY) decides on the
+    # BOOLEAN (`ok, message = ...` then `None if ok else ...`); the message is
+    # shown, never compared.
+    "bulk_downloader/outbound_guard.py": {"_classify_ip": 1},
     # ROW 713. The plexapi backend classifies before it hands the URL and token
     # to PlexServer. Same shape: `safe, reason = ...` then `if not safe:`, and
     # the reason is passed to deep_http.refusal_message() to be READ BY AN

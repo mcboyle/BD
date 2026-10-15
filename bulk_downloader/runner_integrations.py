@@ -103,6 +103,12 @@ class IntegrationsMixin:
         client = self._get_stash_client()
         if client is None:
             return None
+        # BD-SEC-3 r3: Stash fetches this URL itself, from the LAN side. Only a
+        # public http(s) target is handed over; the Stash endpoint is judged
+        # separately (deep_http).
+        from . import outbound_guard as _outbound_guard
+        if _outbound_guard.url_refusal(url, _outbound_guard.PUBLIC_ONLY):
+            return None
         try:
             return client.scrape_url(url)
         except Exception:

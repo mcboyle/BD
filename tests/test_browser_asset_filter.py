@@ -127,7 +127,14 @@ def test_filter_is_not_installed_on_a_headed_manual_page():
     for runner in (Headed(), UnknownHeaded()):
         page = Page()
         runner._apply_stealth_library_to_page(page)
-        assert page.routes == []
+        # BD-SEC-3 r3: the route is there on every page (it carries the outbound
+        # guard); the ASSET rules stay off for the operator's window.
+        assert [r[0] for r in page.routes] == ["**/*"]
+        for kind, url in (("image", "https://site.test/banner.png"),
+                          ("script", "https://tracker.example/collect?v=1")):
+            route = Route()
+            page.routes[0][1](route, Request(kind, url))
+            assert route.action == "continue"
     for runner in (Runner(), UnknownHeadless()):   # round 2 E2: config fallback
         page = Page()
         runner._apply_stealth_library_to_page(page)

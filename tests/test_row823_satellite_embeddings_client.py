@@ -172,7 +172,8 @@ def test_the_module_opens_no_egress_site_of_its_own():
     for.  The fix routes the POST through the censused ``AIProvider._http_post``,
     so the tree-derived census must hold NO site in this module and the module
     must not bind a transport itself.  Positive control beside the zero: the
-    helper it delegates to IS in the census."""
+    pinned opener that helper dispatches on (BD-SEC-3 r3: ``_http_post`` goes
+    through ``outbound_guard.urlopen``) IS in the census."""
     import ast
     import pathlib
     import sys
@@ -184,7 +185,7 @@ def test_the_module_opens_no_egress_site_of_its_own():
     result = census_tool.egress_census(root)
     assert len(result.sites) > 0, "the egress population is empty -- it proves nothing"
     keys = set(result.keys)
-    assert "bulk_downloader/ai_provider.py::AIProvider._http_post" in keys, sorted(keys)
+    assert "bulk_downloader/urllib_ssrf.py::PinnedUrlOpener.open" in keys, sorted(keys)
     mine = sorted(k for k in keys if k.startswith("bulk_downloader/embeddings_client.py::"))
     assert mine == [], f"embeddings_client opens its own egress site(s): {mine}"
     tree = ast.parse(pathlib.Path(EC.__file__).read_text(encoding="utf-8"))

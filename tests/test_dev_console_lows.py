@@ -238,13 +238,21 @@ def test_f5_control_successes_stay_200(fresh_app, flags):
 
 @pytest.fixture
 def dials(monkeypatch):
-    """Every create_connection is recorded and refused: no network."""
+    """Every dial is recorded by host name and refused: no network.
+    tls_cert_check dials through outbound_guard.connect (BD-SEC-3), which
+    resolves the name before create_connection, so the name is taken there."""
+    from bulk_downloader import outbound_guard
     seen = []
 
     def _refuse(addr, timeout=None, *a, **k):
         seen.append(addr[0])
         raise OSError("test: no network")
+
+    def _refuse_connect(host, port, *a, **k):
+        seen.append(host)
+        raise OSError("test: no network")
     monkeypatch.setattr(socket, "create_connection", _refuse)
+    monkeypatch.setattr(outbound_guard, "connect", _refuse_connect)
     return seen
 
 

@@ -234,6 +234,96 @@ class SendResult:
     skipped_count: int = 0  # URLs that didn't parse
 
 
+# BD-SEC-3 r3/r4. An apprise entry is judged the way apprise will use it: split with apprise's own
+# splitter (one entry may hold several URLs separated by space or comma), each URL instantiated by
+# apprise, and the INSTANCE asked where it will connect.  r3 judged only the first URL of an entry and
+# only json/xml/form; ntfy, gotify, mmost, rocket, matrix, apprise, ncloud, hassio, kodi, rsyslog ...
+# take a host just the same (lens D190/D191 F1).
+#
+# Two allow-lists are the only schemas NOT judged by host.  Everything else -- including a schema
+# this table has never heard of -- must show a host that passes ``outbound_guard`` or it is refused.
+# Fixed vendor endpoint: the URL's "host" part is a token/channel and the plugin has no host of its own.
+_FIXED_SERVICE_SCHEMAS = frozenset({
+    "tgram", "discord", "slack", "pover", "pbul", "ifttt", "prowl", "join", "spush",
+    "twilio", "sendgrid", "opsgenie", "line", "pushed", "sns", "fcm", "onesignal",
+})
+# Local desktop / local syslog: no network peer.
+_LOCAL_SCHEMAS = frozenset({
+    "dbus", "kde", "qt", "glib", "gio", "gnome", "macosx", "windows", "syslog",
+})
+_INSTANCE_HOST_ATTRS = ("host", "smtp_host")
+
+
+def _apprise_split(entry) -> list:
+    """The URLs apprise itself would make of one configured entry."""
+    try:
+        from apprise.utils.parse import parse_urls
+    except ImportError:  # apprise < 1.9 kept it in a flat module
+        from apprise.utils import parse_urls
+    return list(parse_urls(entry))
+
+
+def _instance_schemas(instance) -> set:
+    names = set()
+    for attr in ("protocol", "secure_protocol"):
+        value = getattr(type(instance), attr, None)
+        names.update([value] if isinstance(value, str) else (value or ()))
+    return {str(n).lower() for n in names if n}
+
+
+def instance_target_refusal(instance) -> Optional[str]:
+    """Why BD will not let the apprise plugin ``instance`` send, else None."""
+    schemas = _instance_schemas(instance)
+    if schemas and schemas <= (_FIXED_SERVICE_SCHEMAS | _LOCAL_SCHEMAS):
+        return None
+    if "ntfy" in schemas and getattr(instance, "mode", None) == "cloud":
+        return None  # ntfy://topic -> the fixed ntfy.sh endpoint; its "host" is the topic
+    from . import outbound_guard as _outbound_guard
+    hosts = [h for h in (getattr(instance, a, None) for a in _INSTANCE_HOST_ATTRS)
+             if isinstance(h, str) and h.strip()]
+    if not hosts:
+        return f"outbound refused: no host to judge for apprise schema {sorted(schemas)}"
+    port = getattr(instance, "port", None)
+    for host in hosts:
+        try:
+            _outbound_guard.check_host(host, port if isinstance(port, int) else 80)
+        except _outbound_guard.OutboundRefused as exc:
+            return str(exc)
+    return None
+
+
+def entry_instances(entry, tag=None):
+    """``(instances, error)`` for one configured entry: every URL apprise splits out of it,
+    instantiated once (what is judged is what is sent).  ``error`` is ``"add_failed"`` when apprise
+    cannot make a plugin of any one URL, ``"outbound_refused"`` when any one target is refused --
+    either way NO URL of the entry is sent.  Anything unexpected refuses (fail closed)."""
+    try:
+        import apprise
+        urls = _apprise_split(entry)
+        if not urls:
+            return [], "add_failed"
+        instances = []
+        for url in urls:
+            instance = apprise.Apprise.instantiate(url, tag=tag)
+            if instance is None:
+                return [], "add_failed"
+            instances.append(instance)
+        for instance in instances:
+            if instance_target_refusal(instance):
+                return [], "outbound_refused"
+        return instances, None
+    except Exception:
+        return [], "outbound_refused"
+
+
+def generic_target_refusal(url) -> Optional[str]:
+    """Why BD will not notify the apprise entry ``url``, else None (kept under its r3 name)."""
+    if not isinstance(url, str) or not url.strip():
+        return None
+    _instances, error = entry_instances(url)
+    return f"outbound refused: apprise entry ({error})" if error else None
+
+
 def send(
     urls: list,
     title: str,
@@ -290,6 +380,13 @@ def send(
 
     apobj = apprise.Apprise()
     for u in clean_urls:
+        # BD-SEC-3 r4: every URL of the entry is instantiated and judged first; the
+        # judged instances (already tagged) are what apprise gets, never the text again.
+        _instances, _error = entry_instances(u, tag=tag)
+        if _error:
+            result.skipped_count += 1
+            result.errors.append((_safe_url_display(u), _error))
+            continue
         try:
             # VR-P01: add the URL UNDER the same tag we notify with. apprise's
             # notify(tag=...) only fires services added with a matching tag, so a
@@ -297,7 +394,7 @@ def send(
             # and was silently dropped ("sent 0, failed 1"). tag=None adds
             # untagged and notify(tag=None) still fires it, so this is correct for
             # both the default and the per-event paths.
-            ok = apobj.add(u, tag=tag)
+            ok = apobj.add(_instances, tag=tag)
             if not ok:
                 result.skipped_count += 1
                 result.errors.append((_safe_url_display(u), "add_failed"))

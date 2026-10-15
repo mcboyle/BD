@@ -199,10 +199,23 @@ class _ManualDownloadSession:
             # "browser opens, closes 2 seconds later" symptom Matt saw on
             # Windows Server when the bundled Chromium has slow startup.
             liveness_misses = 0
+            # BD-SEC-3 r10 (r9 lens A7 F1): the context carries the outbound
+            # guard's route (runner._install_stealth / the page's asset filter),
+            # which sync Playwright runs only while this thread is inside a
+            # Playwright call -- so the idle tick waits IN Playwright
+            # (_outbound_guard.idle_in_playwright), never on the queue alone, or
+            # every request the operator's page makes after first paint is held
+            # until a command arrives. The liveness probe keeps its ~2s cadence.
+            from . import outbound_guard as _outbound_guard
+            next_probe = time.monotonic() + 2
             while True:
                 try:
-                    cmd, payload, response_q = self._cmd_q.get(timeout=2)
+                    cmd, payload, response_q = self._cmd_q.get(timeout=0.02)
                 except queue.Empty:
+                    _outbound_guard.idle_in_playwright(ctx, 0.25)
+                    if time.monotonic() < next_probe:
+                        continue
+                    next_probe = time.monotonic() + 2
                     # Idle tick — gentle liveness probe. browser.is_connected()
                     # is more reliable than ctx.pages — pages can transiently
                     # be empty during navigation without the browser being dead.
@@ -580,6 +593,14 @@ class ManualMixin:
             sys.stderr.write(
                 f"  manual_dl: start refused — bad url: {target_url!r}\n")
             return False,"target_url must be an http(s) URL"
+        # BD-SEC-3 r3: the takeover browser opens this URL on the server. Judged
+        # here for a named refusal; the page's own route (installed by
+        # _apply_stealth_library_to_page) judges every request it then makes.
+        from . import outbound_guard as _outbound_guard
+        _refusal=_outbound_guard.url_refusal(target_url,unresolved_ok=True)
+        if _refusal:
+            sys.stderr.write(f"  manual_dl: start refused — {_refusal}\n")
+            return False,_refusal
         sys.stderr.write(f"  manual_dl: start_manual_download called for {target_url}\n")
         try:
             session = _ManualDownloadSession(self, target_url, self._teach_base_url())

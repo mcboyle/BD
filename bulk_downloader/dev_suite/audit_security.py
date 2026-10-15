@@ -1196,8 +1196,12 @@ def tls_cert_check(*, hosts=None, site_configs=None, port=443,
         entry = {"host": host, "ok": False}
         sock = None
         try:
-            sock = _socket.create_connection(
-                (host, out["port"]), timeout=timeout_f)
+            # BD-SEC-3 r3: the host list comes from the request. The name is
+            # resolved once, every answer judged, and the socket opened to the
+            # vetted literal (SNI below keeps the name).
+            from .. import outbound_guard as _outbound_guard
+            sock = _outbound_guard.connect(
+                host, out["port"], timeout=timeout_f)
             with ctx.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert()
         except Exception as e:

@@ -130,6 +130,21 @@ def probe_endpoint(config: Optional[dict] = None):
 
 # ── the dedicated headful-on-X browser session ───────────────────────────────
 
+def _idle_in_playwright(page, stop: threading.Event, seconds: float) -> None:
+    """Idle for ``seconds`` INSIDE a Playwright call.  BD-SEC-3 r9 (R116-D F1): sync Playwright runs the
+    guard's route and CDP Fetch handlers only while this thread is in a Playwright call, so an idle
+    ``Event.wait`` held every request the operator's clicks made for the whole session.  When the page's
+    context cannot be waited on (closed, or not a Playwright page) the rest is spent on ``stop``."""
+    t0 = time.monotonic()
+    try:
+        page.context.wait_for_event("close", timeout=seconds * 1000)
+    except Exception:
+        pass  # the timeout is the normal exit
+    rest = seconds - (time.monotonic() - t0)
+    if rest > 0:
+        stop.wait(rest)
+
+
 class VncTakeoverSession:
     """A thread-owned headful browser rendered on the vnc display. Playwright's
     sync API is thread-bound (see ManualLoginSession), so the browser lives on
@@ -192,7 +207,10 @@ class VncTakeoverSession:
                     headless=False, args=self._launch_args(),
                     config=self.config, netns=ns, **extra)
                 try:
-                    page = browser.new_page()
+                    page = browser.new_page(service_workers="block")  # BD-SEC-3 r5 (R2)
+                    # BD-SEC-3 r3: self.url is the takeover target: judged like any page request.
+                    from . import outbound_guard as _outbound_guard
+                    _outbound_guard.install_page_guard(page, backend=_backend)
                     if self.url:
                         try:
                             page.goto(self.url)
@@ -200,9 +218,10 @@ class VncTakeoverSession:
                             pass  # a slow/blocked target must not fail the session
                     self._alive = True
                     self._ready.set()
-                    while not self._stop.wait(0.5):
+                    while not self._stop.is_set():
                         if not browser.is_connected():
                             break
+                        _idle_in_playwright(page, self._stop, 0.5)
                 finally:
                     self._alive = False
                     try:
