@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6532,
+  "edge_count": 6545,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -537,6 +537,7 @@
       "bulk_downloader/rate_limit.py"
     ],
     "bulk_downloader/app_rebalance.py": [
+      "bulk_downloader/paths.py",
       "bulk_downloader/storage_rebalance.py"
     ],
     "bulk_downloader/app_recommendations.py": [
@@ -1118,6 +1119,7 @@
     ],
     "bulk_downloader/crash_recovery.py": [
       "bulk_downloader/db.py",
+      "bulk_downloader/paths.py",
       "bulk_downloader/staging_claim.py"
     ],
     "bulk_downloader/cross_site_selectors.py": [
@@ -2344,7 +2346,8 @@
       "bulk_downloader/deep_http.py"
     ],
     "bulk_downloader/storage_rebalance.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/paths.py"
     ],
     "bulk_downloader/storage_tier.py": [
       "bulk_downloader/app.py",
@@ -3310,6 +3313,13 @@
     ],
     "tests/test_coverage_map_frontend.py": [
       "tools/risk_score.py"
+    ],
+    "tests/test_crash_recovery_delete_bound.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/crash_recovery.py",
+      "bulk_downloader/paths.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_crawl_sentinel.py": [
       "bulk_downloader/crawl_sentinel.py"
@@ -4471,6 +4481,7 @@
       "bulk_downloader/db.py"
     ],
     "tests/test_fts_stale_terms_on_update.py": [
+      "bulk_downloader/app_state.py",
       "bulk_downloader/batch_ops.py",
       "bulk_downloader/db.py",
       "bulk_downloader/storage_rebalance.py"
@@ -6180,6 +6191,12 @@
     ],
     "tests/test_reap_orphan_tempdirs.py": [
       "tools/reap_orphan_tempdirs.py"
+    ],
+    "tests/test_rebalance_move_safety.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/storage_rebalance.py"
     ],
     "tests/test_recognition_cockpit_display.py": [
       "bulk_downloader/app_template_manager_ui.py"

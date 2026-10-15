@@ -1358,6 +1358,7 @@
     "rebalance": {
       "module": "app_rebalance.py",
       "providers": [
+        "bulk_downloader/paths.py",
         "bulk_downloader/storage_rebalance.py"
       ],
       "route_count": 3,
@@ -2458,7 +2459,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1918,
+    "edge_count": 1921,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4119,7 +4120,10 @@
         "bulk_downloader/app_secrets.py"
       ],
       "bulk_downloader/paths.py": [
+        "bulk_downloader/app_rebalance.py",
+        "bulk_downloader/crash_recovery.py",
         "bulk_downloader/retention.py",
+        "bulk_downloader/storage_rebalance.py",
         "bulk_downloader/stream_relay.py",
         "tools/code_intelligence/snapshot.py"
       ],
@@ -5979,6 +5983,7 @@
         "bulk_downloader/rate_limit.py"
       ],
       "bulk_downloader/app_rebalance.py": [
+        "bulk_downloader/paths.py",
         "bulk_downloader/storage_rebalance.py"
       ],
       "bulk_downloader/app_recommendations.py": [
@@ -6560,6 +6565,7 @@
       ],
       "bulk_downloader/crash_recovery.py": [
         "bulk_downloader/db.py",
+        "bulk_downloader/paths.py",
         "bulk_downloader/staging_claim.py"
       ],
       "bulk_downloader/cross_site_selectors.py": [
@@ -7786,7 +7792,8 @@
         "bulk_downloader/deep_http.py"
       ],
       "bulk_downloader/storage_rebalance.py": [
-        "bulk_downloader/db.py"
+        "bulk_downloader/db.py",
+        "bulk_downloader/paths.py"
       ],
       "bulk_downloader/storage_tier.py": [
         "bulk_downloader/app.py",
