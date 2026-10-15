@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6471,
+  "edge_count": 6479,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3721,6 +3721,13 @@
       "bulk_downloader/app.py",
       "bulk_downloader/db.py"
     ],
+    "tests/test_dl95_discover_login_gate_1.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/scene_crawler.py",
+      "bulk_downloader/session_keeper.py"
+    ],
     "tests/test_dl95_discovery_relogin_timeout_1.py": [
       "bulk_downloader/runner_auth.py",
       "bulk_downloader/scene_crawler.py"
@@ -4346,6 +4353,11 @@
     "tests/test_f038_schedules_edit.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/capture_schedules.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_f039_list_rules_tolerates_bad_rows.py": [
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/app.py",
       "bulk_downloader/db.py"
     ],
     "tests/test_f044_notification_center_renders_first.py": [
