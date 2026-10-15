@@ -35,6 +35,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import re
 import socket
 import sqlite3
 import stat
@@ -670,6 +671,87 @@ def _reserve_quarantine_path(p: Path) -> Path:
                   f"{_QUARANTINE_NAME_ATTEMPTS} attempts")
 
 
+# hubdb-nfs-guard r1: WHERE a database may be quarantined from. SQLite's WAL
+# index (-shm) is an mmap, and an mmap is not coherent across NFS clients, so
+# a reader on another host can see a database that its owning host reads as
+# clean -- and even a read-only open writes -shm. On the hub, 3 of the 5
+# quarantined history databases read CLEAN with their WAL applied
+# (landing/hubdb-corruption-source/r1/DONE.md): the CORRUPT verdict that
+# renamed them came through a network filesystem. Such a verdict is not a
+# verdict, so the file is neither classified nor moved from here.
+_MOUNTS_FILE = "/proc/self/mounts"
+_NETWORK_FSTYPES = frozenset({
+    "nfs", "nfs4", "cifs", "smb3", "smbfs", "fuse.sshfs", "9p", "ceph",
+    "glusterfs", "afs", "lustre",
+})
+
+
+def _unescape_mount_field(field: str) -> str:
+    """The mount table writes space, tab, newline and backslash as octal."""
+    return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), field)
+
+
+def _mount_fstype(path: str,
+                  mounts_file: str | None = None) -> tuple[str, str] | None:
+    """(mountpoint, fstype) of the mount holding ``path`` with symlinks
+    resolved, or None when the table cannot be read or names no mount for it.
+
+    The longest mountpoint that is a whole-component prefix wins (/mnt/bd
+    does not hold /mnt/bd-repo); a later line for the same mountpoint is an
+    overmount and replaces the earlier one."""
+    try:
+        with open(mounts_file or _MOUNTS_FILE, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    real = os.path.realpath(path)
+    best = None
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 3:
+            continue
+        mp = _unescape_mount_field(fields[1])
+        if real != mp and not real.startswith(mp.rstrip("/") + "/"):
+            continue
+        if best is None or len(mp) >= len(best[0]):
+            best = (mp, fields[2])
+    return best
+
+
+def _quarantine_refusal(p: Path) -> dict | None:
+    """A WARN result when ``p`` must not be classified or moved by this
+    process, else None. Refuses on a host other than BD_DB_OWNER_HOST (when
+    set), on a network filesystem, and when the filesystem cannot be told --
+    an unanswered question is not permission to rename someone's history."""
+    owner = os.environ.get("BD_DB_OWNER_HOST", "").strip()
+    if owner:
+        here = socket.gethostname()
+        if owner.split(".")[0].lower() != here.split(".")[0].lower():
+            return _result(WARN, "auto_recover_sqlite",
+                f"refusing to quarantine {p.name}: this host ({here}) is not "
+                f"the owning host ({owner}); nothing was opened or moved",
+                reason="not_owning_host", owner_host=owner, host=here,
+                hint="Check or recover the database on the host that owns it.")
+    mount = _mount_fstype(str(p))
+    if mount is None:
+        return _result(WARN, "auto_recover_sqlite",
+            f"refusing to quarantine {p.name}: could not determine its "
+            f"filesystem from {_MOUNTS_FILE}; nothing was opened or moved",
+            reason="filesystem_unknown",
+            hint="Run 'sqlite3 <db> \"PRAGMA integrity_check\"' on the host "
+                 "that owns the database.")
+    mountpoint, fstype = mount
+    if fstype in _NETWORK_FSTYPES:
+        return _result(WARN, "auto_recover_sqlite",
+            f"refusing to quarantine {p.name}: it is on network filesystem "
+            f"{fstype} ({mountpoint}), where this host's view of its WAL is "
+            f"not trustworthy; nothing was opened or moved",
+            reason="network_filesystem", fstype=fstype, mountpoint=mountpoint,
+            hint="Inspect it on the host that serves it: sqlite3 <db> "
+                 "\".backup /tmp/copy.db\" there, then read the copy.")
+    return None
+
+
 def auto_recover_sqlite(db_path: str) -> dict:
     """If db is unrecoverably corrupt, move it aside and let db_init()
     recreate. Triggered by the startup self-test when check_database()
@@ -690,6 +772,11 @@ def auto_recover_sqlite(db_path: str) -> dict:
     if not p.exists():
         # No db at all — db_init() will create it cleanly on startup
         return _result(OK, "auto_recover_sqlite", "no db file present")
+
+    # Before classifying: the open itself is the hazard over NFS.
+    refusal = _quarantine_refusal(p)
+    if refusal is not None:
+        return refusal
 
     verdict, why = _classify_db(db_path)
     if verdict == _CLEAN:

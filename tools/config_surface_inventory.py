@@ -771,6 +771,11 @@ _DEPLOY_ONLY = {
     # O1671 a07: BD_SECRET_KEY (app_oidc.install_secret_key) is the Flask session
     # signing key, read once at boot -- a secret, not a setting.
     "BD_SECRET_KEY",
+    # hubdb-nfs-guard r1: BD_DB_OWNER_HOST (selftest._quarantine_refusal) names the
+    # host that owns the history database; the startup self-test refuses to
+    # quarantine it from any other host. Deployment topology, set per host before
+    # the service starts -- a GUI write from a non-owning host would defeat it.
+    "BD_DB_OWNER_HOST",
 }
 # v3.66.319 (Phase 4.3a): legacy back-compat ALIASES of an env var whose canonical
 # control is ALREADY gui_exposure=full. resolve_backend()'s _ENV_KEYS triple is
