@@ -1947,8 +1947,10 @@ class ExtractorsMixin:
                     # Never a partial ranking: past the cap the program stays unnamed.
                     if len(raw) <= _HLS_MASTER_BODY_CAP:
                         manifest_text = raw.decode("utf-8-sig", "replace")
-                except OSError:
-                    pass
+                except OSError as exc:
+                    # dp13-hls-oserror (DP-13): the master went unread, so the program stays unnamed; name why.
+                    left = f"{type(exc).__name__}: {str(exc)[:120]}"
+                    self.log_event("spa_api_hls_master_unread", f"master body not read, program left unnamed: {output_path}: {left}", url=url)
             if body_kind != "media":
                 try:
                     os.remove(output_path)
