@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6484,
+  "edge_count": 6490,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -168,7 +168,8 @@
       "bulk_downloader/aiassist.py"
     ],
     "bulk_downloader/app_alerts.py": [
-      "bulk_downloader/alerts_engine.py"
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/egress_withhold.py"
     ],
     "bulk_downloader/app_analyzer.py": [
       "bulk_downloader/db.py",
@@ -564,6 +565,7 @@
       "bulk_downloader/scene_scoring.py"
     ],
     "bulk_downloader/app_scheduled_exports.py": [
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/scheduled_exports.py"
     ],
     "bulk_downloader/app_schedules.py": [
@@ -771,6 +773,7 @@
       "bulk_downloader/app_state.py",
       "bulk_downloader/capture_login_wire.py",
       "bulk_downloader/cloak.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/template_extractor.py",
       "bulk_downloader/urllib_ssrf.py"
     ],
@@ -7683,6 +7686,11 @@
       "bulk_downloader/app_state.py",
       "bulk_downloader/egress_withhold.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_sec2_withhold_validation_messages.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/egress_withhold.py"
     ],
     "tests/test_secret_display_never.py": [
       "bulk_downloader/app.py",
