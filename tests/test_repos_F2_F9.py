@@ -234,10 +234,25 @@ class TestPatternCapsAppliedInApp(unittest.TestCase):
         marker."""
         # The comment 'v3.46.4 F9' should appear N times if all sites
         # got patched
+        # FF-F (O3205, TEST-ONLY): ext-route-anchor r2m (6e4bc950) replaced
+        # the marked re.search(pat, url[:4096]) site with _route_target, which
+        # cuts the path to _ROUTE_MAX_PATH itself -- the bound moved, the
+        # marker did not.  test_route_target_bounds_the_matched_path holds it.
         f9_count = self.app_src.count("v3.46.4 F9")
-        self.assertGreaterEqual(f9_count, 3,
-            f"only {f9_count} F9 markers in app.py; expected ≥3 for "
+        self.assertGreaterEqual(f9_count, 2,
+            f"only {f9_count} F9 markers in app.py; expected ≥2 for "
             f"the known route-pattern match sites")
+
+    def test_route_target_bounds_the_matched_path(self):
+        """FF-F: every url_patterns path regex reads _route_target's path,
+        which is cut to _ROUTE_MAX_PATH (ReDoS bound) however long the URL."""
+        from bulk_downloader import app as bd_app
+        cap = bd_app._ROUTE_MAX_PATH
+        target = bd_app._route_target(
+            "https://siteb.example.com/" + "a" * (3 * cap))
+        self.assertEqual(len(target[2]), cap,
+            f"F9-CAP: _route_target handed the matcher a "
+            f"{len(target[2])}-char path, bound is {cap}")
 
 
 if __name__ == "__main__":
