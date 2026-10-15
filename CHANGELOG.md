@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1893 - T282r-B
+
+(TODO changelog body)
+
 ## v3.66.1892 - T283b-j: release at merge
 
 T283b-m (lane 2, D2-D; at-merge) train-34 on current main (members yielded to C queue-train36: version-at-land-speed, row634, ff-e-body-contract).
