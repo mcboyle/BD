@@ -292,8 +292,10 @@ def api_template_sandbox():
     if not url:
         return jsonify({"ok": False, "error": "url required"}), 400
     if not url.startswith(("http://", "https://")):
+        from .egress_withhold import app_message  # SEC-2: served verbatim, by origin
         return jsonify({"ok": False,
-                          "error": "url must be http(s)://"}), 400
+                          "error": app_message("template-sandbox-scheme",
+                                               "url must be http(s)://")}), 400
     if not isinstance(template, dict):
         return jsonify({"ok": False,
                           "error": "template must be an object"}), 400

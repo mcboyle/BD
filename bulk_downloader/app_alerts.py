@@ -89,11 +89,13 @@ def api_alerts_rule_save():
         from . import alerts_engine as _ae
         rid = _ae.save_rule(body)
         if rid is None:
+            from .egress_withhold import app_message  # SEC-2: served verbatim, by origin
             return jsonify({"ok": False,
-                            "error": "invalid rule (need an id without '/', a known metric, "
-                                     "op in >=/<=/>/</==, finite numeric threshold, "
-                                     "whole non-negative duration_minutes / "
-                                     "cooldown_minutes)"}), 400
+                            "error": app_message("alert-rule-invalid",
+                                                 "invalid rule (need an id without '/', a known metric, "
+                                                 "op in >=/<=/>/</==, finite numeric threshold, "
+                                                 "whole non-negative duration_minutes / "
+                                                 "cooldown_minutes)")}), 400
         return jsonify({"ok": True, "id": rid})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
