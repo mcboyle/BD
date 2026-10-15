@@ -54,14 +54,19 @@ def api_storage_execute():
     _check_csrf()
     body = request.json or {}
     plan = body.get("plan") or {}
-    if not plan or not plan.get("moves"):
+    if not isinstance(plan, dict) or not plan.get("moves"):
         return jsonify({"ok": False, "error": "plan required"}), 400
     try:
         from . import storage_rebalance as _sr
-        return jsonify(_sr.execute_plan(
-            plan, dry_run=bool(body.get("dry_run", True))))
+        out = _sr.execute_plan(plan, dry_run=bool(body.get("dry_run", True)))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
+    # execute_plan refuses a whole plan that names a path outside the download
+    # roots (or is malformed) before moving anything; that is the client's
+    # error, as on /api/rebalance/execute.
+    if "refused" in out:
+        return jsonify(out), 400
+    return jsonify(out)
 
 def register_routes(app) -> int:
     app.register_blueprint(storage_rebalance_bp)

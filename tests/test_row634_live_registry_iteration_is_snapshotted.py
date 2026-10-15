@@ -182,6 +182,16 @@ def census_source(rel: str, source: str):
     for expr in _iter_expressions(tree):
         if not _mentions_registry(expr):
             continue
+        # This local scanner returns a fresh list of orphan records, not the
+        # registry passed to it. Do not exempt wrappers or arbitrary delegates.
+        if (rel == "bulk_downloader/crash_recovery.py"
+                and isinstance(expr, ast.Call)
+                and isinstance(expr.func, ast.Name)
+                and expr.func.id == "scan_for_orphans" and not expr.args
+                and {kw.arg for kw in expr.keywords} in (
+                    {"s_cfg", "runners"},
+                    {"s_cfg", "runners", "age_threshold_s"})):
+            continue
         row = "%s:%d: %s" % (rel, expr.lineno, ast.unparse(expr))
         if _is_safe_call(expr):
             snapshotted.append(row)
@@ -434,6 +444,34 @@ def test_a_copy_is_classified_as_other_and_not_as_the_defect():
     assert bare == [], bare
     assert len(other) == 1, other
     assert snap == [], snap
+
+
+@pytest.mark.parametrize("call", [
+    "scan_for_orphans(s_cfg=s_cfg, runners=runners)",
+    "scan_for_orphans(runners=runners, s_cfg=s_cfg)",
+    "scan_for_orphans(s_cfg=s_cfg, runners=runners, age_threshold_s=0)",
+])
+def test_orphan_record_list_iteration_is_outside_the_registry_census(call):
+    source = f"records = [o['path'] for o in {call}]"
+    result = census_source("bulk_downloader/crash_recovery.py", source)
+    assert result == ([], [], []), f"ROW634-ORPHAN-RESULT: {result}"
+
+
+@pytest.mark.parametrize(("rel", "expression"), [
+    ("control.py", "scan_for_orphans(s_cfg=s_cfg, runners=runners)"),
+    ("bulk_downloader/crash_recovery.py", "unknown_scan(s_cfg=s_cfg, runners=runners)"),
+    ("bulk_downloader/crash_recovery.py", "runners.scan_for_orphans(s_cfg=s_cfg, runners=runners)"),
+    ("bulk_downloader/crash_recovery.py", "scan_for_orphans(runners)"),
+    ("bulk_downloader/crash_recovery.py", "scan_for_orphans(**runners)"),
+    ("bulk_downloader/crash_recovery.py", "scan_for_orphans(s_cfg=s_cfg, runners=runners, unknown=1)"),
+    ("bulk_downloader/crash_recovery.py", "scan_for_orphans(s_cfg=s_cfg, runners=runners) or runners.items()"),
+])
+def test_orphan_result_exemption_keeps_other_registry_expressions_visible(
+        rel, expression):
+    source = f"records = [o for o in {expression}]"
+    bare, snap, other = census_source(rel, source)
+    assert (bare, snap) == ([], []) and len(other) == 1, (
+        f"ROW634-EXEMPTION-BOUNDARY: {(bare, snap, other)}")
 
 
 # ── the runtime seam the row was filed from ───────────────────────────
