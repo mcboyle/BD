@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1882 - train283b: row
+
+T283b-d (train-26, integrator D2-D, lane 2) on main 2c028fed (train-23 merged). Spec paths disjoint from C's train-24/25 (checked vs LANE-STATE-integrator-C + members-train2*-C.tsv).
+FIX: BURN/cuts/APPFEAT-fix/F039/r4-restack (BOARD per .review/VERDICT-*)
+FIX: O1789/landing/dl95/dl95-discover-login-gate-1/r1 (BOARD per .review/VERDICT-*)
+
+
 ## v3.66.1878 - train283b: row
 
 T283b-c (train-23 RE-KIT, integrator D2-D, lane 2) on main 317c98a3 (train-22 #1256 merged first -> #1257 DIRTY on release commit; re-kit per O3194 item 2 with a fresh bd-claim-version). Member list re-frozen at this assembly: +2 BOARDs that arrived during #1257 CI (O3198 item 4: a BOARD waits at most one train).
