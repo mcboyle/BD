@@ -101,6 +101,14 @@ def redact_secrets(value, *, depth: int = 0):
                     out[k] = "<redacted dict>"
                 else:
                     out[k] = _REDACT_PLACEHOLDER
+            elif isinstance(k, str) and k.lower().endswith("headers") and isinstance(v, dict):
+                # sec2-get-residuals r1/r2: header maps ask the shared secret-header
+                # class (Proxy-Authorization, X-Api-Key, ...) UNION the per-key class
+                # (Username, X-Password, ...) -- never narrower; names are kept.
+                from .capture_redact import is_secret_header
+                out[k] = {hk: (_REDACT_PLACEHOLDER if is_secret_header(hk) or _is_sensitive_key(hk)
+                               else redact_secrets(hv, depth=depth + 2))
+                          for hk, hv in v.items()}
             else:
                 out[k] = redact_secrets(v, depth=depth + 1)
         return out

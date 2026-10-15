@@ -3578,8 +3578,14 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # lock acquisition. Previously two with-blocks created a TOCTOU
         # window: if a worker added a job between them, total reflected
         # the new count but counts didn't include it.
+        # sec2-get-residuals r1: a client sees custom_headers NAMES only, each
+        # value db.QUEUE_HEADER_MASK; the job keeps its own dict for its request.
+        from .db import queue_headers_masked
         with self._lock:
             jobs={u:dict(j) for u,j in self.jobs.items()} if not light else {}
+            for c in jobs.values():
+                if "custom_headers" in c:
+                    c["custom_headers"]=queue_headers_masked(c["custom_headers"])
             urls=list(self.urls) if not light else []
             counts={"pending":0,"running":0,"done":0,"failed":0,"stopped":0,
                     "needs_review":0}
