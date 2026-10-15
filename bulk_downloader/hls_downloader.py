@@ -439,6 +439,14 @@ def download(
     if not isinstance(manifest_url, str) or not manifest_url.startswith(("http://", "https://")):
         return DownloadResult(ok=False, error="bad_url",
                               error_detail=f"manifest URL not http(s): {manifest_url!r}")
+    # BD-SEC-3 r3: ffmpeg resolves and fetches the manifest itself. The URL is
+    # judged first (LAN admitted, link-local/metadata/unspecified refused; a
+    # name not resolvable here is left to ffmpeg, it may sit behind the egress
+    # proxy); ffmpeg's own redirects are not re-judged.
+    from . import outbound_guard as _outbound_guard
+    _refusal = _outbound_guard.url_refusal(manifest_url, unresolved_ok=True)
+    if _refusal:
+        return DownloadResult(ok=False, error="bad_url", error_detail=_refusal)
     if not output_path:
         return DownloadResult(ok=False, error="bad_output_path",
                               error_detail="output_path is empty")
