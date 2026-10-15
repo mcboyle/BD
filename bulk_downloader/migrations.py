@@ -352,6 +352,7 @@ def apply_pending(
     #     migration can never leave a half-migrated DB that wedges startup.
     # (2) BACKUP: copy the live DB aside so a data-dependent failure the
     #     schema-only dry-run can't catch is recoverable (abort-to-prior).
+    #     Taken in _execute_migrations, inside the barrier (mif-backup-window).
     if backup_first:
         preflight = apply_pending(dry_run=True, backup_first=False)
         if preflight.get("errors"):
@@ -360,16 +361,41 @@ def apply_pending(
                                    "that would fail; no migrations were applied")
             out["preflight"] = preflight.get("results", [])
             return out
-        _bak = _backup_db_before_migration()
-        if _bak:
-            out["backup"] = _bak
 
     from . import db as _db
     barrier = get_barrier(drain_timeout=drain_timeout, barrier_timeout=barrier_timeout) if zero_downtime else None
     total_retries = 0
 
+    # mif-backup-window: the drain excludes no writer (nothing else takes a
+    # barrier lease), so a commit can land between the backup and a failing
+    # migration, and abort-to-prior would discard it. The backup is read through
+    # the pooled handle the migrations then reuse; PRAGMA data_version on that
+    # handle moves only for OTHER connections' commits. Moved, or the handle was
+    # replaced -> the restore is refused and the late rows are kept.
+    pin = {}
+
+    def _take_backup():
+        with _db.db_conn() as cx:
+            dv = cx.execute("PRAGMA data_version").fetchone()[0]
+            bak = _backup_db_before_migration(source=cx)
+        if bak:
+            out["backup"] = bak
+            pin.update(cx=cx, data_version=dv)
+
+    def _foreign_commit_since_backup():
+        """None when the pinned handle proves no other connection committed."""
+        with _db.db_conn() as cx:
+            if cx is not pin.get("cx"):
+                return "pooled handle replaced since the backup; cannot prove no other commit"
+            dv = cx.execute("PRAGMA data_version").fetchone()[0]
+        if dv != pin["data_version"]:
+            return "PRAGMA data_version moved since the backup: another connection committed"
+        return None
+
     def _execute_migrations():
         nonlocal total_retries
+        if backup_first:
+            _take_backup()
         for m in pend:
             started = time.time()
             try:
@@ -388,6 +414,12 @@ def apply_pending(
                 out["results"].append({"version": m["version"],
                                        "name": m["name"], "ok": True})
             except Exception as e:
+                refused = None
+                if backup_first and out.get("backup"):
+                    try:
+                        refused = _foreign_commit_since_backup()
+                    except Exception as chk:
+                        refused = "data_version check failed: %s" % chk
                 try:
                     with _db.db_conn() as cx:
                         cx.execute("""INSERT INTO schema_migrations(
@@ -405,7 +437,9 @@ def apply_pending(
                 # dry-run preflight (a data-dependent failure). Restore the
                 # pre-migration DB so we don't leave a half-migrated state.
                 if backup_first and out.get("backup"):
-                    if _restore_db_from_backup(out["backup"]):
+                    if refused:
+                        out["restore_refused"] = refused
+                    elif _restore_db_from_backup(out["backup"]):
                         out["restored_to_prior"] = True
                 # Stop on first error — later migrations might depend on
                 # this one's columns
@@ -446,7 +480,7 @@ def apply_pending(
     return out
 
 
-def _backup_db_before_migration():
+def _backup_db_before_migration(source=None):
     """ROB-2: copy the live DB aside before migrations mutate it, returning
     the backup path (``<db>.premigration.bak``) or None if there is no DB file /
     the copy failed. Best-effort and safe at boot.
@@ -460,7 +494,10 @@ def _backup_db_before_migration():
 
     r3 (train-4 eject): the copy is VACUUM INTO on a db.db_conn() lease -- the same
     committed-state read, but the history DB is opened only through the MOD-3 seam
-    and nothing but the history DB is ever handed to sqlite3.connect."""
+    and nothing but the history DB is ever handed to sqlite3.connect.
+
+    mif-backup-window: `source` is the open seam connection to copy through
+    (apply_pending passes the pooled handle its migrations run on); default leases one."""
     try:
         from . import db as _db
         src = _db._resolve_db_path()
@@ -473,13 +510,19 @@ def _backup_db_before_migration():
     try:
         if os.path.exists(tmp):
             os.unlink(tmp)
-        with _db.db_conn() as cx:
+        def _copy(cx):
             # A handle that is not the history file (inmemory_sqlite's shared-cache
             # DB) has nothing of src to copy; the restore would then retry forever.
             opened = cx.execute("PRAGMA database_list").fetchone()[2]
             if not opened or not os.path.samefile(opened, src):
                 raise sqlite3.OperationalError("seam handle is not %s" % src)
             cx.execute("VACUUM INTO ?", (tmp,))
+
+        if source is not None:
+            _copy(source)
+        else:
+            with _db.db_conn() as cx:
+                _copy(cx)
         os.replace(tmp, dst)
         return dst
     except Exception:

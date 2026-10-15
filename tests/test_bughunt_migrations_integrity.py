@@ -221,6 +221,109 @@ def test_r3_restore_from_the_live_db_itself_returns_false_not_a_hang(isolated_re
     assert r.returncode == 0 and "BAK=False" in r.stdout, (r.returncode, r.stdout, r.stderr[-800:])
 
 
+def _after_backup(monkeypatch, then):
+    real = mg._backup_db_before_migration
+
+    def wrapped(*a, **k):
+        bak = real(*a, **k)
+        then()
+        return bak
+
+    monkeypatch.setattr(mg, "_backup_db_before_migration", wrapped)
+
+
+def _late_rows(path, n=30):
+    w = sqlite3.connect(path)
+    w.executemany("INSERT INTO history(site_id,url,status,ts) VALUES ('late',?,'done',0)",
+                  [("l%d" % i,) for i in range(n)])
+    w.commit()
+    w.close()
+
+
+def _late_kept(path):
+    c = sqlite3.connect(path)
+    try:
+        return c.execute("SELECT count(*) FROM history WHERE site_id='late'").fetchone()[0]
+    finally:
+        c.close()
+
+
+def test_window_commit_between_backup_and_failing_migration_is_kept(isolated_registry, monkeypatch):
+    # mif-backup-window (r2 DETAIL probe_window.py): abort-to-prior discarded rows another connection
+    # committed after the backup was taken.
+    path = isolated_registry
+    _seed_history(path, 2000, duplicate_sites=True)
+    _after_backup(monkeypatch, lambda: _late_rows(path))
+    out = mg.apply_pending()
+    db.close_all_pooled_connections()
+    assert out.get("errors") == 1 and out.get("backup"), out
+    assert _late_kept(path) == 30, (
+        "MIG-WIN: %d/30 rows committed after the backup survived; restored_to_prior=%r restore_refused=%r"
+        % (_late_kept(path), out.get("restored_to_prior"), out.get("restore_refused")))
+    assert "restored_to_prior" not in out and "data_version" in out.get("restore_refused", ""), out
+    with sqlite3.connect(path) as c:
+        assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_window_control_no_foreign_commit_still_restores(isolated_registry, monkeypatch):
+    path = isolated_registry
+    _seed_history(path, 2000, duplicate_sites=True)
+    _after_backup(monkeypatch, lambda: None)
+    out = mg.apply_pending()
+    db.close_all_pooled_connections()
+    assert out.get("restored_to_prior") is True and "restore_refused" not in out, out
+    assert "idx_probe_url" not in _fresh_view(path)[0]
+
+
+def test_window_replaced_handle_refuses_rather_than_guesses(isolated_registry, monkeypatch):
+    # Policy: with the pinned handle gone, data_version proves nothing, so no restore.
+    path = isolated_registry
+    _seed_history(path, 200, duplicate_sites=True)
+    evict = []
+    real_conn = db.db_conn
+
+    def conn(*a, **k):
+        if evict:  # the next borrow after the failing migration finds the pinned handle gone
+            evict.clear()
+            mg._evict_idle_connections()
+        return real_conn(*a, **k)
+
+    def m101(cx):
+        # The preflight runs on a bare :memory: connection; the live apply gets the pooled
+        # handle (_HistoryConnection, or _DualWriteConn when MOD3_PG_DSN is set).
+        if type(cx) is not sqlite3.Connection:
+            evict.append(1)
+        _m101(cx)
+
+    monkeypatch.setattr(db, "db_conn", conn)
+    mg._MIGRATIONS[1]["fn"] = m101
+    out = mg.apply_pending()
+    assert "restored_to_prior" not in out and "replaced" in out.get("restore_refused", ""), out
+
+
+class _NoPagesConnection(sqlite3.Connection):
+    def backup(self, *a, **k):
+        return None
+
+
+def test_restore_reports_false_when_the_pages_did_not_arrive(tmp_path, monkeypatch):
+    # Kills lens mutant M2 (schema compare -> True): the docstring promises True only when the
+    # live schema reads back as the backup's.
+    live, bak = str(tmp_path / "live.db"), str(tmp_path / "bak.db")
+    for p, extra in ((live, True), (bak, False)):
+        c = sqlite3.connect(p)
+        c.execute("CREATE TABLE history(id INTEGER PRIMARY KEY)")
+        if extra:
+            c.execute("CREATE INDEX idx_extra ON history(id)")
+        c.commit()
+        c.close()
+    monkeypatch.setattr(db, "DB_PATH", live)
+    real_connect = sqlite3.connect
+    monkeypatch.setattr(mg, "sqlite3", type("S", (), {
+        "connect": staticmethod(lambda p, *a, **k: real_connect(p, *a, factory=_NoPagesConnection, **k))}))
+    assert mg._restore_db_from_backup(bak) is False, "MIG-M2: restore reported True though no page was copied"
+
+
 def _history_table(cx, with_library_id):
     cx.execute("CREATE TABLE history(id INTEGER PRIMARY KEY, url TEXT)")
     if with_library_id:
