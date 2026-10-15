@@ -4904,7 +4904,12 @@ def stream_serve(token):
         return Response(stream_with_context(gen),
                         status=status, headers=headers)
     except Exception as e:
-        return Response(f"error: {e}", status=500, mimetype="text/plain")
+        # media F10: the exception text (e.g. an absolute library path) goes
+        # to the server log, redacted; the client gets a request id.
+        from . import error_reply as _er
+        body = _er.failure_reply("stream_serve", e, secrets=[token])
+        return Response(f"{body['error']} (request id {body['request_id']})",
+                        status=500, mimetype="text/plain")
 
 # ── v3.43.80 Phase 133: thumbnails / contact sheets ───────────────────
 # /api/thumbs -> app_thumbs.py (Phase 4 thin-core-shell extraction)

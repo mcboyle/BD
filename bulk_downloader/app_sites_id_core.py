@@ -715,6 +715,15 @@ def api_sites_v2_bulk():
     })
 
 
+def _strip_plex_token(data):
+    """plex-error-redact F3: a pasted Plex token often carries a trailing
+    newline or space. Store it stripped: hooks / plex_deep send the stored
+    value as-is (plex_deep_plexapi strips it before use). A blank result
+    keeps the stored token (PRESERVE_IF_BLANK), as a blank field does."""
+    if isinstance(data.get("plex_token"), str):
+        data["plex_token"] = data["plex_token"].strip()
+
+
 @sites_bp.route("/api/sites",methods=["POST"])
 def api_add():
     s_cfg = _app_s_cfg()
@@ -724,6 +733,7 @@ def api_add():
     # never stored; a new site has no value to keep, so the field is blank.
     from .egress_withhold import restore_withheld
     restore_withheld(data, None)
+    _strip_plex_token(data)
     actor = (request.cookies.get("bd_session", "")[:8]
              or request.remote_addr or "unknown")
     # v3.66.326: route the login password to the encrypted secrets vault as a
@@ -988,6 +998,7 @@ def api_update(sid):
         if secret_field in data and not (data[secret_field] is None
                                          or isinstance(data[secret_field], str)):
             return jsonify({"error": f"{secret_field} must be a string"}), 400
+    _strip_plex_token(data)
     # s28 (S02-C finding S28): container-typed fields.  {"accounts": "x"} was
     # stored as sent (200) and SiteRunner then failed on it at the next start.
     # A wrong type is refused before anything is merged or written.
