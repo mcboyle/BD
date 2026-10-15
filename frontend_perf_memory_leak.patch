@@ -1,0 +1,1683 @@
+--- /dev/null	2026-10-03 21:43:40.069000226 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/hooks/useWebSocket.ts	2026-10-15 19:13:28.572536951 +0000
+@@ -0,0 +1,317 @@
++"use client";
++
++import { useCallback, useEffect, useRef, useState } from "react";
++
++export type WebSocketConnectionState =
++  | "connecting"
++  | "connected"
++  | "reconnecting"
++  | "disconnected"
++  | "error";
++
++export interface WebSocketMetrics {
++  messagesReceived: number;
++  messagesSent: number;
++  bytesReceived: number;
++  reconnectCount: number;
++  lastConnectedAt: string | null;
++  lastMessageAt: string | null;
++}
++
++export interface UseWebSocketOptions<T = unknown> {
++  url?: string;
++  autoConnect?: boolean;
++  reconnect?: boolean;
++  reconnectAttempts?: number;
++  reconnectIntervalMs?: number;
++  maxReconnectIntervalMs?: number;
++  heartbeatIntervalMs?: number;
++  heartbeatMessage?: string;
++  onMessage?: (data: T) => void;
++  onError?: (event: Event) => void;
++  onOpen?: (event: Event) => void;
++  onClose?: (event: CloseEvent) => void;
++  transform?: (raw: unknown) => T;
++}
++
++export interface UseWebSocketResult<T = unknown> {
++  connectionState: WebSocketConnectionState;
++  isConnected: boolean;
++  lastMessage: T | null;
++  metrics: WebSocketMetrics;
++  sendMessage: (payload: unknown) => boolean;
++  reconnect: () => void;
++  disconnect: () => void;
++}
++
++/**
++ * High-performance, memory-leak-free WebSocket hook with strict teardown guarantees (R1).
++ * Nullifies all event handlers prior to close() to prevent React 18 StrictMode double-fire leaks.
++ * Tracks all timer IDs in refs and clears on unmount.
++ */
++export function useWebSocket<T = unknown>(
++  options: UseWebSocketOptions<T> = {}
++): UseWebSocketResult<T> {
++  const {
++    url,
++    autoConnect = true,
++    reconnect: enableReconnect = true,
++    reconnectAttempts = 10,
++    reconnectIntervalMs = 1000,
++    maxReconnectIntervalMs = 10000,
++    heartbeatIntervalMs = 30000,
++    heartbeatMessage = JSON.stringify({ type: "ping" }),
++    onMessage,
++    onError,
++    onOpen,
++    onClose,
++    transform,
++  } = options;
++
++  const [connectionState, setConnectionState] =
++    useState<WebSocketConnectionState>("disconnected");
++  const [lastMessage, setLastMessage] = useState<T | null>(null);
++  const [metrics, setMetrics] = useState<WebSocketMetrics>({
++    messagesReceived: 0,
++    messagesSent: 0,
++    bytesReceived: 0,
++    reconnectCount: 0,
++    lastConnectedAt: null,
++    lastMessageAt: null,
++  });
++
++  const wsRef = useRef<WebSocket | null>(null);
++  const isMountedRef = useRef<boolean>(true);
++  const reconnectAttemptRef = useRef<number>(0);
++  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
++
++  // Keep latest callbacks in refs to avoid rebuilding connect callbacks on consumer re-render
++  const callbacksRef = useRef({
++    onMessage,
++    onError,
++    onOpen,
++    onClose,
++    transform,
++  });
++  useEffect(() => {
++    callbacksRef.current = {
++      onMessage,
++      onError,
++      onOpen,
++      onClose,
++      transform,
++    };
++  }, [onMessage, onError, onOpen, onClose, transform]);
++
++  // Teardown helper: detaches listeners BEFORE close to prevent React 18 race conditions
++  const cleanupSocket = useCallback(() => {
++    if (heartbeatTimerRef.current) {
++      clearInterval(heartbeatTimerRef.current);
++      heartbeatTimerRef.current = null;
++    }
++    if (reconnectTimerRef.current) {
++      clearTimeout(reconnectTimerRef.current);
++      reconnectTimerRef.current = null;
++    }
++
++    if (wsRef.current) {
++      const socket = wsRef.current;
++      socket.onopen = null;
++      socket.onmessage = null;
++      socket.onerror = null;
++      socket.onclose = null;
++      try {
++        if (
++          socket.readyState === WebSocket.OPEN ||
++          socket.readyState === WebSocket.CONNECTING
++        ) {
++          socket.close();
++        }
++      } catch {
++        // Suppress socket closure errors during unmount/cleanup
++      }
++      wsRef.current = null;
++    }
++  }, []);
++
++  const resolveEndpoint = useCallback((): string => {
++    if (url) return url;
++    if (typeof window === "undefined") return "ws://127.0.0.1:8000/api/swarm/ws";
++    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
++    const host = window.location.hostname || "127.0.0.1";
++    return `${protocol}//${host}:8000/api/swarm/ws`;
++  }, [url]);
++
++  const connect = useCallback(() => {
++    if (!isMountedRef.current) return;
++    if (typeof window === "undefined") return;
++
++    cleanupSocket();
++
++    try {
++      setConnectionState("connecting");
++      const targetUrl = resolveEndpoint();
++      const ws = new WebSocket(targetUrl);
++      wsRef.current = ws;
++
++      ws.onopen = (evt: Event) => {
++        if (!isMountedRef.current) return;
++        reconnectAttemptRef.current = 0;
++        setConnectionState("connected");
++        setMetrics((prev) => ({
++          ...prev,
++          lastConnectedAt: new Date().toISOString(),
++        }));
++
++        if (heartbeatIntervalMs > 0) {
++          if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
++          heartbeatTimerRef.current = setInterval(() => {
++            if (wsRef.current?.readyState === WebSocket.OPEN) {
++              try {
++                wsRef.current.send(heartbeatMessage);
++              } catch {
++                // Heartbeat send failed
++              }
++            }
++          }, heartbeatIntervalMs);
++        }
++
++        callbacksRef.current.onOpen?.(evt);
++      };
++
++      ws.onmessage = (evt: MessageEvent) => {
++        if (!isMountedRef.current) return;
++
++        let parsed: unknown = evt.data;
++        if (typeof evt.data === "string") {
++          try {
++            parsed = JSON.parse(evt.data);
++          } catch {
++            parsed = evt.data;
++          }
++        }
++
++        const transformed = callbacksRef.current.transform
++          ? callbacksRef.current.transform(parsed)
++          : (parsed as T);
++
++        setLastMessage(transformed);
++        setMetrics((prev) => ({
++          ...prev,
++          messagesReceived: prev.messagesReceived + 1,
++          bytesReceived:
++            prev.bytesReceived +
++            (typeof evt.data === "string" ? evt.data.length : 0),
++          lastMessageAt: new Date().toISOString(),
++        }));
++
++        callbacksRef.current.onMessage?.(transformed);
++      };
++
++      ws.onerror = (evt: Event) => {
++        if (!isMountedRef.current) return;
++        setConnectionState("error");
++        callbacksRef.current.onError?.(evt);
++      };
++
++      ws.onclose = (evt: CloseEvent) => {
++        if (!isMountedRef.current) return;
++
++        cleanupSocket();
++        callbacksRef.current.onClose?.(evt);
++
++        if (
++          enableReconnect &&
++          reconnectAttemptRef.current < reconnectAttempts
++        ) {
++          setConnectionState("reconnecting");
++          const attempt = reconnectAttemptRef.current;
++          const delay = Math.min(
++            reconnectIntervalMs * Math.pow(1.5, attempt),
++            maxReconnectIntervalMs
++          );
++          reconnectAttemptRef.current += 1;
++
++          setMetrics((prev) => ({
++            ...prev,
++            reconnectCount: prev.reconnectCount + 1,
++          }));
++
++          reconnectTimerRef.current = setTimeout(() => {
++            if (isMountedRef.current) {
++              connect();
++            }
++          }, delay);
++        } else {
++          setConnectionState("disconnected");
++        }
++      };
++    } catch {
++      if (isMountedRef.current) {
++        setConnectionState("error");
++      }
++    }
++  }, [
++    cleanupSocket,
++    resolveEndpoint,
++    heartbeatIntervalMs,
++    heartbeatMessage,
++    enableReconnect,
++    reconnectAttempts,
++    reconnectIntervalMs,
++    maxReconnectIntervalMs,
++  ]);
++
++  const disconnect = useCallback(() => {
++    reconnectAttemptRef.current = reconnectAttempts; // prevent auto-reconnect
++    cleanupSocket();
++    if (isMountedRef.current) {
++      setConnectionState("disconnected");
++    }
++  }, [cleanupSocket, reconnectAttempts]);
++
++  const reconnect = useCallback(() => {
++    reconnectAttemptRef.current = 0;
++    connect();
++  }, [connect]);
++
++  const sendMessage = useCallback((payload: unknown): boolean => {
++    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
++      return false;
++    }
++    try {
++      const message =
++        typeof payload === "string" ? payload : JSON.stringify(payload);
++      wsRef.current.send(message);
++      setMetrics((prev) => ({
++        ...prev,
++        messagesSent: prev.messagesSent + 1,
++      }));
++      return true;
++    } catch {
++      return false;
++    }
++  }, []);
++
++  useEffect(() => {
++    isMountedRef.current = true;
++    if (autoConnect) {
++      connect();
++    }
++    return () => {
++      isMountedRef.current = false;
++      cleanupSocket();
++    };
++  }, [autoConnect, connect, cleanupSocket]);
++
++  return {
++    connectionState,
++    isConnected: connectionState === "connected",
++    lastMessage,
++    metrics,
++    sendMessage,
++    reconnect,
++    disconnect,
++  };
++}
+
+--- /dev/null	2026-10-03 21:43:40.069000226 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/components/TelemetryChart.tsx	2026-10-15 19:15:01.337175944 +0000
+@@ -0,0 +1,505 @@
++"use client";
++
++import React, { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
++import { Activity, AlertTriangle, ArrowDown, ArrowUp, Maximize2, Minimize2, RefreshCw } from "lucide-react";
++import { ErrorBoundary } from "./ErrorBoundary";
++
++export interface TelemetryPoint {
++  timestamp: string | number;
++  value: number;
++  label?: string;
++  metadata?: Record<string, unknown>;
++}
++
++export interface TelemetrySeries {
++  id: string;
++  name: string;
++  color?: string;
++  points: TelemetryPoint[];
++  unit?: string;
++}
++
++export interface TelemetryChartProps {
++  series?: TelemetrySeries[];
++  dataPoints?: TelemetryPoint[]; // Convenience shorthand for single-series
++  title?: string;
++  subtitle?: string;
++  height?: number;
++  autoRefreshIntervalMs?: number;
++  showAverages?: boolean;
++  showPercentiles?: boolean;
++  unit?: string;
++  className?: string;
++  onRefresh?: () => void;
++}
++
++interface ComputedStats {
++  min: number;
++  max: number;
++  avg: number;
++  p50: number;
++  p95: number;
++  p99: number;
++  latest: number;
++  deltaPct: number;
++}
++
++// Fallback error UI for the chart component
++function TelemetryChartFallback({ error, reset }: { error: Error | null; reset: () => void }) {
++  return (
++    <div
++      data-testid="telemetry-chart-error"
++      className="p-4 rounded-xl bg-zinc-950/90 border border-amber-500/40 font-mono text-xs text-zinc-300 space-y-3"
++    >
++      <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
++        <div className="flex items-center space-x-2 text-amber-400 font-bold">
++          <AlertTriangle className="w-4 h-4" />
++          <span>Telemetry Chart Fault Isolated</span>
++        </div>
++        <button
++          onClick={reset}
++          className="flex items-center space-x-1 px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded text-xs transition border border-zinc-700"
++        >
++          <RefreshCw className="w-3 h-3 text-emerald-400" />
++          <span>Reset Chart</span>
++        </button>
++      </div>
++      <p className="text-zinc-400 text-[11px]">
++        {error?.message || "An unexpected error occurred during telemetry series computation."}
++      </p>
++    </div>
++  );
++}
++
++function TelemetryChartInner({
++  series: rawSeries,
++  dataPoints,
++  title = "Telemetry Stream Throughput",
++  subtitle = "High-frequency metric observation pipeline",
++  height = 220,
++  autoRefreshIntervalMs = 0,
++  showAverages = true,
++  showPercentiles = true,
++  unit = "req/s",
++  className = "",
++  onRefresh,
++}: TelemetryChartProps) {
++  const chartId = useId();
++  const containerRef = useRef<HTMLDivElement | null>(null);
++  const [containerWidth, setContainerWidth] = useState<number>(640);
++  const [isExpanded, setIsExpanded] = useState<boolean>(false);
++  const [hasMounted, setHasMounted] = useState<boolean>(false);
++
++  // Hydration Protection (R3): Avoid SSR client/server mismatch for dynamic timestamps
++  useEffect(() => {
++    setHasMounted(true);
++  }, []);
++
++  // R1: Proper event listener and ResizeObserver unmount teardown
++  useEffect(() => {
++    if (!containerRef.current) return;
++    const observer = new ResizeObserver((entries) => {
++      for (const entry of entries) {
++        if (entry.contentRect.width > 0) {
++          setContainerWidth(Math.floor(entry.contentRect.width));
++        }
++      }
++    });
++
++    observer.observe(containerRef.current);
++    return () => {
++      observer.disconnect();
++    };
++  }, []);
++
++  // R1: Periodic refresh interval cleanup
++  useEffect(() => {
++    if (autoRefreshIntervalMs <= 0 || !onRefresh) return;
++    const timer = setInterval(() => {
++      onRefresh();
++    }, autoRefreshIntervalMs);
++
++    return () => {
++      clearInterval(timer);
++    };
++  }, [autoRefreshIntervalMs, onRefresh]);
++
++  // Normalize single-series dataPoints prop into series array
++  const activeSeries: TelemetrySeries[] = useMemo(() => {
++    if (rawSeries && rawSeries.length > 0) return rawSeries;
++    if (dataPoints && dataPoints.length > 0) {
++      return [
++        {
++          id: "primary",
++          name: title,
++          color: "#10b981", // emerald-500
++          points: dataPoints,
++          unit,
++        },
++      ];
++    }
++    return [
++      {
++        id: "empty",
++        name: title,
++        color: "#10b981",
++        points: [],
++        unit,
++      },
++    ];
++  }, [rawSeries, dataPoints, title, unit]);
++
++  // R2: Expensive telemetry statistical calculations wrapped in useMemo
++  const stats: Record<string, ComputedStats> = useMemo(() => {
++    const result: Record<string, ComputedStats> = {};
++
++    for (const s of activeSeries) {
++      const vals = s.points.map((p) => p.value).filter((v) => Number.isFinite(v));
++      if (vals.length === 0) {
++        result[s.id] = {
++          min: 0,
++          max: 0,
++          avg: 0,
++          p50: 0,
++          p95: 0,
++          p99: 0,
++          latest: 0,
++          deltaPct: 0,
++        };
++        continue;
++      }
++
++      let sum = 0;
++      let min = vals[0];
++      let max = vals[0];
++      for (let i = 0; i < vals.length; i++) {
++        const v = vals[i];
++        sum += v;
++        if (v < min) min = v;
++        if (v > max) max = v;
++      }
++      const avg = sum / vals.length;
++
++      // Sorted copy for percentiles
++      const sorted = [...vals].sort((a, b) => a - b);
++      const p50 = sorted[Math.floor(sorted.length * 0.5)];
++      const p95 = sorted[Math.floor(sorted.length * 0.95)];
++      const p99 = sorted[Math.floor(sorted.length * 0.99)];
++      const latest = vals[vals.length - 1];
++      const previous = vals.length > 1 ? vals[vals.length - 2] : latest;
++      const deltaPct = previous !== 0 ? ((latest - previous) / previous) * 100 : 0;
++
++      result[s.id] = {
++        min,
++        max,
++        avg,
++        p50,
++        p95,
++        p99,
++        latest,
++        deltaPct,
++      };
++    }
++
++    return result;
++  }, [activeSeries]);
++
++  // R2: Global coordinate boundaries memoized
++  const { globalMax, globalMin } = useMemo(() => {
++    let max = 1;
++    let min = 0;
++    for (const s of activeSeries) {
++      const stat = stats[s.id];
++      if (stat) {
++        if (stat.max > max) max = stat.max;
++        if (stat.min < min) min = stat.min;
++      }
++    }
++    return { globalMax: max * 1.1, globalMin: Math.min(0, min) };
++  }, [activeSeries, stats]);
++
++  // R2: SVG path generation memoized to avoid geometry recalc on unrelated re-renders
++  const paddingX = 40;
++  const paddingY = 25;
++  const plotWidth = Math.max(100, containerWidth - paddingX * 2);
++  const plotHeight = Math.max(60, (isExpanded ? height * 1.6 : height) - paddingY * 2);
++
++  const seriesPaths = useMemo(() => {
++    return activeSeries.map((s) => {
++      const points = s.points;
++      if (points.length < 2) {
++        return { id: s.id, linePath: "", areaPath: "", points: [] };
++      }
++
++      const rangeY = globalMax - globalMin || 1;
++      const mappedPoints = points.map((p, idx) => {
++        const x = paddingX + (idx / (points.length - 1)) * plotWidth;
++        const normalizedY = (p.value - globalMin) / rangeY;
++        const y = paddingY + plotHeight - normalizedY * plotHeight;
++        return { x, y, value: p.value, timestamp: p.timestamp };
++      });
++
++      const linePath = mappedPoints.reduce(
++        (acc, pt, idx) => `${acc} ${idx === 0 ? "M" : "L"} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`,
++        ""
++      );
++
++      const baselineY = paddingY + plotHeight;
++      const firstX = mappedPoints[0].x.toFixed(1);
++      const lastX = mappedPoints[mappedPoints.length - 1].x.toFixed(1);
++      const areaPath = `${linePath} L ${lastX} ${baselineY} L ${firstX} ${baselineY} Z`;
++
++      return {
++        id: s.id,
++        linePath,
++        areaPath,
++        points: mappedPoints,
++      };
++    });
++  }, [activeSeries, globalMax, globalMin, plotWidth, plotHeight]);
++
++  const primarySeries = activeSeries[0];
++  const primaryStats = stats[primarySeries?.id] || {
++    min: 0,
++    max: 0,
++    avg: 0,
++    p50: 0,
++    p95: 0,
++    p99: 0,
++    latest: 0,
++    deltaPct: 0,
++  };
++
++  return (
++    <div
++      ref={containerRef}
++      data-testid="telemetry-chart-container"
++      className={`bg-zinc-900/80 border border-zinc-800 rounded-2xl p-5 shadow-2xl relative space-y-4 font-mono ${className}`}
++    >
++      {/* Chart Header */}
++      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
++        <div className="space-y-1">
++          <div className="flex items-center space-x-2">
++            <Activity className="w-4 h-4 text-emerald-400" />
++            <h3 className="text-sm font-bold text-zinc-100">{title}</h3>
++            <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-bold">
++              REALTIME
++            </span>
++          </div>
++          <p className="text-xs text-zinc-400">{subtitle}</p>
++        </div>
++
++        <div className="flex items-center space-x-3">
++          {onRefresh && (
++            <button
++              onClick={onRefresh}
++              aria-label="Refresh telemetry data"
++              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition border border-zinc-700"
++            >
++              <RefreshCw className="w-3.5 h-3.5" />
++            </button>
++          )}
++          <button
++            onClick={() => setIsExpanded((prev) => !prev)}
++            aria-label={isExpanded ? "Collapse chart" : "Expand chart"}
++            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition border border-zinc-700"
++          >
++            {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
++          </button>
++        </div>
++      </div>
++
++      {/* KPI Headline Badges */}
++      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
++        <div className="bg-zinc-950/70 border border-zinc-800 p-2.5 rounded-lg">
++          <span className="text-zinc-500 text-[10px] uppercase font-bold block">Current Rate</span>
++          <div className="flex items-baseline space-x-1.5 mt-0.5">
++            <span className="text-lg font-bold text-emerald-400">
++              {primaryStats.latest.toFixed(1)}
++            </span>
++            <span className="text-[10px] text-zinc-400">{unit}</span>
++          </div>
++        </div>
++
++        {showAverages && (
++          <div className="bg-zinc-950/70 border border-zinc-800 p-2.5 rounded-lg">
++            <span className="text-zinc-500 text-[10px] uppercase font-bold block">Mean Avg</span>
++            <div className="flex items-baseline space-x-1.5 mt-0.5">
++              <span className="text-lg font-bold text-zinc-200">
++                {primaryStats.avg.toFixed(1)}
++              </span>
++              <span className="text-[10px] text-zinc-400">{unit}</span>
++            </div>
++          </div>
++        )}
++
++        {showPercentiles && (
++          <div className="bg-zinc-950/70 border border-zinc-800 p-2.5 rounded-lg">
++            <span className="text-zinc-500 text-[10px] uppercase font-bold block">p95 Ceiling</span>
++            <div className="flex items-baseline space-x-1.5 mt-0.5">
++              <span className="text-lg font-bold text-cyan-400">
++                {primaryStats.p95.toFixed(1)}
++              </span>
++              <span className="text-[10px] text-zinc-400">{unit}</span>
++            </div>
++          </div>
++        )}
++
++        <div className="bg-zinc-950/70 border border-zinc-800 p-2.5 rounded-lg">
++          <span className="text-zinc-500 text-[10px] uppercase font-bold block">Recent Drift</span>
++          <div className="flex items-center space-x-1 mt-0.5">
++            {primaryStats.deltaPct >= 0 ? (
++              <ArrowUp className="w-3.5 h-3.5 text-emerald-400" />
++            ) : (
++              <ArrowDown className="w-3.5 h-3.5 text-rose-400" />
++            )}
++            <span
++              className={`text-sm font-bold ${
++                primaryStats.deltaPct >= 0 ? "text-emerald-400" : "text-rose-400"
++              }`}
++            >
++              {Math.abs(primaryStats.deltaPct).toFixed(1)}%
++            </span>
++          </div>
++        </div>
++      </div>
++
++      {/* SVG Sparkline & Chart Canvas */}
++      <div className="relative w-full overflow-hidden bg-zinc-950/90 border border-zinc-800/80 rounded-xl p-2">
++        <svg
++          width="100%"
++          height={isExpanded ? height * 1.6 : height}
++          viewBox={`0 0 ${containerWidth} ${isExpanded ? height * 1.6 : height}`}
++          className="overflow-visible"
++        >
++          <defs>
++            {activeSeries.map((s) => (
++              <linearGradient
++                key={`grad-${s.id}`}
++                id={`grad-${chartId}-${s.id}`}
++                x1="0"
++                y1="0"
++                x2="0"
++                y2="1"
++              >
++                <stop offset="0%" stopColor={s.color || "#10b981"} stopOpacity="0.35" />
++                <stop offset="100%" stopColor={s.color || "#10b981"} stopOpacity="0.0" />
++              </linearGradient>
++            ))}
++          </defs>
++
++          {/* Grid lines */}
++          <line
++            x1={paddingX}
++            y1={paddingY}
++            x2={paddingX + plotWidth}
++            y2={paddingY}
++            stroke="#27272a"
++            strokeDasharray="3 3"
++          />
++          <line
++            x1={paddingX}
++            y1={paddingY + plotHeight / 2}
++            x2={paddingX + plotWidth}
++            y2={paddingY + plotHeight / 2}
++            stroke="#27272a"
++            strokeDasharray="3 3"
++          />
++          <line
++            x1={paddingX}
++            y1={paddingY + plotHeight}
++            x2={paddingX + plotWidth}
++            y2={paddingY + plotHeight}
++            stroke="#3f3f46"
++          />
++
++          {/* Y-Axis scale labels */}
++          <text
++            x={paddingX - 8}
++            y={paddingY + 4}
++            textAnchor="end"
++            fontSize="10"
++            fill="#71717a"
++            fontFamily="monospace"
++          >
++            {globalMax.toFixed(0)}
++          </text>
++          <text
++            x={paddingX - 8}
++            y={paddingY + plotHeight / 2 + 3}
++            textAnchor="end"
++            fontSize="10"
++            fill="#71717a"
++            fontFamily="monospace"
++          >
++            {((globalMax + globalMin) / 2).toFixed(0)}
++          </text>
++          <text
++            x={paddingX - 8}
++            y={paddingY + plotHeight}
++            textAnchor="end"
++            fontSize="10"
++            fill="#71717a"
++            fontFamily="monospace"
++          >
++            {globalMin.toFixed(0)}
++          </text>
++
++          {/* Series Paths */}
++          {seriesPaths.map((sp) => {
++            const seriesConfig = activeSeries.find((s) => s.id === sp.id);
++            const color = seriesConfig?.color || "#10b981";
++            if (!sp.linePath) return null;
++
++            return (
++              <g key={sp.id}>
++                <path d={sp.areaPath} fill={`url(#grad-${chartId}-${sp.id})`} />
++                <path
++                  d={sp.linePath}
++                  fill="none"
++                  stroke={color}
++                  strokeWidth="2"
++                  strokeLinecap="round"
++                  strokeLinejoin="round"
++                />
++                {sp.points.map((pt, pIdx) => (
++                  <circle
++                    key={pIdx}
++                    cx={pt.x}
++                    cy={pt.y}
++                    r={pIdx === sp.points.length - 1 ? "4" : "2"}
++                    fill={color}
++                    className="transition-all duration-150"
++                  />
++                ))}
++              </g>
++            );
++          })}
++        </svg>
++      </div>
++
++      {/* Footer Status with Hydration Safe Timestamp (R3) */}
++      <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-1">
++        <span>Sample Count: {primarySeries.points.length} points</span>
++        <span suppressHydrationWarning>
++          {hasMounted
++            ? `Telemetry synced: ${new Date().toLocaleTimeString()}`
++            : "Telemetry syncing..."}
++        </span>
++      </div>
++    </div>
++  );
++}
++
++/**
++ * TelemetryChart with ErrorBoundary isolation wrapper
++ */
++export function TelemetryChart(props: TelemetryChartProps) {
++  return (
++    <ErrorBoundary name="TelemetryChart" fallback={TelemetryChartFallback}>
++      <TelemetryChartInner {...props} />
++    </ErrorBoundary>
++  );
++}
++
++export default memo(TelemetryChart);
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/hooks/useSwarmTelemetry.ts	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/hooks/useSwarmTelemetry.ts	2026-10-15 19:15:19.185491293 +0000
+@@ -266,6 +266,7 @@
+     // WebSocket attempt if enabled and in browser
+     if (enableWebSocket && typeof window !== "undefined") {
+       const connectWs = () => {
++        if (!isMountedRef.current) return;
+         try {
+           const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+           // Try connecting to backend port 8000 if same host or standard proxy
+@@ -300,7 +301,10 @@
+             if (isMountedRef.current) {
+               setIsStreaming(false);
+               // Reconnect after 8s
+-              reconnectTimer = setTimeout(connectWs, 8000);
++              if (reconnectTimer) clearTimeout(reconnectTimer);
++              reconnectTimer = setTimeout(() => {
++                if (isMountedRef.current) connectWs();
++              }, 8000);
+             }
+           };
+         } catch {
+@@ -315,14 +319,33 @@
+     return () => {
+       isMountedRef.current = false;
+       if (ws) {
+-        ws.onclose = null;
++        ws.onopen = null;
++        ws.onmessage = null;
+         ws.onerror = null;
+-        ws.close();
++        ws.onclose = null;
++        try {
++          ws.close();
++        } catch {
++          // Suppress closure error
++        }
++        ws = null;
++      }
++      if (reconnectTimer) {
++        clearTimeout(reconnectTimer);
++        reconnectTimer = null;
++      }
++      if (pollTimer) {
++        clearInterval(pollTimer);
++        pollTimer = null;
++      }
++      if (timeoutIdRef.current) {
++        clearTimeout(timeoutIdRef.current);
++        timeoutIdRef.current = null;
++      }
++      if (rafIdRef.current !== null) {
++        cancelAnimationFrame(rafIdRef.current);
++        rafIdRef.current = null;
+       }
+-      if (reconnectTimer) clearTimeout(reconnectTimer);
+-      if (pollTimer) clearInterval(pollTimer);
+-      if (timeoutIdRef.current) clearTimeout(timeoutIdRef.current);
+-      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
+     };
+   }, [fetchTopology, pollIntervalMs, enableWebSocket, scheduleUpdate]);
+ 
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/lib/useTelemetryStream.ts	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/lib/useTelemetryStream.ts	2026-10-15 19:15:49.411025327 +0000
+@@ -103,12 +103,17 @@
+    * Connect to WebSocket with automatic fallback and reconnect
+    */
+   const connectWebSocket = useCallback(() => {
+-    if (typeof window === "undefined") return;
++    if (typeof window === "undefined" || !isMountedRef.current) return;
+ 
+     // Clean up existing socket
+     if (wsRef.current) {
++      const oldWs = wsRef.current;
++      oldWs.onopen = null;
++      oldWs.onmessage = null;
++      oldWs.onerror = null;
++      oldWs.onclose = null;
+       try {
+-        wsRef.current.close();
++        oldWs.close();
+       } catch (e) {}
+       wsRef.current = null;
+     }
+@@ -200,13 +205,24 @@
+     return () => {
+       isMountedRef.current = false;
+       if (wsRef.current) {
++        const socket = wsRef.current;
++        socket.onopen = null;
++        socket.onmessage = null;
++        socket.onerror = null;
++        socket.onclose = null;
+         try {
+-          wsRef.current.close();
++          socket.close();
+         } catch (e) {}
+         wsRef.current = null;
+       }
+-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
++      if (reconnectTimeoutRef.current) {
++        clearTimeout(reconnectTimeoutRef.current);
++        reconnectTimeoutRef.current = null;
++      }
++      if (pollIntervalRef.current) {
++        clearInterval(pollIntervalRef.current);
++        pollIntervalRef.current = null;
++      }
+     };
+   }, [connectWebSocket, fetchTopologyHttp, pollIntervalMs]);
+ 
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/components/LiveSwarmVisualizer.tsx	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/components/LiveSwarmVisualizer.tsx	2026-10-15 19:17:00.387279356 +0000
+@@ -18,6 +18,7 @@
+ import { AgentNode } from "./visualizer/AgentNode";
+ import { TopologyControls } from "./visualizer/TopologyControls";
+ import { ServiceBadgeOverlay } from "./visualizer/ServiceBadgeOverlay";
++import { ErrorBoundary, VisualizerCanvasFallback } from "./ErrorBoundary";
+ import { useSwarmTelemetry, SwarmTopologyData } from "@/hooks/useSwarmTelemetry";
+ import {
+   Activity,
+@@ -54,6 +55,16 @@
+ 
+   const { fitView, zoomIn, zoomOut } = useReactFlow();
+   const hasFittedRef = useRef(false);
++  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
++
++  useEffect(() => {
++    return () => {
++      if (resetTimerRef.current) {
++        clearTimeout(resetTimerRef.current);
++        resetTimerRef.current = null;
++      }
++    };
++  }, []);
+ 
+   useEffect(() => {
+     if (data?.nodes && data.nodes.length > 0 && !hasFittedRef.current) {
+@@ -151,7 +162,10 @@
+   const handleResetView = useCallback(() => {
+     setSelectedTier("all");
+     setSearchQuery("");
+-    setTimeout(() => fitView({ padding: 0.2, duration: 0 }), 50);
++    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
++    resetTimerRef.current = setTimeout(() => {
++      fitView({ padding: 0.2, duration: 0 });
++    }, 50);
+   }, [fitView]);
+ 
+   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+@@ -425,11 +439,13 @@
+         </div>
+       )}
+ 
+-      {/* Main Flow Canvas with ReactFlowProvider */}
++      {/* Main Flow Canvas with ReactFlowProvider protected by ErrorBoundary */}
+       <div className={isVisualizerExpanded ? "block" : "hidden"}>
+-        <ReactFlowProvider>
+-          <FlowCanvas data={data} loading={loading} />
+-        </ReactFlowProvider>
++        <ErrorBoundary name="VisualizerCanvas" fallback={VisualizerCanvasFallback}>
++          <ReactFlowProvider>
++            <FlowCanvas data={data} loading={loading} />
++          </ReactFlowProvider>
++        </ErrorBoundary>
+       </div>
+     </div>
+   );
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/components/dashboard/LiveTelemetryHud.tsx	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/components/dashboard/LiveTelemetryHud.tsx	2026-10-15 19:18:08.623484974 +0000
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import React, { useState, useEffect, useCallback } from "react";
++import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+ import { RefreshCw, AlertTriangle, Activity, Server, Clock } from "lucide-react";
+ 
+ // F002: live BulkDownloader dashboard. Every number on this page comes from the BD API via
+@@ -59,8 +59,8 @@
+   { ms: 30000, label: "30s" },
+ ] as const;
+ 
+-async function getJson<T>(url: string): Promise<T> {
+-  const res = await fetch(url, { cache: "no-store" });
++async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
++  const res = await fetch(url, { cache: "no-store", signal });
+   const data = await res.json().catch(() => null);
+   if (!res.ok || data === null || data.ok === false) {
+     throw new Error(data?.error || `${url} failed (HTTP ${res.status})`);
+@@ -85,23 +85,51 @@
+   const [error, setError] = useState<string | null>(null);
+   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+ 
++  const isMountedRef = useRef(true);
++  const abortControllerRef = useRef<AbortController | null>(null);
++
++  useEffect(() => {
++    isMountedRef.current = true;
++    return () => {
++      isMountedRef.current = false;
++      if (abortControllerRef.current) {
++        abortControllerRef.current.abort();
++        abortControllerRef.current = null;
++      }
++    };
++  }, []);
++
+   const handleRefresh = useCallback(async () => {
++    if (!isMountedRef.current) return;
++    if (abortControllerRef.current) {
++      abortControllerRef.current.abort();
++    }
++    const controller = new AbortController();
++    abortControllerRef.current = controller;
++
+     setIsRefreshing(true);
+     try {
+       const [d, v2, tl] = await Promise.all([
+-        getJson<BdDashboard>("/api/bd/dashboard"),
+-        getJson<BdDashboardV2>("/api/bd/dashboard/v2"),
+-        getJson<{ buckets: TimelineBucket[] }>(`/api/bd/stats/timeline?days=${rangeDays}`),
++        getJson<BdDashboard>("/api/bd/dashboard", controller.signal),
++        getJson<BdDashboardV2>("/api/bd/dashboard/v2", controller.signal),
++        getJson<{ buckets: TimelineBucket[] }>(`/api/bd/stats/timeline?days=${rangeDays}`, controller.signal),
+       ]);
+-      setDashboard(d);
+-      setSites(v2);
+-      setTimeline(tl.buckets);
+-      setError(null);
+-      setUpdatedAt(new Date().toLocaleTimeString());
++      if (isMountedRef.current) {
++        setDashboard(d);
++        setSites(v2);
++        setTimeline(tl.buckets);
++        setError(null);
++        setUpdatedAt(new Date().toLocaleTimeString());
++      }
+     } catch (e) {
+-      setError(e instanceof Error ? e.message : String(e));
++      if (e instanceof Error && e.name === "AbortError") return;
++      if (isMountedRef.current) {
++        setError(e instanceof Error ? e.message : String(e));
++      }
+     } finally {
+-      setIsRefreshing(false);
++      if (isMountedRef.current) {
++        setIsRefreshing(false);
++      }
+     }
+   }, [rangeDays]);
+ 
+@@ -115,14 +143,18 @@
+     return () => clearInterval(timer);
+   }, [refreshInterval, handleRefresh]);
+ 
+-  const rangeTotals = (timeline ?? []).reduce(
+-    (acc, b) => ({
+-      done: acc.done + b.done,
+-      failed: acc.failed + b.failed,
+-      review: acc.review + b.review,
+-      bytes: acc.bytes + b.bytes,
+-    }),
+-    { done: 0, failed: 0, review: 0, bytes: 0 }
++  const rangeTotals = useMemo(
++    () =>
++      (timeline ?? []).reduce(
++        (acc, b) => ({
++          done: acc.done + b.done,
++          failed: acc.failed + b.failed,
++          review: acc.review + b.review,
++          bytes: acc.bytes + b.bytes,
++        }),
++        { done: 0, failed: 0, review: 0, bytes: 0 }
++      ),
++    [timeline]
+   );
+   const loading = dashboard === null && error === null;
+ 
+@@ -163,7 +195,7 @@
+             </select>
+           </label>
+           <span className="flex items-center gap-1 font-mono">
+-            <Clock className="w-3 h-3" /> Updated {updatedAt ?? "—"}
++            <Clock className="w-3 h-3" /> <span suppressHydrationWarning>Updated {updatedAt ?? "—"}</span>
+           </span>
+           <button
+             type="button"
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/components/dashboard/PerformanceTrendsGraph.tsx	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/components/dashboard/PerformanceTrendsGraph.tsx	2026-10-15 19:18:56.289327147 +0000
+@@ -3,7 +3,7 @@
+ // Performance trends from the BulkDownloader API (/api/bd/trends -> BD
+ // /api/stats/timeline). Each time range fetches its own window; export writes
+ // exactly the rows that were fetched. No fixture series.
+-import React, { useCallback, useEffect, useState } from "react";
++import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
+ import { AlertTriangle, Download, RefreshCw, TrendingUp } from "lucide-react";
+ import { TimeRange } from "./dashboardTypes";
+ 
+@@ -39,19 +39,50 @@
+   const [error, setError] = useState<string | null>(null);
+   const [loading, setLoading] = useState(true);
+ 
++  const isMountedRef = useRef(true);
++  const abortControllerRef = useRef<AbortController | null>(null);
++
++  useEffect(() => {
++    isMountedRef.current = true;
++    return () => {
++      isMountedRef.current = false;
++      if (abortControllerRef.current) {
++        abortControllerRef.current.abort();
++        abortControllerRef.current = null;
++      }
++    };
++  }, []);
++
+   const load = useCallback(async (range: TimeRange) => {
++    if (!isMountedRef.current) return;
++    if (abortControllerRef.current) {
++      abortControllerRef.current.abort();
++    }
++    const controller = new AbortController();
++    abortControllerRef.current = controller;
++
+     setLoading(true);
+     try {
+-      const res = await fetch(`/api/bd/trends?range=${encodeURIComponent(range)}`, { cache: "no-store" });
++      const res = await fetch(`/api/bd/trends?range=${encodeURIComponent(range)}`, {
++        cache: "no-store",
++        signal: controller.signal,
++      });
+       const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+       if (!res.ok || !body.ok) throw new Error(body.error || `HTTP ${res.status}`);
+-      setData(body as TrendsPayload);
+-      setError(null);
++      if (isMountedRef.current) {
++        setData(body as TrendsPayload);
++        setError(null);
++      }
+     } catch (err) {
+-      setData(null);
+-      setError((err as Error).message);
++      if (err instanceof Error && err.name === "AbortError") return;
++      if (isMountedRef.current) {
++        setData(null);
++        setError((err as Error).message);
++      }
+     } finally {
+-      setLoading(false);
++      if (isMountedRef.current) {
++        setLoading(false);
++      }
+     }
+   }, []);
+ 
+@@ -71,11 +102,26 @@
+   };
+ 
+   const buckets = data?.buckets ?? [];
+-  const totals = buckets.reduce(
+-    (acc, b) => ({ done: acc.done + b.done, failed: acc.failed + b.failed, review: acc.review + b.review, bytes: acc.bytes + b.bytes }),
+-    { done: 0, failed: 0, review: 0, bytes: 0 }
+-  );
+-  const maxCount = Math.max(1, ...buckets.map((b) => b.done + b.failed + b.review));
++  const { totals, maxCount } = useMemo(() => {
++    let done = 0;
++    let failed = 0;
++    let review = 0;
++    let bytes = 0;
++    let max = 1;
++    for (let i = 0; i < buckets.length; i++) {
++      const b = buckets[i];
++      done += b.done;
++      failed += b.failed;
++      review += b.review;
++      bytes += b.bytes;
++      const sum = b.done + b.failed + b.review;
++      if (sum > max) max = sum;
++    }
++    return {
++      totals: { done, failed, review, bytes },
++      maxCount: max,
++    };
++  }, [buckets]);
+ 
+   return (
+     <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4 space-y-4">
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/components/SwarmTrackerSidebar.tsx	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/components/SwarmTrackerSidebar.tsx	2026-10-15 19:20:17.439760937 +0000
+@@ -1,6 +1,6 @@
+ "use client";
+ 
+-import React, { useState, useEffect, useRef, memo } from "react";
++import React, { useState, useEffect, useRef, useMemo, memo } from "react";
+ import {
+   Bot,
+   Terminal,
+@@ -548,6 +548,16 @@
+   const [streamPaused, setStreamPaused] = useState(false);
+   const [copied, setCopied] = useState(false);
+   const [drawerExpanded, setDrawerExpanded] = useState(false);
++  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
++
++  useEffect(() => {
++    return () => {
++      if (copyTimeoutRef.current) {
++        clearTimeout(copyTimeoutRef.current);
++        copyTimeoutRef.current = null;
++      }
++    };
++  }, []);
+ 
+   const logEndRef = useRef<HTMLDivElement | null>(null);
+ 
+@@ -562,7 +572,10 @@
+     );
+   };
+ 
+-  const selectedSession = sessions.find((s) => s.id === selectedSessionId) || sessions[0];
++  const selectedSession = useMemo(
++    () => sessions.find((s) => s.id === selectedSessionId) || sessions[0],
++    [sessions, selectedSessionId]
++  );
+   const isReadOnly = isReadOnlySession(selectedSession);
+ 
+   // Auto-scroll logs unless paused
+@@ -625,23 +638,33 @@
+ 
+ 
+ 
+-  const filteredSessions = sessions.filter((s) => {
+-    const matchesSearch =
+-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+-      s.role.toLowerCase().includes(searchQuery.toLowerCase()) ||
+-      s.conversationId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+-      (s.cliType && s.cliType.toLowerCase().includes(searchQuery.toLowerCase()));
+-
+-    if (!matchesSearch) return false;
+-    if (statusFilter === "active") return s.status === "active";
+-    if (statusFilter === "pty") return s.type === "pty";
+-    if (statusFilter === "done") return s.status === "done";
+-    if (statusFilter === "hub164") return isReadOnlySession(s);
+-    return true;
+-  });
++  const { filteredSessions, activeCount, ptyCount } = useMemo(() => {
++    let active = 0;
++    let pty = 0;
++    const q = searchQuery.toLowerCase().trim();
++
++    const filtered = sessions.filter((s) => {
++      if (s.status === "active") active++;
++      if (s.type === "pty") pty++;
++
++      if (q) {
++        const matchesSearch =
++          s.name.toLowerCase().includes(q) ||
++          s.role.toLowerCase().includes(q) ||
++          s.conversationId.toLowerCase().includes(q) ||
++          (s.cliType && s.cliType.toLowerCase().includes(q));
++        if (!matchesSearch) return false;
++      }
++
++      if (statusFilter === "active") return s.status === "active";
++      if (statusFilter === "pty") return s.type === "pty";
++      if (statusFilter === "done") return s.status === "done";
++      if (statusFilter === "hub164") return isReadOnlySession(s);
++      return true;
++    });
+ 
+-  const activeCount = sessions.filter((s) => s.status === "active").length;
+-  const ptyCount = sessions.filter((s) => s.type === "pty").length;
++    return { filteredSessions: filtered, activeCount: active, ptyCount: pty };
++  }, [sessions, searchQuery, statusFilter]);
+ 
+   const simulatePtyResponse = (cmd: string, cliType?: string): string => {
+     const lower = cmd.toLowerCase();
+@@ -692,7 +715,11 @@
+   const handleCopySessionId = (id: string) => {
+     navigator.clipboard?.writeText(id);
+     setCopied(true);
+-    setTimeout(() => setCopied(false), 2000);
++    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
++    copyTimeoutRef.current = setTimeout(() => {
++      setCopied(false);
++      copyTimeoutRef.current = null;
++    }, 2000);
+   };
+ 
+   // If rendered as embedded widget in page.tsx
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/components/navigation/AppShell.tsx	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/components/navigation/AppShell.tsx	2026-10-15 19:20:48.091302498 +0000
+@@ -7,6 +7,7 @@
+ import MobileNavDrawer from './MobileNavDrawer';
+ import SwarmTrackerSidebar from '@/components/SwarmTrackerSidebar';
+ import Modal from '@/components/ui/Modal';
++import { ErrorBoundary } from '@/components/ErrorBoundary';
+ import { NAV_SECTIONS, PRIMARY_MODULE_ROUTES } from '@/lib/nav';
+ import { NavItem } from '@/lib/types/nav';
+ import { Search, CornerDownLeft, Sparkles, ExternalLink } from 'lucide-react';
+@@ -109,6 +110,14 @@
+     }
+   };
+ 
++  const handleOpenSearch = useCallback(() => setIsSearchOpen(true), []);
++  const handleCloseSearch = useCallback(() => {
++    setIsSearchOpen(false);
++    setSearchQuery('');
++  }, []);
++  const handleOpenMobileDrawer = useCallback(() => setIsMobileDrawerOpen(true), []);
++  const handleCloseMobileDrawer = useCallback(() => setIsMobileDrawerOpen(false), []);
++
+   return (
+     <div className="flex h-screen overflow-hidden bg-background text-zinc-100">
+       {/* 1. Desktop Global Navigation Sidebar (collapsible) */}
+@@ -116,21 +125,21 @@
+         <GlobalSidebar
+           collapsed={isSidebarCollapsed}
+           onToggleCollapse={handleToggleSidebar}
+-          onOpenSearch={() => setIsSearchOpen(true)}
++          onOpenSearch={handleOpenSearch}
+         />
+       </div>
+ 
+       {/* 2. Mobile Slide-Over Drawer */}
+       <MobileNavDrawer
+         isOpen={isMobileDrawerOpen}
+-        onClose={() => setIsMobileDrawerOpen(false)}
++        onClose={handleCloseMobileDrawer}
+       />
+ 
+       {/* 3. Main Center Content Viewport with Sticky Header */}
+       <div className="flex flex-1 flex-col min-w-0 h-screen overflow-hidden">
+         <TopHeader
+-          onOpenMobileNav={() => setIsMobileDrawerOpen(true)}
+-          onOpenSearch={() => setIsSearchOpen(true)}
++          onOpenMobileNav={handleOpenMobileDrawer}
++          onOpenSearch={handleOpenSearch}
+           isSidebarCollapsed={isSidebarCollapsed}
+           onToggleSidebar={handleToggleSidebar}
+         />
+@@ -138,20 +147,21 @@
+           data-testid="cockpit-main-viewport"
+           className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-zinc-950/40 relative"
+         >
+-          {children}
++          <ErrorBoundary name="CockpitMainViewport">
++            {children}
++          </ErrorBoundary>
+         </main>
+       </div>
+ 
+-      {/* 4. SwarmTrackerSidebar preserved intact (agent PTY inspector) */}
+-      <SwarmTrackerSidebar />
++      {/* 4. SwarmTrackerSidebar protected by ErrorBoundary */}
++      <ErrorBoundary name="SwarmTrackerSidebar">
++        <SwarmTrackerSidebar />
++      </ErrorBoundary>
+ 
+       {/* 5. ⌘K Command Palette Modal */}
+       <Modal
+         isOpen={isSearchOpen}
+-        onClose={() => {
+-          setIsSearchOpen(false);
+-          setSearchQuery('');
+-        }}
++        onClose={handleCloseSearch}
+         title="JarvisOS Command Palette"
+         description="Quick navigation across all 33 views, cluster nodes, and tools (⌘K)"
+         size="lg"
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/components/FleetTelemetryHud.tsx	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/components/FleetTelemetryHud.tsx	2026-10-15 19:21:53.847464296 +0000
+@@ -2,6 +2,7 @@
+ 
+ import React, { useEffect, useState, memo } from "react";
+ import { Server, Cpu, Database, Activity, ShieldAlert, ChevronDown, ChevronUp } from "lucide-react";
++import { ErrorBoundary } from "./ErrorBoundary";
+ 
+ interface FleetStatus {
+   status: string;
+@@ -39,10 +40,12 @@
+   const [unavailable, setUnavailable] = useState<string | null>(null);
+ 
+   useEffect(() => {
++    let active = true;
+     const fetchStatus = async () => {
+       try {
+         const res = await fetch("/api/fleet/status", { cache: "no-store" });
+         const data = await res.json().catch(() => null);
++        if (!active) return;
+         if (res.ok && data && typeof data === "object" && typeof data.total_nodes === "number") {
+           setFleet(data);
+           setUnavailable(null);
+@@ -51,6 +54,7 @@
+           setUnavailable(data && typeof data.error === "string" ? data.error : `HTTP ${res.status}`);
+         }
+       } catch (e) {
++        if (!active) return;
+         setFleet(null);
+         setUnavailable("The fleet status request failed.");
+       }
+@@ -58,7 +62,10 @@
+ 
+     fetchStatus();
+     const interval = setInterval(fetchStatus, 4000);
+-    return () => clearInterval(interval);
++    return () => {
++      active = false;
++      clearInterval(interval);
++    };
+   }, []);
+ 
+   const [isGridCollapsed, setIsGridCollapsed] = useState(false);
+@@ -260,6 +267,15 @@
+ }
+ 
+ 
+-export const FleetTelemetryHud = memo(FleetTelemetryHudComponent);
++const MemoizedFleetTelemetryHud = memo(FleetTelemetryHudComponent);
++
++export function FleetTelemetryHud() {
++  return (
++    <ErrorBoundary name="FleetTelemetryHud">
++      <MemoizedFleetTelemetryHud />
++    </ErrorBoundary>
++  );
++}
++
+ FleetTelemetryHud.displayName = "FleetTelemetryHud";
+ export default FleetTelemetryHud;
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/app/dashboard/telemetry/page.tsx	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/app/dashboard/telemetry/page.tsx	2026-10-15 19:21:00.295518125 +0000
+@@ -3,6 +3,7 @@
+ import React from "react";
+ import DashboardNavHeader from "@/components/dashboard/DashboardNavHeader";
+ import LiveTelemetryHud from "@/components/dashboard/LiveTelemetryHud";
++import { ErrorBoundary } from "@/components/ErrorBoundary";
+ 
+ export default function DashboardTelemetryPage() {
+   return (
+@@ -11,7 +12,9 @@
+         title="Live System Status & Telemetry HUD"
+         subtitle="Live BulkDownloader queue, throughput and per-site activity"
+       />
+-      <LiveTelemetryHud />
++      <ErrorBoundary name="LiveTelemetryHud">
++        <LiveTelemetryHud />
++      </ErrorBoundary>
+     </main>
+   );
+ }
+
+--- /home/mboyle/teamwork_projects/jarvisos_cockpit.pre-clone-reports-r1-20261014T144148Z/cockpit_frontend/src/app/dashboard/trends/page.tsx	2026-10-14 08:44:52.000000000 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/src/app/dashboard/trends/page.tsx	2026-10-15 19:21:09.414679245 +0000
+@@ -3,6 +3,7 @@
+ import React from "react";
+ import DashboardNavHeader from "@/components/dashboard/DashboardNavHeader";
+ import PerformanceTrendsGraph from "@/components/dashboard/PerformanceTrendsGraph";
++import { ErrorBoundary } from "@/components/ErrorBoundary";
+ 
+ export default function DashboardTrendsPage() {
+   return (
+@@ -11,7 +12,9 @@
+         title="Performance Trend Sparklines & Throughput Graph"
+         subtitle="BulkDownloader download history per day: completed, failed, needs-review and bytes"
+       />
+-      <PerformanceTrendsGraph />
++      <ErrorBoundary name="PerformanceTrendsGraph">
++        <PerformanceTrendsGraph />
++      </ErrorBoundary>
+     </main>
+   );
+ }
+
+--- /dev/null	2026-10-03 21:43:40.069000226 +0000
++++ /home/mboyle/teamwork_projects/jarvisos_cockpit/cockpit_frontend/tests_unit/frontend_perf_memory_leak.test.mjs	2026-10-15 19:26:09.841987282 +0000
+@@ -0,0 +1,168 @@
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import fs from "node:fs";
++import path from "node:path";
++import { fileURLToPath } from "node:url";
++import { createRequire } from "node:module";
++
++const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
++const SRC = path.join(ROOT, "src");
++const feRequire = createRequire(path.join(ROOT, "package.json"));
++
++test("R1: useWebSocket hook guarantees explicit teardown and listener nullification", () => {
++  const filePath = path.join(SRC, "hooks", "useWebSocket.ts");
++  assert.ok(fs.existsSync(filePath), "useWebSocket.ts must exist");
++  const code = fs.readFileSync(filePath, "utf8");
++
++  // R1: explicit listener nullification before close
++  assert.ok(code.includes("socket.onopen = null;"), "Must nullify socket.onopen in cleanup");
++  assert.ok(code.includes("socket.onmessage = null;"), "Must nullify socket.onmessage in cleanup");
++  assert.ok(code.includes("socket.onerror = null;"), "Must nullify socket.onerror in cleanup");
++  assert.ok(code.includes("socket.onclose = null;"), "Must nullify socket.onclose in cleanup");
++  assert.ok(code.includes("socket.close();"), "Must close active socket");
++
++  // Timers and mount tracking
++  assert.ok(code.includes("reconnectTimerRef.current"), "Must track reconnectTimerRef");
++  assert.ok(code.includes("heartbeatTimerRef.current"), "Must track heartbeatTimerRef");
++  assert.ok(code.includes("isMountedRef.current = false;"), "Must set isMountedRef false in teardown");
++});
++
++test("R1: useSwarmTelemetry hook implements complete event listener nullification and timer teardown", () => {
++  const filePath = path.join(SRC, "hooks", "useSwarmTelemetry.ts");
++  assert.ok(fs.existsSync(filePath), "useSwarmTelemetry.ts must exist");
++  const code = fs.readFileSync(filePath, "utf8");
++
++  // MEM-07: complete nullification
++  assert.ok(code.includes("ws.onopen = null;"), "Must nullify ws.onopen on unmount");
++  assert.ok(code.includes("ws.onmessage = null;"), "Must nullify ws.onmessage on unmount");
++  assert.ok(code.includes("ws.onerror = null;"), "Must nullify ws.onerror on unmount");
++  assert.ok(code.includes("ws.onclose = null;"), "Must nullify ws.onclose on unmount");
++  assert.ok(code.includes("clearTimeout(reconnectTimer);"), "Must clear reconnectTimer on unmount");
++  assert.ok(code.includes("cancelAnimationFrame(rafIdRef.current);"), "Must cancel animationFrame on unmount");
++});
++
++test("R1: useTelemetryStream avoids React 18 StrictMode duplicate socket leak", () => {
++  const filePath = path.join(SRC, "lib", "useTelemetryStream.ts");
++  assert.ok(fs.existsSync(filePath), "useTelemetryStream.ts must exist");
++  const code = fs.readFileSync(filePath, "utf8");
++
++  // MEM-08: detach all listeners before closing
++  assert.ok(code.includes("socket.onopen = null;"), "Must nullify socket.onopen before close");
++  assert.ok(code.includes("socket.onmessage = null;"), "Must nullify socket.onmessage before close");
++  assert.ok(code.includes("socket.onerror = null;"), "Must nullify socket.onerror before close");
++  assert.ok(code.includes("socket.onclose = null;"), "Must nullify socket.onclose before close");
++});
++
++test("R2: TelemetryChart memoizes statistics, series mapping and SVG path calculations", () => {
++  const filePath = path.join(SRC, "components", "TelemetryChart.tsx");
++  assert.ok(fs.existsSync(filePath), "TelemetryChart.tsx must exist");
++  const code = fs.readFileSync(filePath, "utf8");
++
++  assert.ok(code.includes("useMemo"), "Must import and use useMemo");
++  assert.ok(code.includes("stats: Record<string, ComputedStats> = useMemo("), "Must memoize statistical computations");
++  assert.ok(code.includes("seriesPaths = useMemo("), "Must memoize SVG line and area path calculations");
++  assert.ok(code.includes("observer.disconnect();"), "Must disconnect ResizeObserver on unmount");
++  assert.ok(code.includes("ErrorBoundary"), "Must wrap component in ErrorBoundary");
++  assert.ok(code.includes("suppressHydrationWarning"), "Must protect dynamic timestamps with suppressHydrationWarning");
++});
++
++test("R2: PerformanceTrendsGraph avoids Math.max array spread and memoizes totals", () => {
++  const filePath = path.join(SRC, "components", "dashboard", "PerformanceTrendsGraph.tsx");
++  assert.ok(fs.existsSync(filePath), "PerformanceTrendsGraph.tsx must exist");
++  const code = fs.readFileSync(filePath, "utf8");
++
++  assert.ok(code.includes("useMemo"), "Must import and use useMemo");
++  assert.ok(code.includes("const { totals, maxCount } = useMemo("), "Must memoize totals and maxCount together");
++  assert.ok(!code.includes("Math.max(1, ...buckets.map"), "Must NOT use unbounded array spread in Math.max");
++  assert.ok(code.includes("abortControllerRef"), "Must track AbortController in ref");
++  assert.ok(code.includes("abortControllerRef.current.abort()"), "Must abort in-flight requests on change or unmount");
++});
++
++test("R2 & R3: LiveTelemetryHud memoizes rangeTotals and guards unmounted async state updates", () => {
++  const filePath = path.join(SRC, "components", "dashboard", "LiveTelemetryHud.tsx");
++  assert.ok(fs.existsSync(filePath), "LiveTelemetryHud.tsx must exist");
++  const code = fs.readFileSync(filePath, "utf8");
++
++  assert.ok(code.includes("const rangeTotals = useMemo("), "Must wrap rangeTotals in useMemo");
++  assert.ok(code.includes("isMountedRef"), "Must track isMounted state");
++  assert.ok(code.includes("abortControllerRef"), "Must track AbortController in ref");
++  assert.ok(code.includes("suppressHydrationWarning"), "Must protect updatedAt with suppressHydrationWarning");
++});
++
++test("R1 & R2: SwarmTrackerSidebar memoizes filteredSessions and cleans up copy timeout", () => {
++  const filePath = path.join(SRC, "components", "SwarmTrackerSidebar.tsx");
++  assert.ok(fs.existsSync(filePath), "SwarmTrackerSidebar.tsx must exist");
++  const code = fs.readFileSync(filePath, "utf8");
++
++  assert.ok(code.includes("const { filteredSessions, activeCount, ptyCount } = useMemo("), "Must memoize filteredSessions and counts in single pass");
++  assert.ok(code.includes("copyTimeoutRef"), "Must track copy timeout in ref");
++  assert.ok(code.includes("clearTimeout(copyTimeoutRef.current)"), "Must clear pending copy timeout on unmount and click");
++});
++
++test("ERR-01 & ERR-02: Error boundaries protect real-time streaming components and app viewport", () => {
++  const visualizerCode = fs.readFileSync(path.join(SRC, "components", "LiveSwarmVisualizer.tsx"), "utf8");
++  assert.ok(visualizerCode.includes("<ErrorBoundary name=\"VisualizerCanvas\" fallback={VisualizerCanvasFallback}>"), "Visualizer must wrap FlowCanvas with ErrorBoundary");
++
++  const appShellCode = fs.readFileSync(path.join(SRC, "components", "navigation", "AppShell.tsx"), "utf8");
++  assert.ok(appShellCode.includes("<ErrorBoundary name=\"CockpitMainViewport\">"), "AppShell must wrap main viewport in ErrorBoundary");
++  assert.ok(appShellCode.includes("<ErrorBoundary name=\"SwarmTrackerSidebar\">"), "AppShell must wrap SwarmTrackerSidebar in ErrorBoundary");
++
++  const telemetryPageCode = fs.readFileSync(path.join(SRC, "app", "dashboard", "telemetry", "page.tsx"), "utf8");
++  assert.ok(telemetryPageCode.includes("<ErrorBoundary name=\"LiveTelemetryHud\">"), "Telemetry page must wrap LiveTelemetryHud in ErrorBoundary");
++
++  const trendsPageCode = fs.readFileSync(path.join(SRC, "app", "dashboard", "trends", "page.tsx"), "utf8");
++  assert.ok(trendsPageCode.includes("<ErrorBoundary name=\"PerformanceTrendsGraph\">"), "Trends page must wrap PerformanceTrendsGraph in ErrorBoundary");
++});
++
++test("R2 & R3: TelemetryChart renders cleanly with React SSR and validates data calculations", () => {
++  const ts = feRequire("typescript");
++  const React = feRequire("react");
++  const ReactDOMServer = feRequire("react-dom/server");
++
++  const compileCode = (filePath) =>
++    ts.transpileModule(fs.readFileSync(filePath, "utf8"), {
++      compilerOptions: {
++        module: ts.ModuleKind.CommonJS,
++        target: ts.ScriptTarget.ES2020,
++        jsx: ts.JsxEmit.React,
++        esModuleInterop: true,
++      },
++    }).outputText;
++
++  const chartCode = compileCode(path.join(SRC, "components", "TelemetryChart.tsx"));
++  const ebCode = compileCode(path.join(SRC, "components", "ErrorBoundary.tsx"));
++
++  const ebModule = { exports: {} };
++  new Function("exports", "require", "module", ebCode)(ebModule.exports, feRequire, ebModule);
++
++  const chartModule = { exports: {} };
++  const mockRequire = (mod) => {
++    if (mod === "./ErrorBoundary") return ebModule.exports;
++    return feRequire(mod);
++  };
++  new Function("exports", "require", "module", chartCode)(chartModule.exports, mockRequire, chartModule);
++
++  const TelemetryChart = chartModule.exports.TelemetryChart || chartModule.exports.default;
++
++  const samplePoints = [
++    { timestamp: "2026-10-15T18:00:00Z", value: 120 },
++    { timestamp: "2026-10-15T18:01:00Z", value: 240 },
++    { timestamp: "2026-10-15T18:02:00Z", value: 180 },
++    { timestamp: "2026-10-15T18:03:00Z", value: 310 },
++  ];
++
++  const html = ReactDOMServer.renderToString(
++    React.createElement(TelemetryChart, {
++      title: "Throughput Matrix",
++      subtitle: "Verified test throughput",
++      dataPoints: samplePoints,
++      unit: "req/s",
++    })
++  );
++
++  assert.ok(html.includes("Throughput Matrix"), "HTML must contain chart title");
++  assert.ok(html.includes("telemetry-chart-container"), "HTML must contain chart container");
++  assert.ok(html.includes("310.0"), "HTML must include computed latest/peak metric");
++  assert.ok(html.includes("Telemetry syncing..."), "HTML must render hydration-safe SSR fallback placeholder");
++});
++
