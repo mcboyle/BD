@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1886 - T283b-f: release at merge
+
+T283b-f (train-27 AT-MERGE PROOF, RULING-pm-A4-A-lanes-and-tryclick-0225Z item 1, integrator D2-D, lane 2) on main 7a50cb3b (train-26 merged). FIX-FORWARD FF-C (T281z/FIXFWD-band-zB-0020Z.md + FF-C+ scs_fix_alerts_tg in T283a-D/FIXFWD-band-main-0200Z.md). One lens (no security/auth/hook path; O3194 item 3).
+FIX: O1789/landing/sec2-withhold-messages/r1 (BOARD per .review/VERDICT-*)
+
+
 ## v3.66.1884 - train282h: row
 
 T282h-A = train-24 (C lane, app.py members; O3142 F3: on MAIN 7a50cb3b = train-23b (#1259) merge; member list frozen at assembly; every clean BOARD at assembly rides, O3193). BOARD per O1672; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub on a verified host; version re-claimed on the actual tip if main moves before merge (O3194).
