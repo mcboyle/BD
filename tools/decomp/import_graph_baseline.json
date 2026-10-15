@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6471,
+  "edge_count": 6488,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -105,6 +105,7 @@
       "bulk_downloader/download_supervisor.py",
       "bulk_downloader/download_window.py",
       "bulk_downloader/egress_withhold.py",
+      "bulk_downloader/error_reply.py",
       "bulk_downloader/extension_vault.py",
       "bulk_downloader/flaresolverr_client.py",
       "bulk_downloader/global_config.py",
@@ -500,6 +501,7 @@
       "bulk_downloader/selector_playground.py"
     ],
     "bulk_downloader/app_plex.py": [
+      "bulk_downloader/error_reply.py",
       "bulk_downloader/plex_advanced.py",
       "bulk_downloader/plex_deep_plexapi.py"
     ],
@@ -752,6 +754,7 @@
     "bulk_downloader/app_stream.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/request_peer.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/stream_relay.py"
     ],
@@ -1429,6 +1432,11 @@
     "bulk_downloader/error_fingerprint.py": [
       "bulk_downloader/db.py"
     ],
+    "bulk_downloader/error_reply.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/log.py"
+    ],
     "bulk_downloader/events.py": [
       "bulk_downloader/lock_monitor.py"
     ],
@@ -1773,6 +1781,7 @@
       "bulk_downloader/registrable_domain.py"
     ],
     "bulk_downloader/plex_advanced.py": [
+      "bulk_downloader/error_reply.py",
       "bulk_downloader/plex_deep_plexapi.py"
     ],
     "bulk_downloader/plex_deep.py": [
@@ -6006,6 +6015,14 @@
     "tests/test_player_recognition_packs_dei.py": [
       "tools/player_recognition.py"
     ],
+    "tests/test_plex_error_redact.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/error_reply.py",
+      "bulk_downloader/plex_advanced.py",
+      "bulk_downloader/plex_deep_plexapi.py",
+      "bulk_downloader/stream_relay.py"
+    ],
     "tests/test_plugin_uninstall.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/plugins.py"
@@ -6039,6 +6056,12 @@
     ],
     "tests/test_provider_resolve_surface_lock.py": [
       "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_proxy_peer_key.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/request_peer.py",
+      "bulk_downloader/sse_broker.py"
     ],
     "tests/test_put_numeric_range_backstop.py": [
       "bulk_downloader/app.py",

@@ -1217,6 +1217,7 @@
     "plex": {
       "module": "app_plex.py",
       "providers": [
+        "bulk_downloader/error_reply.py",
         "bulk_downloader/plex_advanced.py",
         "bulk_downloader/plex_deep_plexapi.py"
       ],
@@ -1866,6 +1867,7 @@
       "providers": [
         "bulk_downloader/db.py",
         "bulk_downloader/global_config.py",
+        "bulk_downloader/request_peer.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/stream_relay.py"
       ],
@@ -2453,7 +2455,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1901,
+    "edge_count": 1908,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2894,6 +2896,7 @@
         "bulk_downloader/dom_analyzer.py",
         "bulk_downloader/dom_capture.py",
         "bulk_downloader/element_pick.py",
+        "bulk_downloader/error_reply.py",
         "bulk_downloader/network_log_reducer.py",
         "bulk_downloader/request_replay.py",
         "bulk_downloader/template_manager.py",
@@ -2940,6 +2943,7 @@
         "bulk_downloader/capture_redactor.py",
         "bulk_downloader/capture_synth.py",
         "bulk_downloader/dom_capture.py",
+        "bulk_downloader/error_reply.py",
         "bulk_downloader/inspect_pick.py",
         "bulk_downloader/network_log_reducer.py",
         "bulk_downloader/request_replay.py",
@@ -3548,6 +3552,11 @@
         "bulk_downloader/runner.py",
         "bulk_downloader/site_changelog.py"
       ],
+      "bulk_downloader/error_reply.py": [
+        "bulk_downloader/app.py",
+        "bulk_downloader/app_plex.py",
+        "bulk_downloader/plex_advanced.py"
+      ],
       "bulk_downloader/events.py": [
         "bulk_downloader/diagnostics_bundle.py",
         "bulk_downloader/runner_extractors.py",
@@ -3948,6 +3957,7 @@
         "bulk_downloader/cross_site_selectors.py",
         "bulk_downloader/db.py",
         "bulk_downloader/dev_suite/logs.py",
+        "bulk_downloader/error_reply.py",
         "bulk_downloader/login_impl/_common.py",
         "bulk_downloader/login_impl/replay.py",
         "bulk_downloader/login_impl/submit.py",
@@ -4317,7 +4327,8 @@
       "bulk_downloader/request_peer.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/app_auth.py",
-        "bulk_downloader/app_pair.py"
+        "bulk_downloader/app_pair.py",
+        "bulk_downloader/app_stream.py"
       ],
       "bulk_downloader/request_replay.py": [
         "bulk_downloader/app.py",
@@ -5523,6 +5534,7 @@
         "bulk_downloader/download_supervisor.py",
         "bulk_downloader/download_window.py",
         "bulk_downloader/egress_withhold.py",
+        "bulk_downloader/error_reply.py",
         "bulk_downloader/extension_vault.py",
         "bulk_downloader/flaresolverr_client.py",
         "bulk_downloader/global_config.py",
@@ -5918,6 +5930,7 @@
         "bulk_downloader/selector_playground.py"
       ],
       "bulk_downloader/app_plex.py": [
+        "bulk_downloader/error_reply.py",
         "bulk_downloader/plex_advanced.py",
         "bulk_downloader/plex_deep_plexapi.py"
       ],
@@ -6170,6 +6183,7 @@
       "bulk_downloader/app_stream.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/global_config.py",
+        "bulk_downloader/request_peer.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/stream_relay.py"
       ],
@@ -6847,6 +6861,11 @@
       "bulk_downloader/error_fingerprint.py": [
         "bulk_downloader/db.py"
       ],
+      "bulk_downloader/error_reply.py": [
+        "bulk_downloader/capture_artifact_redact.py",
+        "bulk_downloader/capture_redact.py",
+        "bulk_downloader/log.py"
+      ],
       "bulk_downloader/events.py": [
         "bulk_downloader/lock_monitor.py"
       ],
@@ -7191,6 +7210,7 @@
         "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/plex_advanced.py": [
+        "bulk_downloader/error_reply.py",
         "bulk_downloader/plex_deep_plexapi.py"
       ],
       "bulk_downloader/plex_deep.py": [
