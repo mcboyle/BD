@@ -1859,7 +1859,14 @@ def _runner_page(runner: Any, site_id: str):
                 pass
 
 
-RELOGIN_TIMEOUT_S = 60.0
+# dl95-discovery-relogin-timeout: the same bound as the job path's
+# runner_auth._check_cookies_or_relogin ev.wait(timeout=120) (raised there by
+# dl95-naughtyamerica-2 for ~82-87 s Turnstile logins); an in-flight login is
+# joined by _await_in_flight_login at 115 s, which lands inside this wait. 60 s
+# here reported a login "failed" that settled ok 27 s later, finished the discover
+# NOT_LOGGED_IN with 0 scenes and marked a live jar as walled. Pinned to that wait
+# by tests/test_dl95_discovery_relogin_timeout_1.py.
+RELOGIN_TIMEOUT_S = 120.0
 
 
 def _relogin_for_discovery(runner: Any, timeout_s: float = RELOGIN_TIMEOUT_S) -> str:
