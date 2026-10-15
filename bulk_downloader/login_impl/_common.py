@@ -607,7 +607,11 @@ def _try_click(page,selectors,what,accept=None):
     Management scores this heavily.
 
     ``accept(locator) -> bool``, when given, vets each match before it is
-    clicked (both passes); a refused match is skipped as if not visible."""
+    clicked (both passes); a refused match is skipped as if not visible.
+
+    A forced click is made only when the control's centre hit-tests to the
+    control itself; a covered control is not clicked, and the returned
+    reason says "forced click refused" and names the cover."""
     tried=[]
     for sel in selectors:
         if not sel: continue
@@ -633,6 +637,7 @@ def _try_click(page,selectors,what,accept=None):
                 return True,sel
             except Exception: continue
     # Force-click fallback — same selectors but with force=True
+    refused=[]
     for sel in selectors:
         if not sel: continue
         try:
@@ -641,10 +646,62 @@ def _try_click(page,selectors,what,accept=None):
             if accept is not None and not accept(loc): continue
             try: _human_move_to(page, loc)
             except Exception: pass
+            # try-click-force-class r1: force=True clicks whatever stands at the
+            # control's centre; a cover there takes the click and the control's
+            # handler never runs. Click only when the centre hits the control.
+            probe=_forced_click_hit_test(loc)
+            if probe.get("state")!="clear":
+                refused.append(_forced_click_refusal(sel,probe)); continue
             loc.click(force=True,timeout=2000)
             return True,sel+" (forced)"
         except Exception: continue
+    if refused:
+        return False,(f"could not click {what}; tried {len(tried)} selectors; "
+                      f"forced click refused: {refused[0]}")
     return False,f"could not click {what}; tried {len(tried)} selectors"
+
+
+# try-click-force-class r1 (NOTE-S125-B-scrolller-3-r2-try-click-force-fallback-class-0117Z):
+# what a forced click at the control's centre would hit. clear = the control,
+# a descendant, or a <label> whose control it is; covered = another element
+# (hit + its highest ancestor that does not contain the control). Hit-tested in
+# the control's own root (document or shadow root), so a shadow host is not a cover.
+_FORCED_HIT_TEST_JS = r"""(el) => {
+    try { el.scrollIntoView({block: 'center', inline: 'center'}); } catch (e) {}
+    const r = el.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return {state: 'no-box'};
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return {state: 'offscreen'};
+    const root = el.getRootNode();
+    const hit = (root && root.elementFromPoint ? root : document).elementFromPoint(x, y);
+    if (!hit) return {state: 'no-hit'};
+    if (hit === el || el.contains(hit)) return {state: 'clear'};
+    const lab = hit.closest ? hit.closest('label') : null;
+    if (lab && lab.control === el) return {state: 'clear'};
+    let top = hit;
+    while (top.parentElement && !top.parentElement.contains(el)) top = top.parentElement;
+    const desc = (n) => {
+        const cls = (typeof n.className === 'string') ? n.className.trim().split(/\s+/).filter(Boolean).slice(0, 2) : [];
+        return n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + (cls.length ? '.' + cls.join('.') : '');
+    };
+    return {state: 'covered', hit: desc(hit), cover: desc(top)};
+}"""
+
+
+def _forced_click_hit_test(loc):
+    """{state: clear|covered|no-box|offscreen|no-hit|error, [hit, cover|error]} for a forced click on loc."""
+    try: probe=loc.evaluate(_FORCED_HIT_TEST_JS)
+    except Exception as e: return {"state":"error","error":str(e)[:60]}
+    return probe if isinstance(probe,dict) else {"state":"error","error":"no result"}
+
+
+def _forced_click_refusal(sel,probe):
+    """One refusal line: a covered control names its cover; any other state says the centre was not hit."""
+    if probe.get("state")=="covered":
+        return (f"{sel!r} is covered at its centre by {probe.get('cover') or '?'} "
+                f"(hit {probe.get('hit') or '?'}); the click would land on the cover")
+    return (f"{sel!r} centre not hit-testable ({probe.get('state')}"
+            f"{': '+probe['error'] if probe.get('error') else ''})")
 
 
 def _human_move_to(page, locator):
