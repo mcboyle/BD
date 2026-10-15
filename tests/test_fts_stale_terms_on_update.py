@@ -143,18 +143,22 @@ def test_bulk_retry_does_not_leave_the_cleared_message_searchable(clean_workdir)
 
 
 def test_storage_rebalance_does_not_leave_the_old_filename_searchable(
-        clean_workdir, tmp_path):
+        clean_workdir, tmp_path, monkeypatch):
     """storage_rebalance.execute_plan: same UPDATE, third call site.
 
     Banded separately from bulk_move because it is a different module with its
     own connection handling; a fix applied to batch_ops only would pass the
     first test and fail this one.
     """
-    from bulk_downloader import storage_rebalance
+    from bulk_downloader import app_state, storage_rebalance
 
     db.db_init()
     src_dir = tmp_path / "DISKONEGAMMA"; src_dir.mkdir()
     dst_dir = tmp_path / "DISKTWODELTA"; dst_dir.mkdir()
+    # Fixture: both disks are configured download roots, as in a running app;
+    # execute_plan moves nothing outside the roots.
+    monkeypatch.setitem(app_state.s_cfg, "fA", {"download_dir": str(src_dir)})
+    monkeypatch.setitem(app_state.s_cfg, "fB", {"download_dir": str(dst_dir)})
     src = src_dir / "clip.mp4"
     src.write_bytes(b"y" * 16)
     rid = _seed(filename=str(src))
