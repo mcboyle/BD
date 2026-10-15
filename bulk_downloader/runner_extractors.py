@@ -394,6 +394,11 @@ def _landed_video_height(path):
         return 0
 
 
+# dl95-hls-variant-lowest-1 r2 (lens F1): a master body is ranked WHOLE; real
+# masters are a few KB, and one past this cap is not ranked at all.
+_HLS_MASTER_BODY_CAP = 4 * 1024 * 1024
+
+
 def _landed_body_kind(path):
     """dl95-ok-3: what a page-media direct transfer actually saved.
 
@@ -1889,6 +1894,16 @@ class ExtractorsMixin:
                 return False
             # dl95-ok-3: the URL said .mp4; the body decides what landed.
             body_kind = _landed_body_kind(output_path)
+            manifest_text = ""
+            if body_kind == "manifest":
+                try:
+                    with open(output_path, "rb") as fh:
+                        raw = fh.read(_HLS_MASTER_BODY_CAP + 1)
+                    # Never a partial ranking: past the cap the program stays unnamed.
+                    if len(raw) <= _HLS_MASTER_BODY_CAP:
+                        manifest_text = raw.decode("utf-8-sig", "replace")
+                except OSError:
+                    pass
             if body_kind != "media":
                 try:
                     os.remove(output_path)
@@ -1906,6 +1921,14 @@ class ExtractorsMixin:
                                f"{height}p option is an HLS playlist; re-fetching segmented: {file_url[:120]}",
                                url=url)
                 is_hls, hls_format = True, "hls"
+                # dl95-hls-variant-lowest-1: unnamed, the transfer maps the master's FIRST
+                # variant (ok.xxx lists 360p first); rank it like a .m3u8 master.
+                pick = _spa.hls_variant_for(manifest_text, file_url, height)
+                if pick:
+                    hls_program = pick["program"]
+                    self.log_event("spa_api_hls_variant",
+                                   f"{height}p master -> {pick['height']}p {pick['codecs'] or '?'} variant",
+                                   url=url)
             else:
                 try:
                     downloaded_size = os.path.getsize(output_path)

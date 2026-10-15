@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (831)
+## /api/* routes (832)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -550,6 +550,7 @@ GET     /api/schedules                                         CSRF: no   — Li
 POST    /api/schedules                                         CSRF: yes  — Register a recurring-capture schedule. Body: {site_id,
 POST    /api/schedules/<int:sid>/remove                        CSRF: yes  — Delete a recurring-capture schedule.
 POST    /api/schedules/<int:sid>/run_now                       CSRF: yes  — Force-run one schedule immediately (bypasses the cadence guard).
+POST    /api/schedules/<int:sid>/update                        CSRF: yes  — F038: edit a recurring-capture schedule. Body: {cadence_hours?,
 GET     /api/schedules/export.ics                              CSRF: no   — F7: iCalendar (.ics) export of all recurring-capture schedules --
 POST    /api/scrape_listing                                    CSRF: yes  — Phase 71 (v3.43.16): server-side listing-page scrape. Paste a
 POST    /api/scrapling/fingerprint                             CSRF: yes  — Build a fingerprint from a snippet of HTML + selector. Used by

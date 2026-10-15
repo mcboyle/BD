@@ -151,7 +151,7 @@ Graph version: 1
 - **saved_searches** (`app_saved_searches.py`) — routes 4, providers 1
 - **scene_score** (`app_scene_score.py`) — routes 3, providers 1
 - **scheduled_exports** (`app_scheduled_exports.py`) — routes 4, providers 1
-- **schedules** (`app_schedules.py`) — routes 4, providers 1
+- **schedules** (`app_schedules.py`) — routes 5, providers 1
 - **scrape_listing** (`app_scrape_listing.py`) — routes 1, providers 3
 - **scrapling** (`app_scrapling.py`) — routes 4, providers 0
 - **search** (`app_search.py`) — routes 5, providers 1

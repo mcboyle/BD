@@ -2,6 +2,7 @@
 // FULL /api/ literals (scanner credit -> gui_parity spa_wired):
 //   GET  /api/schedules
 //   POST /api/schedules                  body {site_id, cadence_hours, label?, urls?}
+//   POST /api/schedules/${id}/update     body {cadence_hours?, label?} (F038)
 //   POST /api/schedules/${id}/remove
 //   POST /api/schedules/${id}/run_now
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +12,7 @@ import type {
   OkIdResult,
   ScheduleAddRequest,
   ScheduleRunResult,
+  ScheduleUpdateRequest,
   SchedulesResponse,
 } from "@/lib/api-types";
 
@@ -30,6 +32,11 @@ export function useSchedules() {
     onSuccess: invalidate,
   });
 
+  const update = useMutation<OkIdResult, Error, ScheduleUpdateRequest>({
+    mutationFn: ({ id, ...body }) => apiPost<OkIdResult>(`/api/schedules/${id}/update`, body),
+    onSuccess: invalidate,
+  });
+
   const remove = useMutation<{ ok: boolean }, Error, number>({
     mutationFn: (id) => apiPost<{ ok: boolean }>(`/api/schedules/${id}/remove`, {}),
     onSuccess: invalidate,
@@ -40,5 +47,5 @@ export function useSchedules() {
     onSuccess: invalidate,
   });
 
-  return { query, add, remove, runNow };
+  return { query, add, update, remove, runNow };
 }

@@ -1,8 +1,8 @@
 // Schedules — 379 recurring-capture schedules (wired v3.66.382).
 //
 // Operator UI over the capture_schedules write surface: list existing
-// schedules with their cadence + next/last-run, add a new one, run one now,
-// or delete. All writes ride useSchedules (CSRF via apiPost). Recurring
+// schedules with their cadence + next/last-run, add a new one, edit one's
+// cadence/label (F038), run one now, or delete. All writes ride useSchedules (CSRF via apiPost). Recurring
 // captures feed the normal run path; this never touches capture/extraction.
 
 import * as React from "react";
@@ -22,10 +22,13 @@ function fmtTs(ts?: number): string {
 }
 
 export default function Schedules() {
-  const { query, add, remove, runNow } = useSchedules();
+  const { query, add, update, remove, runNow } = useSchedules();
   const [siteId, setSiteId] = React.useState("");
   const [cadence, setCadence] = React.useState("24");
   const [label, setLabel] = React.useState("");
+  const [editId, setEditId] = React.useState<number | null>(null);
+  const [editCadence, setEditCadence] = React.useState("");
+  const [editLabel, setEditLabel] = React.useState("");
 
   const schedules = query.data?.schedules ?? [];
   const canAdd = siteId.trim().length > 0 && Number(cadence) > 0 && !add.isPending;
@@ -43,6 +46,24 @@ export default function Schedules() {
           }
         },
       },
+    );
+  }
+
+  function onEdit(id: number, cadenceHours: number, curLabel?: string) {
+    setEditId(id);
+    setEditCadence(String(cadenceHours));
+    setEditLabel(curLabel ?? "");
+  }
+
+  // Whole hours only: the API refuses a fractional cadence (400) rather than truncating it.
+  const canSave =
+    editId !== null && Number.isInteger(Number(editCadence)) && Number(editCadence) > 0 && !update.isPending;
+
+  function onSave() {
+    if (!canSave || editId === null) return;
+    update.mutate(
+      { id: editId, cadence_hours: Number(editCadence), label: editLabel.trim() },
+      { onSuccess: (r) => { if (r.ok) setEditId(null); } },
     );
   }
 
@@ -90,6 +111,12 @@ export default function Schedules() {
           )}
         </div>
 
+        {update.data && !update.data.ok && (
+          <p role="alert" className="text-sm text-danger">
+            {update.data.error || "Could not save schedule"}
+          </p>
+        )}
+
         {query.isLoading && <p className="text-sm text-ink-soft">Loading…</p>}
         {query.isError && (
           <p role="alert" className="text-sm text-danger">
@@ -116,11 +143,54 @@ export default function Schedules() {
               {schedules.map((s) => (
                 <tr key={s.id} className="border-t border-hairline">
                   <td className="py-1">{s.site_id}</td>
-                  <td>{s.cadence_hours}h</td>
-                  <td>{s.label || "\u2014"}</td>
+                  {editId === s.id ? (
+                    <>
+                      <td>
+                        <Input
+                          aria-label="edit cadence hours"
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={editCadence}
+                          onChange={(e) => setEditCadence(e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <Input
+                          aria-label="edit label"
+                          value={editLabel}
+                          onChange={(e) => setEditLabel(e.target.value)}
+                        />
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td>{s.cadence_hours}h</td>
+                      <td>{s.label || "\u2014"}</td>
+                    </>
+                  )}
                   <td>{fmtTs(s.next_run_ts)}</td>
                   <td>{fmtTs(s.last_run_ts)}</td>
                   <td className="flex gap-2 py-1">
+                    {editId === s.id ? (
+                      <>
+                        <Button type="button" size="sm" onClick={onSave} disabled={!canSave}>
+                          {update.isPending ? "Saving\u2026" : "Save"}
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={() => setEditId(null)}>
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onEdit(s.id, s.cadence_hours, s.label)}
+                      >
+                        Edit
+                      </Button>
+                    )}
                     <Button
                       type="button"
                       variant="outline"

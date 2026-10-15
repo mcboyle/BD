@@ -1548,11 +1548,12 @@
       "providers": [
         "bulk_downloader/capture_schedules.py"
       ],
-      "route_count": 4,
+      "route_count": 5,
       "routes": [
         "ROUTE /api/schedules",
         "ROUTE /api/schedules/<int:sid>/remove",
         "ROUTE /api/schedules/<int:sid>/run_now",
+        "ROUTE /api/schedules/<int:sid>/update",
         "ROUTE /api/schedules/export.ics"
       ],
       "var": "schedules_bp"
