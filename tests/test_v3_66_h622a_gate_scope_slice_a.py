@@ -106,6 +106,9 @@ ADDED_SINCE_REPO_WIDE = (
     "tests/test_bh_wave1_scripts.py",
     # dl95-porndoe-1 (T154 lane): the test declares BD_GATE_SCOPE = "repo-wide" (NOTE-dl95-porndoe-1-scope.md).
     "tests/test_dl95_porndoe_1_unstarted_player_feature_media.py",
+    # O1789 ci-gate-rebalance: the gate over ci.yml + tools/ci_shards.py (mutation shards
+    # non-blocking, the gates they carried stay blocking); declares BD_GATE_SCOPE = "repo-wide".
+    "tests/test_ci_gate_rebalance.py",
 )
 
 
