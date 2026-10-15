@@ -81,7 +81,16 @@ _EXPECTED_RUNTIME_CONSUMERS = {
     # every redirect hop. It decides on the BOOLEAN the classifier returns
     # (`safe, reason = ...` then `if not safe:`); the reason object is only
     # carried into the SSRFBlocked message, never compared and never parsed.
-    "bulk_downloader/deep_http.py": {"_is_safe_public_host": 1},
+    # ssrf-rebind-pin r1 (9ee9fcf86, 41 -> 42): public_address_allowed is the
+    # rebind pin's public-only policy and returns _classify_ip's pair unchanged.
+    # Its deciders, _vetted_address and urllib_ssrf.PinnedUrlOpener, decide on
+    # the BOOLEAN (`ok, reason = address_allowed(...)` then `if not ok:` raise);
+    # the reason is only carried into SSRFBlocked / PinnedUrlRefused, never
+    # compared and never parsed.
+    "bulk_downloader/deep_http.py": {
+        "_classify_ip": 1,
+        "_is_safe_public_host": 1,
+    },
     # ROW 887. The QUIC path has no connect-time hook, so _guard_quic_destination
     # classifies before aioquic connects. Same shape as deep_http: `ok, why = ...`
     # then `if not ok:`; the reason is only carried into QuicDestinationRefused.
