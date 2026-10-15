@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6577,
+  "edge_count": 6580,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2778,6 +2778,11 @@
     "tests/test_batch_b_dev_shell_authgate.py": [
       "bulk_downloader/app.py",
       "tools/cockpit_console.py"
+    ],
+    "tests/test_bcf_main_latent_take_over_contract.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/template_manager.py",
+      "tools/body_contract_fixtures.py"
     ],
     "tests/test_bd_aikey_1_blank_key_keeps_stored.py": [
       "bulk_downloader/aiassist.py",
