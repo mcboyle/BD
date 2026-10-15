@@ -28,7 +28,7 @@ import sqlite3
 import time
 from types import ModuleType
 from pathlib import Path
-
+from typing import Any, Callable, TypeVar
 import pytest
 from capture_lanes import classify_capture_path
 
@@ -650,11 +650,40 @@ def track_test_temp_path(path: str | Path) -> Path:
 
 def track_test_artifact(path: str | Path) -> Path:
     return CLEANUP_TRAP.track_artifact(path)
+_T = TypeVar("_T")
 
+def find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+@pytest.fixture
+def free_port() -> int:
+    return find_free_port()
+
+def wait_until(predicate: Callable[[], _T], timeout: float=5.0, interval: float=0.01, error_message: str="Condition not met within timeout") -> _T:
+    deadline = time.monotonic() + timeout
+    cur_interval = interval
+    while True:
+        try:
+            res = predicate()
+            if res:
+                return res
+        except Exception:
+            if time.monotonic() >= deadline:
+                raise
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"{error_message} (waited {timeout:.2f}s)")
+        time.sleep(cur_interval)
+        cur_interval = min(cur_interval * 1.5, 0.1)
+
+@pytest.fixture
+def condition_poller() -> Callable[..., Any]:
+    return wait_until
 
 @pytest.fixture
 def cleanup_trap():
-    """Fixture providing access to the process exit cleanup trap."""
     return CLEANUP_TRAP
 
 
@@ -1104,6 +1133,24 @@ def inmemory_sqlite(tmp_path, monkeypatch):
             db._DB_CONN_LOCAL.idle = None
             db._close_history_conn(idle[1])
         anchor.close()
+
+
+@pytest.fixture
+def sqlite_wal_db(tmp_path: Path):
+    """Isolated SQLite database in private tmp_path with WAL mode.
+
+    Eliminates database-is-locked errors and cross-worker collisions under xdist.
+    """
+    db_path = tmp_path / "sqlite_wal.db"
+    conn = sqlite3.connect(str(db_path), timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=10000;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.commit()
+    try:
+        yield conn, db_path
+    finally:
+        conn.close()
 
 
 @pytest.fixture
