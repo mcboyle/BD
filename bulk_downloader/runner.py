@@ -2955,7 +2955,27 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         parked; a user pause (bulk_pause: "Paused by user") stays paused. A
         "running" job is re-queued only when no worker of this runner is alive:
         a download-window re-entry ("window_paused") keeps its workers, and the
-        job one of them holds must not be claimed twice."""
+        job one of them holds must not be claimed twice.
+
+        dl95-relogin-blocked-latch-1: while the site's login lockout hold is
+        open (session_keeper.record_login_lockout -- the site answered /blocked)
+        the parked jobs stay parked: a re-queued job only meets the members wall
+        again. An unreadable hold keeps the re-queue (the login stays held)."""
+        try:
+            from . import session_keeper as _sk
+            from .db import db_conn as _db_conn
+            with _db_conn() as cx:
+                held = cx.execute(
+                    "SELECT 1 FROM session_history WHERE site_id=? AND event_type=? "
+                    "AND ts>=? LIMIT 1",
+                    (self.site_id, _sk.LOGIN_LOCKOUT_EVENT,
+                     time.time() - _sk.LOGIN_LOCKOUT_HOLD_S)).fetchone()
+        except Exception as e:
+            held = None
+            sys.stderr.write(f"[{self.site_id}] re-queue on start: lockout hold unreadable: {e}\n")
+        if held:
+            sys.stderr.write(f"[{self.site_id}] re-queue on start skipped: login lockout hold open\n")
+            return 0
         workers_alive = any(t.is_alive() for t in tuple(getattr(self, "_worker_threads", ())))
         repended = []
         with job_status_writer(self) as mark_status_changed:

@@ -2835,6 +2835,15 @@ def do_login(config, allow_manual_takeover=False):
         if _rejected_login:
             _hard_close()
             return False, f"Rejected login landing: {cur[:200]}", []
+        # dl95-relogin-blocked-latch-1 (dorcelclub 23:55:37Z): the submit answered
+        # 302 -> account-dorcel.com/blocked, the site's verdict on the account, and
+        # the worker's try 2/2 posted the credentials again. A /blocked landing (or
+        # the lockout language on the landing) is the lockout the pre-form check
+        # files: the hold stops every automatic login until the operator's.
+        _lockout = ("/blocked" if cur.partition("?")[0].rstrip("/").lower().endswith("/blocked")
+                    else None if _body_unreadable else _login_lockout_phrase(page))
+        if _lockout:
+            return _login_lockout_result(page, config, _lockout, _hard_close)
         # Row 722 live (blacked, 11:1xZ): the site answers a good submit with
         # a Turnstile challenge page (login.vixen.com/.../login/challenge)
         # BEFORE the members redirect. Same rule as before the form (G22):
