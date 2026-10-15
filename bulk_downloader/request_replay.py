@@ -34,7 +34,6 @@ import json
 import re
 import threading
 import time
-import urllib.request
 import uuid
 from collections import deque
 from typing import Optional
@@ -388,14 +387,11 @@ class _SelfRedirectRefused(Exception):
     """A replay's redirect pointed at this box without the master token."""
 
 
-class _SelfRedirectGate(urllib.request.HTTPRedirectHandler):
+def _self_hop_gate(url: str) -> None:
     """r2 (PM F2b): a redirect is a new target -- one aimed at this box needs
     the master token, as the first hop does."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if _targets_self(newurl) and not _caller_has_master_token():
-            raise _SelfRedirectRefused(code)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+    if _targets_self(url) and not _caller_has_master_token():
+        raise _SelfRedirectRefused(url)
 
 
 def replay(request_id: str, *, base_url: str = "http://127.0.0.1:5555",
@@ -466,9 +462,15 @@ def replay(request_id: str, *, base_url: str = "http://127.0.0.1:5555",
     req.add_header(REPLAY_MARKER_HEADER, "1")
     if data is not None:
         req.add_header("Content-Type", "application/json")
-    opener = _ur.build_opener(_SelfRedirectGate)
     try:
-        with opener.open(req, timeout=t_f) as resp:
+        # BD-SEC-3 r3: base_url comes from the request and the body goes back to
+        # the caller. Resolved once, every answer judged, the socket pinned to the
+        # vetted literal, each redirect hop judged again (loopback/LAN admitted:
+        # the replay target is normally this app; link-local/metadata refused).
+        # r9: each hop also passes the F2b self-redirect gate.
+        from . import outbound_guard as _outbound_guard
+        with _outbound_guard.urlopen(req, timeout=t_f,
+                                     hop_gate=_self_hop_gate) as resp:
             out["replay_status"] = resp.status
             raw = resp.read().decode("utf-8", errors="replace")
             out["replay_body"] = _truncate(raw, _BODY_TRUNC)

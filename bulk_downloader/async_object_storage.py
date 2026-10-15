@@ -98,6 +98,11 @@ def _precheck_endpoint(endpoint_url: str, allow_private_hosts: bool) -> None:
     try:
         literal = ipaddress.ip_address(host)
     except ValueError:
+        from bulk_downloader.ssrf_transport import metadata_host
+        if metadata_host(host):
+            raise GuardedTransportRefused(
+                f"SSRF guard blocked S3 endpoint_url {endpoint_url!r}: cloud-metadata host",
+                host=host, reason="cloud-metadata")
         return
     refusal = never_admissible(literal)
     if refusal is not None:

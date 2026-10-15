@@ -101,15 +101,37 @@ def embedded_ipv4(addr) -> Tuple[ipaddress.IPv4Address, ...]:
         found.extend(teredo)
     if addr in _NAT64_WELL_KNOWN:
         found.append(ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF))
+    # BD-SEC-3 r5: ::a.b.c.d, ::ffff:0:a.b.c.d and 64:ff9b:1::/48, unpacked once.
+    from bulk_downloader.provider_resolve_impl._common import _more_embedded_ipv4
+    found.extend(_more_embedded_ipv4(addr))
     return tuple(found)
+
+
+def metadata_host(host) -> bool:
+    """True when the host NAME is a cloud-metadata name (BD-SEC-3 r4; the table is
+    ``provider_resolve_impl._common.CLOUD_METADATA_HOSTNAMES``)."""
+    from bulk_downloader.provider_resolve_impl._common import cloud_metadata_host
+    return cloud_metadata_host(host)
+
+
+def literal_refusal_table() -> dict:
+    """The never-admissible ranges, metadata addresses and names as data for the page
+    script (BD-SEC-3 r7; the tables are ``provider_resolve_impl._common``'s)."""
+    from bulk_downloader.provider_resolve_impl._common import literal_refusal_table as _table
+    return _table()
 
 
 def never_admissible(addr) -> Optional[str]:
     """The reason ``addr`` can never be a legitimate HTTP peer, or None.
 
     Deliberately NOT a public-only classifier: loopback, private, ULA and
-    CGNAT return None because the PINNED sites admit them on the base.
+    CGNAT return None because the PINNED sites admit them on the base --
+    except the cloud-metadata addresses that live in those ranges (BD-SEC-3 r4:
+    fd00:ec2::254 is ULA, 100.100.100.200 is CGNAT), refused from the one deny
+    set in ``provider_resolve_impl._common`` wherever they are carried.
     """
+    # r7: the page script decides these four from ``_common.NEVER_ADMISSIBLE_NETWORKS``
+    # (``literal_refusal_table``); a test holds that table to exactly these properties.
     for view in (addr, *embedded_ipv4(addr)):
         if view.is_unspecified:
             return "unspecified"
@@ -119,6 +141,12 @@ def never_admissible(addr) -> Optional[str]:
             return "link-local"
         if isinstance(view, ipaddress.IPv4Address) and view.is_reserved:
             return "reserved"
+    from bulk_downloader.provider_resolve_impl._common import (
+        cloud_metadata_address, zone_id_without_link_local)
+    if cloud_metadata_address(addr):
+        return "cloud-metadata"
+    if zone_id_without_link_local(addr):  # r5: "fd00:ec2::254%2", "::1%2"
+        return "zone-id"
     return None
 
 
@@ -177,6 +205,10 @@ class PinnedTransport(httpx.HTTPTransport):
                     host=host, reason=reason)
             return None
 
+        if metadata_host(host):
+            raise GuardedTransportRefused(
+                f"SSRF guard (pinned transport): refusing cloud-metadata host {host!r}",
+                host=host, reason="cloud-metadata")
         port = request.url.port or (443 if request.url.scheme in ("https", "wss") else 80)
         try:
             infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)

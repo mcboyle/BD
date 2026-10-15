@@ -1488,6 +1488,9 @@ def crawl_with_page(
     parsed = urlsplit(listing_url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise ValueError("listing_url must be an absolute http(s) URL")
+    from . import outbound_guard as _outbound_guard
+
+    _outbound_guard.check_url(listing_url, unresolved_ok=True)  # BD-SEC-3 r3: OutboundRefused is a ValueError
     newest_n = max(0, int(newest_n))
     max_pages = max(1, min(int(max_pages), 500))
     max_scrolls = max(0, min(int(max_scrolls), 50))

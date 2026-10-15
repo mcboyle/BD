@@ -454,7 +454,139 @@ def _embedded_ipv4(addr):
         carried.extend(teredo)
     if addr in _ip.ip_network(_NAT64_WELL_KNOWN):
         carried.append(_ip.IPv4Address(int(addr) & 0xFFFFFFFF))
+    carried.extend(_more_embedded_ipv4(addr))
     return tuple(carried)
+
+
+def _more_embedded_ipv4(addr):
+    """BD-SEC-3 r5 (lens R17-B advisory, PM 19:03Z): three more IPv6 forms that carry
+    an IPv4 destination, unpacked ONCE here and read by both embedded-IPv4 helpers
+    (this module's and ssrf_transport's, which already imports this module):
+
+    ``::a.b.c.d``           IPv4-compatible (::/96; ``::`` and ``::1`` are not it)
+    ``::ffff:0:a.b.c.d``    IPv4-translated, SIIT (::ffff:0:0:0/96)
+    ``64:ff9b:1::/48``      local-use NAT64 (RFC 8215): the RFC 6052 /48, /56, /64 and /96
+                            layouts, because an operator may run any of those prefix lengths
+                            inside the /48. Known over-refusal: a LAN address reached through
+                            such a gateway whose OTHER-layout reading lands in a refused range
+                            (e.g. /64 layout, last octet >= 224) is refused too.
+    """
+    import ipaddress as _ip
+    if not isinstance(addr, _ip.IPv6Address):
+        return ()
+    value = int(addr)
+    low32 = _ip.IPv4Address(value & 0xFFFFFFFF)
+    if value >> 32 == 0:
+        return (low32,) if value > 1 else ()
+    if value >> 32 == 0xFFFF0000:
+        return (low32,)
+    if value >> 80 == 0x0064FF9B0001:
+        # r6 (lens R36-B F2, ruling adjA4 O3083): ALL four RFC 6052 layouts a prefix
+        # cut from the /48 can have. Which one a gateway uses is not knowable here
+        # and the suffix bits are ignored by translators, so every reading is a
+        # candidate; a reading of all zero bits is a layout not in use and is
+        # dropped (all four zero = the address does carry 0.0.0.0).
+        readings = (
+            (((value >> 64) & 0xFFFF) << 16) | ((value >> 40) & 0xFFFF),    # /48: 48-63, 72-87
+            (((value >> 64) & 0xFF) << 24) | ((value >> 32) & 0xFFFFFF),    # /56: 56-63, 72-95
+            (value >> 24) & 0xFFFFFFFF,                                     # /64: 72-103
+            value & 0xFFFFFFFF,                                             # /96: 96-127
+        )
+        named = tuple(_ip.IPv4Address(r) for r in dict.fromkeys(readings) if r)
+        return named or (low32,)
+    return ()
+
+
+# BD-SEC-3 r4 (F2). THE cloud-metadata deny set: one table, read by this module's
+# _classify_ip and by ssrf_transport.never_admissible (and through it by every
+# LAN-admitting caller: the pinned httpx transport, outbound_guard, the ollama
+# endpoint validator, the S3 endpoint check). A range rule cannot carry it: the
+# AWS IPv6 IMDS and the GCP IPv6 server are ULA, Alibaba's is CGNAT, Azure's
+# WireServer is a public address -- all "admissible" to a LAN-OK or public-only
+# range test. No caller relaxes it. An IPv6 address carrying one of the IPv4
+# entries (mapped, 6to4, Teredo, NAT64) is the same destination.
+CLOUD_METADATA_ADDRESSES = frozenset({
+    "169.254.169.254",   # AWS / GCP / Azure / OCI / OpenStack / DigitalOcean IMDS
+    "169.254.170.2",     # AWS ECS task metadata + credentials
+    "100.100.100.200",   # Alibaba Cloud
+    "192.0.0.192",       # Oracle Cloud (classic)
+    "168.63.129.16",     # Azure WireServer
+    "fd00:ec2::254",     # AWS IMDS over IPv6
+    "fd00:ec2::23",      # AWS ECS over IPv6
+    "fd20:ce::254",      # GCP metadata over IPv6
+})
+# Names that mean the metadata service wherever they resolve (and where they do
+# not resolve on this host: a browser or proxy at the far end may resolve them).
+CLOUD_METADATA_HOSTNAMES = frozenset({
+    "metadata.google.internal", "metadata.goog", "metadata",
+    "instance-data", "instance-data.ec2.internal", "metadata.tencentyun.com",
+})
+
+
+def _metadata_keys() -> frozenset:
+    import ipaddress as _ip
+    return frozenset((a.version, int(a))
+                     for a in map(_ip.ip_address, CLOUD_METADATA_ADDRESSES))
+
+
+_CLOUD_METADATA_KEYS = _metadata_keys()
+
+
+def cloud_metadata_address(addr) -> bool:
+    """True when ``addr`` (an ``ipaddress`` object) is, or carries, a cloud-metadata address.
+
+    r5 (lens R17-B R1): compared as (version, integer), never as text -- an IPv6
+    zone id is part of ``str(addr)`` ("fd00:ec2::254%2") and not of the
+    destination, so a text compare let a scoped literal through."""
+    import ipaddress as _ip
+    return any((view.version, int(view)) in _CLOUD_METADATA_KEYS
+               for view in (addr, *_embedded_ipv4(addr))
+               if isinstance(view, (_ip.IPv4Address, _ip.IPv6Address)))
+
+
+def zone_id_without_link_local(addr) -> bool:
+    """True for an address that carries an IPv6 zone id ("%2", "%eth0") and is not
+    link-local. A zone id only means something on a link-local address; Linux
+    ignores it anywhere else and connects to the bare address, so on any other
+    literal it is only ever a way past a text comparison. Refused, r5."""
+    return bool(getattr(addr, "scope_id", None)) and not addr.is_link_local
+
+
+def cloud_metadata_host(host) -> bool:
+    """True when the host NAME ``host`` is a cloud-metadata name (case, brackets and a
+    trailing dot do not hide it). Literal addresses are judged by ``cloud_metadata_address``."""
+    name = str(host or "").strip().strip("[]").rstrip(".").lower()
+    return name in CLOUD_METADATA_HOSTNAMES
+
+
+# BD-SEC-3 r7 (PM 23:36Z / 23:45Z): the address ranges no LAN-admitting caller may reach,
+# as data, for the page script's no-judge fallback (outbound_guard.ws_guard_script).
+# ssrf_transport.never_admissible decides the same four classes from the ipaddress
+# properties (is_unspecified / is_link_local / is_multicast / IPv4 is_reserved); its
+# lines are anchored by row 703's tracked mutants, so they stay as they are and
+# tests/test_bd_sec_3_r3_outbound_guard.py holds this table to them, literal by literal.
+NEVER_ADMISSIBLE_NETWORKS = (
+    "0.0.0.0/32",        # unspecified
+    "169.254.0.0/16",    # link-local
+    "224.0.0.0/4",       # multicast
+    "240.0.0.0/4",       # reserved
+    "::/128",            # unspecified
+    "fe80::/10",         # link-local
+    "ff00::/8",          # multicast
+)
+
+
+def literal_refusal_table() -> dict:
+    """The same tables as JSON-ready data for the page script: integer ranges as decimal
+    strings (an IPv6 bound does not fit a JS number), the metadata addresses, the names."""
+    import ipaddress as _ip
+    metadata = sorted(map(_ip.ip_address, CLOUD_METADATA_ADDRESSES), key=lambda a: (a.version, int(a)))
+    networks = [_ip.ip_network(cidr) for cidr in NEVER_ADMISSIBLE_NETWORKS]
+    return {
+        "ranges": [[n.version, str(int(n.network_address)), str(int(n.broadcast_address))] for n in networks],
+        "metadata": [[a.version, str(int(a))] for a in metadata],
+        "names": sorted(CLOUD_METADATA_HOSTNAMES),
+    }
 
 
 def _view_to_classify(addr):
@@ -510,7 +642,13 @@ def _classify_ip(addr, host_repr: str) -> Tuple[bool, _HostSafetyMessage]:
             HostSafetyReason.CGNAT,
             f"refusing CGNAT/shared address RFC 6598 ({host_repr} → {addr})",
         )
-    if addr.is_link_local:
+    # BD-SEC-3 r4 (F2): the cloud-metadata deny set shares this refusal (one
+    # producer, the reason no caller relaxes) and is judged here, BEFORE the
+    # PRIVATE answer a caller may relax: fd00:ec2::254 is ULA, 168.63.129.16 is
+    # a public address.
+    # r5: a zone id on a non-link-local literal shares the refusal too.
+    if (addr.is_link_local or cloud_metadata_address(addr)
+            or zone_id_without_link_local(addr)):
         return False, _host_safety_message(
             HostSafetyReason.LINK_LOCAL,
             f"refusing link-local address ({host_repr} → {addr})",
