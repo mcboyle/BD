@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1874 - train283a: row
+
+T283a-D (train-22, integrator D2-D) on main f7e0c6e0 (train-20 merged). FIX-FORWARD train for post-merge band row FF-D (T281z/FIXFWD-band-zB-0020Z.md): tests/test_v3_66_729::test_the_committed_call_artifact_is_in_sync red on main.
+Rule 32a deterministic generator: `tools/body_contract.py --regen` (DONE.md GENERATOR); output reproduced by the integrator in a fresh worktree at BASE: artifact sha256 2ad0e4e9 identical.
+FIX: O1789/T281z/ff-d-body-contract-regen (rule 32a, no lens: generator-named, 1 path tools/BODY_CONTRACT_CALLS.json)
+
+
 ## v3.66.1872 - train282e: row
 
 T282e-A = train-20 (O3142 F3: on MAIN acd7231b = train-19 merge; member list frozen at assembly). Product train; BOARD per O1672; no other train PR open at kit time (rule a); merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub.
