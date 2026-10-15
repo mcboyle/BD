@@ -411,6 +411,8 @@
 /api/marketplace/import/preview	POST	api_marketplace_import_preview
 /api/multi_conn/probe	POST	api_multi_conn_probe
 /api/multi_conn/status	GET	api_multi_conn_status
+/api/notifications/inbox	GET	api_notifications_inbox
+/api/notifications/inbox/<int:event_id>/read	POST	api_notifications_mark_read
 /api/notify/apprise/schemes	GET	api_notify_apprise_schemes
 /api/notify/apprise/settings	GET	api_notify_apprise_settings_get
 /api/notify/apprise/settings	POST	api_notify_apprise_settings_post

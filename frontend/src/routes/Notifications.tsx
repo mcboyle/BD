@@ -2,6 +2,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
+import { NotificationInboxSection } from "@/components/sections/NotificationInboxSection";
 import { PushSection } from "@/components/sections/PushSection";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -183,6 +184,9 @@ export default function Notifications() {
 
   return (
     <AppShell title="Notifications" subtitle="Apprise · Telegram · Alerts">
+      {/* F005: fired alerts as a read/unread, filterable inbox */}
+      <NotificationInboxSection />
+
       {/* Apprise */}
       <Card className="p-4">
         <h2 className="section-head">Apprise endpoints</h2>

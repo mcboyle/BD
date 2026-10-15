@@ -108,6 +108,12 @@ def _ensure_tables():
                 kind TEXT NOT NULL,
                 message TEXT
             )""")
+            # F005: per-event read state for the /notifications inbox. A row
+            # means read; an event with no row is unread.
+            cx.execute("""CREATE TABLE IF NOT EXISTS alert_event_reads(
+                event_id INTEGER PRIMARY KEY,
+                read_at REAL NOT NULL
+            )""")
     except Exception as e:
         sys.stderr.write(f"[alerts] schema: {e}\n")
 
@@ -590,6 +596,98 @@ def _decode_rule_rows(rows) -> tuple:
             continue
         custom[rid] = rule
     return custom, skipped
+
+
+# ─── F005: notification inbox over fired alert events ─────────────────
+# Every FIRED alert is a notification the operator can list, filter, and mark
+# read or unread. Read state lives in alert_event_reads (keyed by
+# alert_events.id) so alert_events itself is never rewritten: marking unread
+# deletes the row. Unlike active_alerts(), an unreadable store RAISES -- an
+# empty inbox is a measurement, an unreadable one is not (row 421).
+INBOX_STATUSES = ("all", "unread", "read")
+INBOX_SEVERITIES = ("all", "info", "warn", "fail")
+
+
+def notification_inbox(*, status: str = "all", severity: str = "all",
+                       limit: int = 200) -> dict:
+    """Fired alert events, newest first, filtered by read status and severity.
+
+    Returns {notifications, total, unread}: ``total``/``unread`` count the
+    whole inbox (the badge), ``notifications`` is the filtered page. Severity
+    and name come from the event's rule; an event whose rule no longer exists
+    reports severity "unknown" (matched only by the "all" filter)."""
+    if status not in INBOX_STATUSES:
+        raise ValueError(f"status must be one of {INBOX_STATUSES}, got {status!r}")
+    if severity not in INBOX_SEVERITIES:
+        raise ValueError(
+            f"severity must be one of {INBOX_SEVERITIES}, got {severity!r}")
+    _ensure_tables()
+    rules = {r["id"]: r for r in _merged_rules()[0]}
+    try:
+        from . import db as _db
+        with _db.db_conn() as cx:
+            rows = cx.execute("""SELECT e.id, e.rule_id, e.ts, e.metric_value,
+                                        e.message, r.read_at
+                                   FROM alert_events e
+                                   LEFT JOIN alert_event_reads r
+                                     ON r.event_id = e.id
+                                  WHERE e.kind = 'fired'
+                                  ORDER BY e.id DESC""").fetchall()
+    except Exception as e:
+        raise AlertEventStoreUnavailable(
+            f"notification inbox unreadable: {type(e).__name__}: {e}") from e
+    items, unread = [], 0
+    for event_id, rule_id, ts, value, message, read_at in rows:
+        rule = rules.get(rule_id)
+        read = read_at is not None
+        unread += not read
+        item = {
+            "id": event_id,
+            "rule_id": rule_id,
+            "name": (rule or {}).get("name") or rule_id,
+            "severity": (rule.get("severity", "warn") if rule else "unknown"),
+            "ts": ts,
+            "metric_value": value,
+            "message": message or "",
+            "read": read,
+            "read_at": read_at,
+        }
+        if status != "all" and read != (status == "read"):
+            continue
+        if severity != "all" and item["severity"] != severity:
+            continue
+        items.append(item)
+    return {"notifications": items[:max(0, int(limit))],
+            "total": len(rows), "unread": unread}
+
+
+def set_notification_read(event_id: int, read: bool) -> bool:
+    """Mark one fired alert event read (True) or unread (False).
+
+    Returns False when no fired event has that id; idempotent otherwise (a
+    second mark-read keeps the first read_at). Raises
+    AlertEventStoreUnavailable when the store cannot be written."""
+    _ensure_tables()
+    try:
+        from . import db as _db
+        with _db.db_conn() as cx:
+            hit = cx.execute("""SELECT id FROM alert_events
+                                 WHERE id = ? AND kind = 'fired'""",
+                             (int(event_id),)).fetchone()
+            if not hit:
+                return False
+            if read:
+                cx.execute("""INSERT OR IGNORE INTO alert_event_reads(
+                                  event_id, read_at) VALUES (?, ?)""",
+                           (int(event_id), time.time()))
+            else:
+                cx.execute("DELETE FROM alert_event_reads WHERE event_id = ?",
+                           (int(event_id),))
+        return True
+    except Exception as e:
+        raise AlertEventStoreUnavailable(
+            f"notification read state unwritable for event {event_id}: "
+            f"{type(e).__name__}: {e}") from e
 
 
 def _merged_rules() -> tuple:
