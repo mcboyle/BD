@@ -284,6 +284,13 @@ def _probe_typed_inner(work, tcalls):
             v, why = "UNKNOWN", "403 -- blocked before body validation"
         elif a_code == 404:
             v, why = "UNKNOWN", "404 -- never reached body validation"
+        elif not call["keys"] and b_code == 400 and "${}" in call["path"].partition("?")[2]:
+            # FF-E: the control's argument travels in the QUERY (apiDelete
+            # /api/template_manager/draft?file=${}), so a keyless body is by design,
+            # and the query now holds OUR "_probe" -- a value the endpoint rightly
+            # refuses ("invalid draft filename"). A value COULD have saved it, so
+            # the keyless rule below proves nothing here (soundness mechanism 2).
+            v, why = "UNKNOWN", "query carries a placeholder value"
         elif not call["keys"] and b_code == 400:
             # THE PROVABLE RULE, and the only one that survives contact with reality.
             # The type checker says this control's body has NO KEYS, and the endpoint
