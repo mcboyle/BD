@@ -2461,7 +2461,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1922,
+    "edge_count": 1923,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2950,6 +2950,7 @@
         "bulk_downloader/capture_ingest.py",
         "bulk_downloader/capture_redactor.py",
         "bulk_downloader/capture_synth.py",
+        "bulk_downloader/diagnostics_bundle.py",
         "bulk_downloader/dom_capture.py",
         "bulk_downloader/error_reply.py",
         "bulk_downloader/inspect_pick.py",
@@ -6759,6 +6760,7 @@
       "bulk_downloader/diagnostics_bundle.py": [
         "bulk_downloader/account_health.py",
         "bulk_downloader/capture_artifact_redact.py",
+        "bulk_downloader/capture_redact.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
         "bulk_downloader/egress_withhold.py",
