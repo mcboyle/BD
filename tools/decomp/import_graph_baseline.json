@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6532,
+  "edge_count": 6533,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4228,6 +4228,9 @@
       "bulk_downloader/runner_transport.py"
     ],
     "tests/test_dot95_pm2_dp13_lane_cleanup_is_said.py": [
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_dp13_hls_master_read_logged.py": [
       "bulk_downloader/runner_extractors.py"
     ],
     "tests/test_dpp_cut1_config_seam.py": [
