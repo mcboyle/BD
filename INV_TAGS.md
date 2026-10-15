@@ -7,8 +7,8 @@ authoritative; this file is only a deterministic locality view.
 ## INV-001 — live source tags
 
 - `bulk_downloader/dev_suite/introspection.py:231` — `try:                                            # INV-001`
-- `bulk_downloader/runner.py:4505` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner.py:4571` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner.py:4562` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner.py:4628` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:441` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:771` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:882` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
@@ -19,7 +19,7 @@ authoritative; this file is only a deterministic locality view.
 ## INV-002 — live source tags
 
 - `bulk_downloader/dev_suite/audit_security.py:146` — `_DISPATCH_CHAIN = [  # INV-002`
-- `bulk_downloader/runner.py:5725` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
+- `bulk_downloader/runner.py:5782` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
 
 ## INV-003 — live source tags
 

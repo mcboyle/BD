@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (832)
+## /api/* routes (834)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -437,6 +437,8 @@ POST    /api/marketplace/import                                CSRF: yes  — Im
 POST    /api/marketplace/import/preview                        CSRF: yes  — Read-only preview mirror of /api/marketplace/import (Cut 3).
 POST    /api/multi_conn/probe                                  CSRF: yes  — Probe whether a URL supports multi-connection. UI 'Test' button.
 GET     /api/multi_conn/status                                 CSRF: no   — Multi-conn module availability + per-site enablement summary.
+GET     /api/notifications/inbox                               CSRF: no   — F005: the /notifications inbox -- fired alerts with read state.
+POST    /api/notifications/inbox/<int:event_id>/read           CSRF: yes  — F005: mark one notification read ({"read": true}) or unread
 GET     /api/notify/apprise/schemes                            CSRF: no   — List recognized apprise schemes (for the UI to show in a hint).
 GET     /api/notify/apprise/settings                           CSRF: no   — Return current global apprise settings.
 POST    /api/notify/apprise/settings                           CSRF: yes  — Save global apprise settings + apply to running dispatcher.
