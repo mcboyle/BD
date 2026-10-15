@@ -479,19 +479,20 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_accounts.py` (10 entries)
+## `bulk_downloader/runner_accounts.py` (11 entries)
 
 ```
-- L0014 `AccountsMixin` `[class]`
-  - L0015 `AccountsMixin.is_rate_limited` — True if the site is currently in a 24h cooldown window from a
-  - L0028 `AccountsMixin.rl_remaining` — Render the rate-limit cooldown remaining as a short human
-  - L0036 `AccountsMixin._fire_site_hook` `[private]` — v3.66.470: fire an in-process plugin hook for a site state
-  - L0047 `AccountsMixin.trigger_rate_limit`
-  - L0103 `AccountsMixin._get_active_account` `[private]` — Return the currently-active (username, password, cookie_file)
-  - L0125 `AccountsMixin._rotate_account_if_available` `[private]` — Advance to the next account whose cooldown has elapsed.
-  - L0234 `AccountsMixin._persist_account_state` `[private]` — Save the accounts array (with updated cooldown_until values)
-  - L0243 `AccountsMixin._persist_pool_state` `[private]` — v3.43.35: merge the account pool's per-slot health state
-  - L0272 `AccountsMixin._wait_rl_autostart` `[private]`
+- L0014 `_account_jar` `[private]` — Account idx's jar -- the one its keeper refreshes (runner-account-jar
+- L0026 `AccountsMixin` `[class]`
+  - L0027 `AccountsMixin.is_rate_limited` — True if the site is currently in a 24h cooldown window from a
+  - L0040 `AccountsMixin.rl_remaining` — Render the rate-limit cooldown remaining as a short human
+  - L0048 `AccountsMixin._fire_site_hook` `[private]` — v3.66.470: fire an in-process plugin hook for a site state
+  - L0059 `AccountsMixin.trigger_rate_limit`
+  - L0115 `AccountsMixin._get_active_account` `[private]` — Return the currently-active (username, password, cookie_file)
+  - L0137 `AccountsMixin._rotate_account_if_available` `[private]` — Advance to the next account whose cooldown has elapsed.
+  - L0246 `AccountsMixin._persist_account_state` `[private]` — Save the accounts array (with updated cooldown_until values)
+  - L0255 `AccountsMixin._persist_pool_state` `[private]` — v3.43.35: merge the account pool's per-slot health state
+  - L0284 `AccountsMixin._wait_rl_autostart` `[private]`
 ```
 
 
@@ -859,31 +860,31 @@ Schema version: 2
   - L3017 `TransportMixin._file_below_own_media` `[private]` — fx-xnxx-hls-720-to-sd: see ``_below_min_resolution_by_file``. Only the
   - L3043 `TransportMixin._browser_save_stopped` `[private]` — dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
   - L3055 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L4296 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
-  - L4371 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
-  - L4420 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L5087 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L5137 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L5548 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L5581 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L5605 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
-  - L5630 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
-  - L5656 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
-  - L5676 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
-  - L5700 `TransportMixin._probe_video_height` `[private]` — ffprobe the pixel height of the primary video stream (``"v:0"``).
-  - L5725 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
-  - L5742 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
-  - L5759 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
-- L5774 `_ManifestConsumers` `[private]`
-  - L5775 `_ManifestConsumers.__init__` `[dunder]`
-  - L5778 `_ManifestConsumers.join`
-- L5785 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
-- L5833 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
-  - L5843 `HTTP3Transport.__init__` `[dunder]`
-  - L5851 `HTTP3Transport.allocate_stream_id`
-  - L5856 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
-- L5879 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
-- L5892 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
+  - L4297 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
+  - L4372 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
+  - L4421 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L5088 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L5138 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L5549 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L5582 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L5606 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L5631 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
+  - L5657 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
+  - L5677 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
+  - L5701 `TransportMixin._probe_video_height` `[private]` — ffprobe the pixel height of the primary video stream (``"v:0"``).
+  - L5726 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
+  - L5743 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
+  - L5760 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
+- L5775 `_ManifestConsumers` `[private]`
+  - L5776 `_ManifestConsumers.__init__` `[dunder]`
+  - L5779 `_ManifestConsumers.join`
+- L5786 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
+- L5834 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
+  - L5844 `HTTP3Transport.__init__` `[dunder]`
+  - L5852 `HTTP3Transport.allocate_stream_id`
+  - L5857 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
+- L5880 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
+- L5893 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
 ```
 
 
@@ -1210,4 +1211,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 1034 across 22 files._
+_Total entries: 1035 across 22 files._
