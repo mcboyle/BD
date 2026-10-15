@@ -291,6 +291,11 @@ def struct_text(value: str) -> str:
     return _TOKEN.sub(_struct_token, value)
 
 
+# Setting names the secret-name floor matches that hold no secret: the
+# secrets_audit sink choice ("", "file", "log") round-trips as stored.
+NOT_SECRET_FIELDS = frozenset({"secrets_audit_sink"})
+
+
 def value_view(key, value):
     """``value`` as a client may see it when stored under ``key``, at any depth."""
     if is_credential_url_field(key):
@@ -299,7 +304,7 @@ def value_view(key, value):
         return url_value(value)
     if key in FREE_TEXT_FIELDS:
         return withhold_text(value)
-    if is_secret_field(key):
+    if is_secret_field(key) and key not in NOT_SECRET_FIELDS:
         return secret_value(value)
     if isinstance(value, str):
         return struct_text(value)
@@ -357,7 +362,10 @@ def may_hold_diagnostic_text(raw: bytes) -> bool:
 # URLs.  Keyed by message id: only the function that builds the text records
 # it, for the current request (app_message); the serve side keeps exactly
 # those recorded segments and withholds every other part of the value.
-APP_MESSAGE_IDS = frozenset({"captcha-egress-disclosure"})
+# sec2-withhold-messages r1: the validation refusals a client must read
+# (the scheme rule, the rule-id "/" guidance, the export root) are app messages too.
+APP_MESSAGE_IDS = frozenset({"captcha-egress-disclosure", "alert-rule-invalid",
+                             "template-sandbox-scheme", "scheduled-export-invalid"})
 _APP_MESSAGES = "bd_sec2_app_messages"
 
 

@@ -54,10 +54,12 @@ def api_sched_exports_add():
             source_saved_search=int(_src) if _src else None,
         )
         if rid is None:
+            from .egress_withhold import app_message  # SEC-2: served verbatim, by origin
             return jsonify({"ok": False,
-                            "error": "invalid params (format must be one of "
-                                     "eol/csv/json/ndjson/m3u; destination under "
-                                     f"{_se.export_roots()[0]} or an allowed folder; cadence_hours > 0; retention_count >= 1)"}), 400
+                            "error": app_message("scheduled-export-invalid",
+                                                 "invalid params (format must be one of "
+                                                 "eol/csv/json/ndjson/m3u; destination under "
+                                                 f"{_se.export_roots()[0]} or an allowed folder; cadence_hours > 0; retention_count >= 1)")}), 400
         return jsonify({"ok": True, "id": rid})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
