@@ -85,7 +85,13 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # POST /api/schedules/<int:sid>/update (app_schedules.api_schedules_update), the
 # edit a schedule never had (create/remove/run_now only). Baseline 1025 -> 1026
 # lines with exactly that addition (restacked onto acd7231b, after F017).
-_BASELINE_SHA = "d9d58708a8485cad1bbb330d077d91431de5bba4cc8565b2b0a3125b8047c1ff"
+# F005 (APP-FEATURE-QUEUE): re-frozen. TWO routes ADDED, none removed or re-pathed:
+# GET /api/notifications/inbox (app_alerts.api_notifications_inbox) and POST
+# /api/notifications/inbox/<int:event_id>/read (app_alerts.api_notifications_mark_read),
+# the /notifications inbox list + mark read/unread. Baseline 1026 -> 1028 lines with
+# exactly those two additions (restacked onto f2a97465, after F038). INTENTIONAL
+# surface change, stated here.
+_BASELINE_SHA = "20ecbd4ba51d6ede0942b608c9778fc25f8ede0fa4cef2f716d1cd891cd3877e"
 
 
 def _live_snapshot() -> str:

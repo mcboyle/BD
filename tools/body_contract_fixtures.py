@@ -217,6 +217,7 @@ class Fixtures:
         self._history()
         self._resources()
         self._knowledge()
+        self._notification()
         # Before _api_resources(): resources created through the app's own API
         # may store credentials, and a locked vault refuses them with a 401
         # that has nothing to do with the body under judgement.
@@ -262,6 +263,7 @@ class Fixtures:
         self._resources()
         self._knowledge()
         self._drafts()
+        self._notification()
         self._value_map()
         return self
 
@@ -433,6 +435,26 @@ class Fixtures:
             self.unresolved.add("knowledge:%s" % type(e).__name__)
             self.knowledge_note_id = 1
 
+    def _notification(self):
+        """F005: a real FIRED alert event -> a real <int:event_id> for the
+        /api/notifications/inbox/<id>/read probe.
+
+        Same wrong-TYPE trap as _knowledge: without a live row, path_id_for falls
+        back to the site id, werkzeug's int converter rejects it, and the 404
+        happens in ROUTING before the body is judged. Written through
+        alerts_engine._record_event (the real producer), re-created per ensure()."""
+        try:
+            from bulk_downloader import alerts_engine as _ae
+            from bulk_downloader import db as _db
+            _ae._record_event("disk_low", "fired", 2.0, "fixture: 2 GB free")
+            with _db.db_conn() as cx:
+                row = cx.execute("SELECT MAX(id) FROM alert_events"
+                                 " WHERE kind = 'fired'").fetchone()
+            self.notification_id = row[0] if row and row[0] else 1
+        except Exception as e:
+            self.unresolved.add("notification:%s" % type(e).__name__)
+            self.notification_id = 1
+
     # Path family -> the fixture id that belongs in ITS <slot>. Substituting the
     # site id into every slot was the bug: each family has its own key space, and
     # several are typed (int).
@@ -443,6 +465,7 @@ class Fixtures:
             (r"^/api/library/", lambda: self.library_id),
             (r"^/api/stream/token/", lambda: self.history_id),
             (r"^/api/knowledge/notes/", lambda: self.knowledge_note_id),
+            (r"^/api/notifications/inbox/", lambda: self.notification_id),
             (r"^/api/user_templates/", lambda: self.user_template_id),
             (r"^/api/vpn/tunnels/", lambda: self.tunnel_id),
             # F017: the draft routes take the draft by FILENAME (`?file=` on

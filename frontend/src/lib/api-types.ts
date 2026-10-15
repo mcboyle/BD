@@ -1694,6 +1694,32 @@ export interface ActiveAlertsResponse {
   alerts?: ActiveAlert[];
   error?: string;
 }
+// F005: /api/notifications/inbox -- fired alerts with read state.
+export type InboxStatus = "all" | "unread" | "read";
+export type InboxSeverity = "all" | "info" | "warn" | "fail";
+export interface InboxNotification {
+  id: number;
+  rule_id: string;
+  name: string;
+  severity: string;
+  ts: number;
+  metric_value?: number | null;
+  message: string;
+  read: boolean;
+  read_at?: number | null;
+}
+export interface NotificationInboxResponse {
+  notifications?: InboxNotification[];
+  total?: number;
+  unread?: number;
+  error?: string;
+}
+export interface NotificationReadResult {
+  ok: boolean;
+  id?: number;
+  read?: boolean;
+  error?: string;
+}
 
 // ── T8 (v3.66.211) cluster: fed · edge_deploy · pair ──────────────────
 export interface FedPeer {

@@ -1247,6 +1247,44 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_row127_every_real_pg_file_runs_in_the_pg_shard.py",
             r"(?m)^def test_the_denominator_is_not_empty_and_sees_a_known_real_pg_file\(",
         ),
+    # F005 (APP-FEATURE-QUEUE): fixed inbox API/storage contracts, each audited by the
+    # catcher its mutant names (bd-mutate 7/7 CAUGHT; M5 is structural and needs no entry).
+    "2f1fcd1d7f10e684b268ae4addb1f6348194d6af1a7ad06db55db687a4071838":
+        StableValueException(
+            "status=all|unread|read is the fixed F005 inbox API enum; the inverted read/unread comparison is caught by the filter test",
+            "tests/test_f005_notification_inbox.py",
+            r"(?m)^def test_filter_by_status_and_severity\(",
+        ),
+    "36078a966884c910b596477c6b471f114aa89991ca3ddda70d37f2c1cdc3623e":
+        StableValueException(
+            "mark read inserts into alert_event_reads (a row means read): fixed F005 read-state protocol",
+            "tests/test_f005_notification_inbox.py",
+            r"(?m)^def test_mark_one_read_then_unread\(",
+        ),
+    "9e397eeb47746b0e0051a50f8e5cb5eb9567d17dbf39f830160ae83465b32fd7":
+        StableValueException(
+            "only kind='fired' alert_events rows are notifications: fixed F005 inbox definition",
+            "tests/test_f005_notification_inbox.py",
+            r"(?m)^def test_list_loads_fired_alerts_newest_first\(",
+        ),
+    "90354f086b2a7ac735c0e875142dbd7e55caac7331eea9fd33b0a6a7cb60d529":
+        StableValueException(
+            "an unreadable store raises (500) rather than reading as an empty inbox: fixed row-421 policy carried into F005",
+            "tests/test_f005_notification_inbox.py",
+            r"(?m)^def test_unreadable_store_is_500_not_empty\(",
+        ),
+    "72ebf0774ef2205f872a5f08d69847a750e30e8a220b8b741551ef6db1d5f739":
+        StableValueException(
+            "severity=all|info|warn|fail is the fixed F005 inbox API enum; ignoring it is caught by the filter test",
+            "tests/test_f005_notification_inbox.py",
+            r"(?m)^def test_filter_by_status_and_severity\(",
+        ),
+    "ec3a61d7936720f037434c610a367bdb52c4057e4a04f6dd8f088c7ff4e666f7":
+        StableValueException(
+            "total/unread count the whole inbox, not the filtered page: fixed F005 badge contract",
+            "tests/test_f005_notification_inbox.py",
+            r"(?m)^def test_filter_by_status_and_severity\(",
+        ),
 }
 _STABLE_VALUE_EXCEPTION_MAX = 54
 
@@ -1307,6 +1345,9 @@ _STABLE_VALUE_EXCEPTION_MAX += 1
 
 # Row PG-CUTOVER-SOAK-COMPLETION: eight fixed gate/receipt policy anchors; audited exceptions
 _STABLE_VALUE_EXCEPTION_MAX += 8
+
+# F005 (APP-FEATURE-QUEUE): six fixed inbox API/storage contract anchors; audited exceptions
+_STABLE_VALUE_EXCEPTION_MAX += 6
 
 # Row 127 (O1507): row127_pg_shard_membership::M2 predicate text; one audited exception
 _STABLE_VALUE_EXCEPTION_MAX += 1

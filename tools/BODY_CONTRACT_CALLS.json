@@ -1380,6 +1380,18 @@
   "file": "src/hooks/useNotificationsData.ts",
   "fn": "apiPost",
   "keys": [
+   "read"
+  ],
+  "path": "/api/notifications/inbox/${}/read",
+  "sample": {
+   "read": false
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/hooks/useNotificationsData.ts",
+  "fn": "apiPost",
+  "keys": [
    "notify_apprise_enabled",
    "notify_apprise_urls"
   ],

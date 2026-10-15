@@ -11,6 +11,10 @@ import type {
   TgSettingsPatch,
   TgTestResult,
   ActiveAlertsResponse,
+  InboxSeverity,
+  InboxStatus,
+  NotificationInboxResponse,
+  NotificationReadResult,
 } from "@/lib/api-types";
 
 // ── T7 notifications tranche (v3.66.210) ────────────────────────────
@@ -121,5 +125,37 @@ export function useActiveAlerts(hours = 24) {
     refetchInterval: SLOW,
     refetchOnWindowFocus: false,
     retry: 0,
+  });
+}
+
+// ── F005 notification inbox ─────────────────────────────────────────
+// Fired alerts as a read/unread list. Filtering is server-side so the
+// unread/total counts stay whole-inbox while the list is the filtered page.
+
+/** GET /api/notifications/inbox — filtered list + whole-inbox counts. */
+export function useNotificationInbox(status: InboxStatus, severity: InboxSeverity) {
+  return useQuery<NotificationInboxResponse>({
+    queryKey: ["notifications", "inbox", status, severity],
+    queryFn: ({ signal }) =>
+      apiGet<NotificationInboxResponse>(
+        `/api/notifications/inbox?status=${status}&severity=${severity}`,
+        signal,
+      ),
+    refetchInterval: SLOW,
+    refetchOnWindowFocus: false,
+    retry: 0,
+  });
+}
+
+/** POST /api/notifications/inbox/<id>/read — mark one read or unread. */
+export function useMarkNotificationRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: number; read: boolean }) =>
+      apiPost<NotificationReadResult>(
+        `/api/notifications/inbox/${args.id}/read`,
+        { read: args.read },
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications", "inbox"] }),
   });
 }

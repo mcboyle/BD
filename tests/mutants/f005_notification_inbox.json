@@ -1,0 +1,66 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "F005: /notifications inbox -- fired alerts listed with read state, mark read/unread, status+severity filters, refusals distinct.",
+  "subject": "bulk_downloader/alerts_engine.py",
+  "band": [
+    "tests/test_f005_notification_inbox.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 status filter inverted",
+      "file": "bulk_downloader/alerts_engine.py",
+      "old_regex": "if status != \"all\" and read != \\(status == \"read\"\\):",
+      "new": "if status != \"all\" and read == (status == \"read\"):",
+      "direction": "regression",
+      "catcher": "tests/test_f005_notification_inbox.py::test_filter_by_status_and_severity"
+    },
+    {
+      "label": "M2 mark read writes nothing",
+      "file": "bulk_downloader/alerts_engine.py",
+      "old_regex": "            if read:\\n                cx\\.execute\\(\"\"\"INSERT OR IGNORE",
+      "new": "            if False:\n                cx.execute(\"\"\"INSERT OR IGNORE",
+      "direction": "regression",
+      "catcher": "tests/test_f005_notification_inbox.py::test_mark_one_read_then_unread"
+    },
+    {
+      "label": "M3 non-fired events listed as notifications",
+      "file": "bulk_downloader/alerts_engine.py",
+      "old_regex": "                                  WHERE e\\.kind = 'fired'\\n",
+      "new": "                                  WHERE e.kind != ''\n",
+      "direction": "regression",
+      "catcher": "tests/test_f005_notification_inbox.py::test_list_loads_fired_alerts_newest_first"
+    },
+    {
+      "label": "M4 unreadable store reads as an empty inbox",
+      "file": "bulk_downloader/alerts_engine.py",
+      "old_regex": "        raise AlertEventStoreUnavailable\\(\\n            f\"notification inbox unreadable: \\{type\\(e\\)\\.__name__\\}: \\{e\\}\"\\) from e\\n",
+      "new": "        return {\"notifications\": [], \"total\": 0, \"unread\": 0}\n",
+      "direction": "regression",
+      "catcher": "tests/test_f005_notification_inbox.py::test_unreadable_store_is_500_not_empty"
+    },
+    {
+      "label": "M5 missing notification answers 200",
+      "file": "bulk_downloader/app_alerts.py",
+      "old_regex": "        if not _ae\\.set_notification_read\\(event_id, read\\):",
+      "new": "        if _ae.set_notification_read(event_id, read) is None:",
+      "direction": "regression",
+      "catcher": "tests/test_f005_notification_inbox.py::test_refusals_carry_distinct_diagnostics"
+    },
+    {
+      "label": "M6 severity filter ignored",
+      "file": "bulk_downloader/alerts_engine.py",
+      "old_regex": "        if severity != \"all\" and item\\[\"severity\"\\] != severity:",
+      "new": "        if False:",
+      "direction": "regression",
+      "catcher": "tests/test_f005_notification_inbox.py::test_filter_by_status_and_severity"
+    },
+    {
+      "label": "M7 counts follow the filtered page",
+      "file": "bulk_downloader/alerts_engine.py",
+      "old_regex": "\"total\": len\\(rows\\), \"unread\": unread\\}",
+      "new": "\"total\": len(items), \"unread\": sum(not i[\"read\"] for i in items)}",
+      "direction": "regression",
+      "catcher": "tests/test_f005_notification_inbox.py::test_filter_by_status_and_severity"
+    }
+  ]
+}

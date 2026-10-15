@@ -110,6 +110,45 @@ def api_alerts_rule_remove(rule_id):
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
+@alerts_bp.route("/api/notifications/inbox")
+def api_notifications_inbox():
+    """F005: the /notifications inbox -- fired alerts with read state.
+    ?status=all|unread|read, ?severity=all|info|warn|fail, ?limit=N (<=1000).
+    An unknown filter is a 400, an unreadable store a 500 -- never an empty
+    list that reads as "no notifications"."""
+    try:
+        limit = min(max(int(request.args.get("limit", 200)), 1), 1000)
+    except (TypeError, ValueError):
+        return jsonify({"error": "limit must be an integer"}), 400
+    from . import alerts_engine as _ae
+    try:
+        return jsonify(_ae.notification_inbox(
+            status=request.args.get("status", "all"),
+            severity=request.args.get("severity", "all"),
+            limit=limit))
+    except ValueError as e:
+        return jsonify({"error": str(e)[:200]}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)[:200]}), 500
+
+@alerts_bp.route("/api/notifications/inbox/<int:event_id>/read", methods=["POST"])
+def api_notifications_mark_read(event_id):
+    """F005: mark one notification read ({"read": true}) or unread
+    ({"read": false}). CSRF-gated; 404 when no fired alert has that id."""
+    _check_csrf()
+    body = request.get_json(silent=True) or {}
+    read = body.get("read")
+    if not isinstance(read, bool):
+        return jsonify({"ok": False, "error": "body needs read: true|false"}), 400
+    from . import alerts_engine as _ae
+    try:
+        if not _ae.set_notification_read(event_id, read):
+            return jsonify({"ok": False,
+                            "error": f"no notification {event_id}"}), 404
+        return jsonify({"ok": True, "id": event_id, "read": read})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
 def register_routes(app) -> int:
     app.register_blueprint(alerts_bp)
     return sum(1 for r in app.url_map.iter_rules()

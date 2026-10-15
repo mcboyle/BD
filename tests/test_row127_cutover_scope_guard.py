@@ -123,6 +123,7 @@ def test_shadow_compare_scope_skip_uses_same_guard(engaged, monkeypatch):
 EXPECTED_UNMIRRORED_READ_TABLES = [
     "_bd_fts_docs",        # temp FTS doc map (temp._bd_fts_docs)
     "_bd_prune_keep",      # TEMP table in the prune subselect
+    "alert_event_reads",   # F005 notification inbox read state, SQLite-only
     "alert_events",        # alerts engine, SQLite-only
     "alert_rules",         # alerts engine, SQLite-only
     "history_fts",         # FTS5 virtual table over history
