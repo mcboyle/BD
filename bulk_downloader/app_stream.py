@@ -34,8 +34,11 @@ def _status_snapshot(*_a, **_k):
 def _stream_slot_acquire():
     if request.endpoint != "stream.api_stream":
         return None
+    from . import request_peer as _rp
     from . import sse_broker as _sse
-    slot = _sse.get_broker().acquire_stream(request.remote_addr or "")
+    # proxy-peer-key: the bucket is the client, not the proxy -- the forwarded
+    # client only when the peer is a configured trusted proxy, else remote_addr.
+    slot = _sse.get_broker().acquire_stream(_rp.client_addr(request, _rp.trusted_proxies()) or "")
     if slot is None:
         resp = jsonify({"ok": False,
                         "error": "too many open streams from this client",
