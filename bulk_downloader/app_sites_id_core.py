@@ -883,7 +883,10 @@ def api_clone_site(sid):
              "keep_alive_enabled",
              "fingerprint","captcha_api_key",
              # Phase 20: site-specific secrets that shouldn't carry over
-             "stash_api_key","plex_token","jellyfin_api_key","ha_token"}
+             "stash_api_key","plex_token","jellyfin_api_key","ha_token",
+             # runner-account-jar r3: the parent's account-0 jar -- inherited,
+             # the clone's own cookie_file resolved onto the parent's jar
+             "cookie_jar_base"}
     cfg = {k: v for k, v in src.items() if k not in strip}
     # Mark the clone with a " (copy)" suffix on the name; numbered if needed
     base_name = (src.get("name") or "Site").rstrip()
@@ -957,6 +960,9 @@ def api_update(sid):
     from .egress_withhold import restore_withheld
     if isinstance(data, dict):
         restore_withheld(data, s_cfg.get(sid) or {})
+        # runner-account-jar r3: cookie_jar_base is derived by the runner
+        # only; a sent one (the UI echoes meta) is dropped, never stored.
+        data.pop("cookie_jar_base", None)
     # Row 395: the key is the existing point-of-enable for paid third-party
     # solving.  The acknowledgement is one-shot and must never persist.
     _captcha_egress_error = captcha_egress_disclosure_error(
@@ -1150,6 +1156,12 @@ def api_update(sid):
                 "last_failure": new_acct.get("last_failure") or (old.get("last_failure", "") if old else ""),
             })
         data["accounts"] = merged
+    # runner-account-jar r4: the stored base was derived from the old
+    # cookie_file; kept, it resolved the new one onto that jar (another
+    # site's, once one names it). Dropped, the runner re-derives it.
+    if (data.get("cookie_file") not in ("", None)
+            and data["cookie_file"] != s_cfg[sid].get("cookie_file")):
+        s_cfg[sid].pop("cookie_jar_base", None)
     for k,v in data.items():
         if k in PRESERVE_IF_BLANK and v in ("", None):
             # Skip — keep existing value

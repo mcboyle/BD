@@ -11,6 +11,18 @@ from pathlib import Path
 from .runner_util import _resolve_safe
 
 
+def _account_jar(site_id, config, idx):
+    """Account idx's jar -- the one its keeper refreshes (runner-account-jar
+    A2). Every account switch goes through here; accounts[N]["cookie_file"]
+    is not read (cookie_jar_path never does). Records the site's account-0
+    jar as config["cookie_jar_base"] (persisted with the cell) so the
+    __a<N> this writes into cookie_file is told apart from a configured
+    name after a restart (r2 F1)."""
+    from .cookies import cookie_jar_path
+    config["cookie_jar_base"] = str(cookie_jar_path(site_id, 0, config))
+    return str(cookie_jar_path(site_id, idx, config))
+
+
 class AccountsMixin:
     def is_rate_limited(self):
         """True if the site is currently in a 24h cooldown window from a
@@ -121,7 +133,7 @@ class AccountsMixin:
         a=accounts[idx]
         return (a.get("username",""),
                 _resolve_safe(a.get("password","")),
-                a.get("cookie_file",""))
+                _account_jar(self.site_id, self.config, idx))
     def _rotate_account_if_available(self,reason=""):
         """Advance to the next account whose cooldown has elapsed.
         Returns True if a rotation happened (caller should retry the URL).
@@ -172,7 +184,7 @@ class AccountsMixin:
                 self._active_account_idx = new_idx
                 self.config["username"] = accounts[new_idx].get("username","")
                 self.config["password"] = accounts[new_idx].get("password","")
-                self.config["cookie_file"] = accounts[new_idx].get("cookie_file","")
+                self.config["cookie_file"] = _account_jar(self.site_id, self.config, new_idx)
                 # Persist pool state into cfg so cooldowns survive restart
                 self._persist_pool_state()
                 # Load the new account's cookie file if present
@@ -213,7 +225,7 @@ class AccountsMixin:
                 # Update working config so login uses new credentials
                 self.config["username"]=accounts[cand_idx].get("username","")
                 self.config["password"]=accounts[cand_idx].get("password","")
-                self.config["cookie_file"]=accounts[cand_idx].get("cookie_file","")
+                self.config["cookie_file"]=_account_jar(self.site_id, self.config, cand_idx)
                 # Persist the cooldown timestamps
                 self._persist_account_state()
                 # Load the new account's cookie file if present

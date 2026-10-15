@@ -1,5 +1,5 @@
 """Cookie file load/save and expiry tracking."""
-import json, os, tempfile, time
+import json, os, re, tempfile, time
 from pathlib import Path
 
 # ─── COOKIES ──────────────────────────────────────────────────────────────────
@@ -178,12 +178,29 @@ def cookie_jar_path(site_id, account_idx=0, site_config=None, root=None):
     (<sid>.json, or the cookie_file itself), so existing installs need no
     migration; account N>0 gets the __a<N> stem suffix. One shared path per
     site let account 1's keeper overwrite account 0's session, and a
-    cwd-relative path made the keeper miss the jar the app had saved."""
+    cwd-relative path made the keeper miss the jar the app had saved.
+
+    The runner writes account N's jar into the site's cookie_file and that
+    cell is persisted, so it records the account-0 jar beside it as
+    cookie_jar_base; a cookie_file that is exactly <base stem>__a<N> in the
+    base's directory resolves from that base (else keeper 0 got account 1's
+    jar and keeper 1 <stem>__a1__a1 after a restart, runner-account-jar r1).
+    Any other configured name is taken as is: operator__a7.json is a jar of
+    its own, not account 7 of operator.json (r2 F1: stripping it orphaned a
+    session and merged site B's foo__a1.json into site A's foo.json)."""
     idx = int(account_idx or 0)
     cfg = site_config if isinstance(site_config, dict) else {}
     configured = str(cfg.get("cookie_file") or "").strip()
     if configured:
         p = Path(configured)
+        base = str(cfg.get("cookie_jar_base") or "").strip()
+        if base:
+            b = Path(base)
+            # r3: a symlinked base could name any file (cookie_file's path
+            # checks never see this key)
+            if (p.parent == b.parent and not b.is_symlink() and p.suffix == b.suffix
+                    and re.fullmatch(re.escape(b.stem) + r"__a\d+", p.stem)):
+                p = b
         return p if idx == 0 else p.with_name(f"{p.stem}__a{idx}{p.suffix}")
     name = f"{site_id}.json" if idx == 0 else f"{site_id}__a{idx}.json"
     return (Path(root) if root is not None else _bd_home() / "cookies") / name
