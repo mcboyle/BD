@@ -1237,7 +1237,7 @@ from .runner_challenge import ChallengeMixin  # noqa: E402
 from .runner_teach import TeachMixin  # noqa: E402
 from .runner_integrity import IntegrityMixin  # noqa: E402
 from .runner_manual import ManualMixin, _ManualDownloadSession  # noqa: E402
-from .runner_accounts import AccountsMixin  # noqa: E402
+from .runner_accounts import AccountsMixin, _account_jar  # noqa: E402
 from .runner_browser import BrowserMixin  # noqa: E402
 from .runner_scheduler import SchedulerMixin  # noqa: E402
 from .runner_telemetry import TelemetryMixin, end_url_trace_span, start_url_trace_span  # noqa: E402
@@ -1803,7 +1803,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             a=accounts[self._active_account_idx]
             config["username"]=a.get("username","")
             config["password"]=a.get("password","")
-            config["cookie_file"]=a.get("cookie_file","")
+            config["cookie_file"]=_account_jar(site_id, config, self._active_account_idx)
         # Phase 4.2: restore queue state from SQLite.
         self._restore_queue()
         self.start_scheduler()

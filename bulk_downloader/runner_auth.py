@@ -528,7 +528,7 @@ class AuthMixin:
                     if p:
                         try:
                             from .cookies import save_cookies_to_file
-                            save_cookies_to_file(p,cookies)
+                            save_cookies_to_file(p,cookies,account_idx=getattr(self,"_active_account_idx",0))
                         except (OSError, ValueError) as e:
                             # Cookie save failures aren't fatal — session
                             # state survives in-memory; next login refreshes
@@ -1075,7 +1075,7 @@ class AuthMixin:
             if p:
                 try:
                     from .cookies import save_cookies_to_file
-                    save_cookies_to_file(p,cookies)
+                    save_cookies_to_file(p,cookies,account_idx=getattr(self,"_active_account_idx",0))
                 except Exception as e:
                     msg+=f" (file save failed: {e})"
 

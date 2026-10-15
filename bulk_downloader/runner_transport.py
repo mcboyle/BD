@@ -4187,7 +4187,8 @@ class TransportMixin:
                                     self._active_account_idx = cand
                                     self.config["username"] = accounts[cand].get("username","")
                                     self.config["password"] = accounts[cand].get("password","")
-                                    self.config["cookie_file"] = accounts[cand].get("cookie_file","")
+                                    from .runner_accounts import _account_jar
+                                    self.config["cookie_file"] = _account_jar(self.site_id, self.config, cand)
                                     self.log_event("account_rotate",
                                         f"Round-robin: switched to account {cand+1}/{len(accounts)} "
                                         f"({accounts[cand].get('label','') or accounts[cand].get('username','?')})")

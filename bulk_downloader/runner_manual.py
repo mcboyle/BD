@@ -637,7 +637,7 @@ class ManualMixin:
                 if cf:
                     try:
                         from .cookies import save_cookies_to_file
-                        save_cookies_to_file(cf,new_cookies)
+                        save_cookies_to_file(cf,new_cookies,account_idx=getattr(self,"_active_account_idx",0))
                     except (OSError, ValueError) as e:
                         self.log.warning("post-takeover cookie save to %s failed: %s", cf, e)
         except Exception as e:
