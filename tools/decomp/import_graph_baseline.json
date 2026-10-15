@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6471,
+  "edge_count": 6476,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -752,6 +752,7 @@
     "bulk_downloader/app_stream.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/request_peer.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/stream_relay.py"
     ],
@@ -6039,6 +6040,12 @@
     ],
     "tests/test_provider_resolve_surface_lock.py": [
       "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_proxy_peer_key.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/request_peer.py",
+      "bulk_downloader/sse_broker.py"
     ],
     "tests/test_put_numeric_range_backstop.py": [
       "bulk_downloader/app.py",

@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1901**
+- internal import edges: **1902**
 - tools: 235 · with internal edge: 135 · with tool→package edge: 75
 - blueprints: 163 · config stores: 5
 
@@ -174,7 +174,7 @@ Graph version: 1
 - **storage** (`app_storage.py`) — routes 1, providers 0
 - **storage_rebalance** (`app_storage_rebalance.py`) — routes 3, providers 1
 - **store_raw_editor** (`app_store_raw_editor.py`) — routes 2, providers 3
-- **stream** (`app_stream.py`) — routes 3, providers 4
+- **stream** (`app_stream.py`) — routes 3, providers 5
 - **subtitles** (`app_subtitles.py`) — routes 4, providers 3
 - **supervisor** (`app_supervisor.py`) — routes 2, providers 0
 - **synthetic_tests** (`app_synthetic_tests.py`) — routes 2, providers 1

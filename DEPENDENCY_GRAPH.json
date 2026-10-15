@@ -1866,6 +1866,7 @@
       "providers": [
         "bulk_downloader/db.py",
         "bulk_downloader/global_config.py",
+        "bulk_downloader/request_peer.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/stream_relay.py"
       ],
@@ -2453,7 +2454,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1901,
+    "edge_count": 1902,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4317,7 +4318,8 @@
       "bulk_downloader/request_peer.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/app_auth.py",
-        "bulk_downloader/app_pair.py"
+        "bulk_downloader/app_pair.py",
+        "bulk_downloader/app_stream.py"
       ],
       "bulk_downloader/request_replay.py": [
         "bulk_downloader/app.py",
@@ -6170,6 +6172,7 @@
       "bulk_downloader/app_stream.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/global_config.py",
+        "bulk_downloader/request_peer.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/stream_relay.py"
       ],
