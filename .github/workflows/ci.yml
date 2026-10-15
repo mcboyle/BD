@@ -631,6 +631,15 @@ jobs:
     # a schedule-gated `if` as train-only).
     if: github.event_name == 'schedule' || startsWith(github.head_ref, 'train/')
     runs-on: ubuntu-latest
+    # ci-shard r1 (O3203): one leg per shard; tools/process_test_shards.py deals the
+    # declared list round-robin, so each leg runs ~1/n of it and the legs together
+    # run every entry exactly once. fail-fast off: every leg reports its reds. Branch
+    # protection requires process-tests-all below, not the per-shard legs, so the
+    # width can change without editing the required-check list.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     # Sized from a measurement, not a guess (RULING-0045 / H674): the 56 declared
     # PROCESS files summed to 772 s of per-test time (--durations=0, remote band
     # 2026-09-22, bd-persist/harness-work/PLAN-2040/W27/process-tests-durations.md),
@@ -661,8 +670,26 @@ jobs:
         run: pip install -r requirements.txt -r requirements-test.txt
       - name: Run the declared PROCESS tests
         # Only tests/PROCESS_TESTS.txt entries (the files demoted from the hot
-        # shards), and NO `-x`: the lane reports every red, not the first.
+        # shards), and NO `-x`: the lane reports every red, not the first. This leg
+        # runs its own slice; the check line refuses red unless the slices partition
+        # the list (no file dropped, none run twice, no leg empty).
         run: |
-          mapfile -t files < <(grep -v '^#' tests/PROCESS_TESTS.txt | grep -v '^[[:space:]]*$')
+          python tools/process_test_shards.py check tests/PROCESS_TESTS.txt "${{ strategy.job-total }}"
+          mapfile -t files < <(python tools/process_test_shards.py files tests/PROCESS_TESTS.txt "${{ matrix.shard }}" "${{ strategy.job-total }}")
           test "${#files[@]}" -gt 0
+          printf 'shard ${{ matrix.shard }}/${{ strategy.job-total }}: %s\n' "${files[@]}"
           pytest "${files[@]}" --timeout=300 -q
+
+  # ci-shard r1: the one required check for the sharded lane. Skipped (reported as
+  # success) wherever process-tests is skipped; on a train PR or the nightly it is
+  # green only when every process-tests leg succeeded.
+  process-tests-all:
+    if: always() && (github.event_name == 'schedule' || startsWith(github.head_ref, 'train/'))
+    needs: process-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every process-tests shard green
+        run: |
+          echo "process-tests legs: ${{ needs.process-tests.result }}"
+          test "${{ needs.process-tests.result }}" = success
