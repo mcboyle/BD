@@ -49,6 +49,7 @@ donemd(){ # donemd <wt> <base>
 VERDICT: PATCH
 BASE: $2
 RED COMMAND: bash tests/fake.sh
+SEAT: bd-test-fixture
 EOF
 }
 stage_one(){ # stage_one <wt> -- gives the cut a non-empty declared path set (CHECK 4 needs PATHS != empty)

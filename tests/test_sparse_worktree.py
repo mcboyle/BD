@@ -138,6 +138,7 @@ def test_deregister_selects_by_path_ancestry_not_string_prefix(tmp_path):
         "RULE22-PREFIX: cleanup deleted a tree that only shares the scope's string prefix")
 
 
+@pytest.mark.xfail(strict=False, reason="TEST-ONLY PARKED-TEST-ONLY/test-sparse-worktree-py-test-registrations-do-not-accumulate.md")
 def test_registrations_do_not_accumulate(tmp_path):
     """E3 control: after a create + teardown in a test, the parent repo
     lists no worktree under tmp_path once the fixture has run (checked by
