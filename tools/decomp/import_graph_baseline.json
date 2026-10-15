@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6553,
+  "edge_count": 6554,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3192,6 +3192,9 @@
     ],
     "tests/test_child_test_install_dir_isolation.py": [
       "bulk_downloader/db.py"
+    ],
+    "tests/test_ci_gate_rebalance.py": [
+      "tools/ci_shards.py"
     ],
     "tests/test_ci_shard_split.py": [
       "tools/ci_shards.py"
