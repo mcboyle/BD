@@ -68,7 +68,7 @@ def test_host_concurrency_bounds_enforcement() -> None:
 
 def test_http_client_429_throttling_retry() -> None:
     attempts = 0
-    slept_delays = []
+    slept_delays: list[float] = []
 
     def mock_handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
@@ -89,7 +89,7 @@ def test_http_client_429_throttling_retry() -> None:
 
 def test_http_client_503_throttling_retry() -> None:
     attempts = 0
-    slept_delays = []
+    slept_delays: list[float] = []
 
     def mock_handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts

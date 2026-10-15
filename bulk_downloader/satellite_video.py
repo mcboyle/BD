@@ -79,7 +79,7 @@ def validate_video_rpc(
         from . import integrity
         return integrity._verify_with_ffprobe(str(p))
 
-    conn = None
+    conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None
     try:
         # Read container header bytes (up to 64KB, which covers moov/ftyp/header atoms)
         file_size = p.stat().st_size
@@ -105,6 +105,7 @@ def validate_video_rpc(
         else:
             conn = http.client.HTTPConnection(host, port, timeout=timeout)
 
+        assert conn is not None
         try:
             conn.request("POST", path_query, body=payload, headers={"Content-Type": "application/json", "Accept": "application/json"})
             resp = conn.getresponse()

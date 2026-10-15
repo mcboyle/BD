@@ -27,6 +27,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -44,6 +45,7 @@ _REAL_RUN = subprocess.run
 
 def _load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
@@ -87,7 +89,7 @@ def hermetic(monkeypatch, tmp_path):
     return calls
 
 
-def _fake_resp(payload: dict, status: int = 200):
+def _fake_resp(payload: Any, status: int = 200):
     resp = mock.MagicMock()
     resp.status = status
     resp.read.return_value = json.dumps(payload).encode('utf-8')
@@ -474,8 +476,11 @@ class TestBdOraclePortAndMarkdown:
 
     def test_handle_credential_and_pin_prompts_honours_env_and_skips_empty_pin(self, monkeypatch) -> None:
         cli = _load_cli()
-        captured = []
-        monkeypatch.setattr(cli, 'cdp_eval_js', lambda ws, expr, req_id=90: (captured.append(expr), False)[1])
+        captured: list[str] = []
+        def fake_cdp_eval_js(ws, expr, req_id=90):
+            captured.append(expr)
+            return False
+        monkeypatch.setattr(cli, 'cdp_eval_js', fake_cdp_eval_js)
         monkeypatch.delenv('BD_ORACLE_AUTH_PIN', raising=False)
         monkeypatch.delenv('OPERATOR_AUTH_PIN', raising=False)
         monkeypatch.delenv('BD_ORACLE_PIN', raising=False)
