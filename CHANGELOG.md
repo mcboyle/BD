@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1878 - train283b: row
+
+T283b-c (train-23 RE-KIT, integrator D2-D, lane 2) on main 317c98a3 (train-22 #1256 merged first -> #1257 DIRTY on release commit; re-kit per O3194 item 2 with a fresh bd-claim-version). Member list re-frozen at this assembly: +2 BOARDs that arrived during #1257 CI (O3198 item 4: a BOARD waits at most one train).
+FIX: O1789/landing/dl95/dl95-discovery-relogin-timeout/r1 (BOARD per .review/VERDICT-*)
+FIX: O1789/landing/dl95/dl95-hls-variant-lowest-1/r2 (BOARD per .review/VERDICT-*)
+FIX: BURN/cuts/APPFEAT-fix/F038/r2-restack (BOARD per .review/VERDICT-*)
+
+
 ## v3.66.1875 - train282g: row
 
 T282g-A = train-22 MAIN-GREEN (O3193 item 1; O3142 F3: on MAIN 1f235717 = train-21 merge; member list frozen at assembly; every clean BOARD at assembly rides, O3193 item 2). BOARD per O1672 / rule 32a generator lane; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub; version re-claimed on the actual tip if main moves before merge (O3194 item 2).
