@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1875 - train282g: row
+
+T282g-A = train-22 MAIN-GREEN (O3193 item 1; O3142 F3: on MAIN 1f235717 = train-21 merge; member list frozen at assembly; every clean BOARD at assembly rides, O3193 item 2). BOARD per O1672 / rule 32a generator lane; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub; version re-claimed on the actual tip if main moves before merge (O3194 item 2).
+FIX: FF-D body_contract artifact regen (bd-cx-worker-2; rule 32a, generator reproduced twice off-hub: PRECUT-integrator-C-FF-D-regen-0043Z + D2-D PRECHECK-T283a-D-0045Z; 1 path).
+FIX: FF-A fed-replay r1-amend-restack (S142-A; BOARD R315-B 00:45Z; fixes the 5 red test_fed_trust_r1; 3 paths).
+
+
 ## v3.66.1873 - train282f: row
 
 T282f-A = train-21 (O3142 F3: on MAIN f7e0c6e0 = train-20 merge; member list frozen at assembly). Product train; BOARD per O1672 (+ patch-id carry per accelerate-2323Z); merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub.

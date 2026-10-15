@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6463,
+  "edge_count": 6464,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4362,7 +4362,8 @@
     ],
     "tests/test_fed_replay_r1.py": [
       "bulk_downloader/federation.py",
-      "bulk_downloader/global_config.py"
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/marketplace.py"
     ],
     "tests/test_fed_trust_r1.py": [
       "bulk_downloader/db.py",
