@@ -167,6 +167,17 @@ def _host_is_public(url: str) -> tuple:
     return _is_safe_public_host(host)
 
 
+def _host_by_name(url: str) -> bool:
+    """True when a connect to ``url`` looks its host up by name, so the address
+    judged before the send must be the one connected to (DNS-rebinding pin)."""
+    import ipaddress
+    try:
+        ipaddress.ip_address(urlparse(url).hostname or "")
+    except ValueError:
+        return True
+    return False
+
+
 def probe_http(site_id: str, url: str, *,
               timeout: float = 10.0) -> dict:
     """HEAD request to the URL. Note: many sites block HEAD; we
@@ -196,7 +207,13 @@ def probe_http(site_id: str, url: str, *,
                   "headers": {"User-Agent": _WEATHER_UA}}
             if meth == "get":
                 kw["stream"] = True
-            r = getattr(requests, meth)(cur, **kw)
+            if _host_by_name(cur):
+                # Rebind pin: connect only to an address judged at connect time.
+                from bulk_downloader import deep_http as _dh
+                with _dh.pinned_session(_dh.public_address_allowed) as session:
+                    r = getattr(session, meth)(cur, **kw)
+            else:
+                r = getattr(requests, meth)(cur, **kw)
             loc = r.headers.get("Location") if getattr(r, "headers", None) else None
             if r.status_code in (301, 302, 303, 307, 308) and loc:
                 if meth == "get":
