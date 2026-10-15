@@ -317,6 +317,22 @@ class AuthMixin:
                 f"— click I'm Done (Home › Needs attention, or the site's page)\n")
             _fire(False)
             return
+        # tpl95-site-ma-brazzers-2 r3: an explicit login on a site whose jar
+        # the app reports as auth "ok" sends no credentials. The cold form
+        # post on test2 (20:54Z, auth ok) landed site-ma.brazzers.com
+        # /access/failure -> www.brazzers.com/badlogin and the failed attempt
+        # flipped a live session to "expired". Only a jar this runner's own
+        # login produced and nothing has refused since counts (an in-date jar
+        # alone is no session). Worker re-logins (allow_manual=False) answer a
+        # jar the server refused and are not gated.
+        if allow_manual and self._session_reads_ok():
+            self._set_login_status(
+                "✓ Session still valid — credential submit skipped")
+            sys.stderr.write(
+                f"  {site_tag(self.site_id)}login: session still valid "
+                "(auth ok) — credential submit skipped\n")
+            _fire(True)
+            return
         # Auto-teach: skip the auto chain when nothing's learned yet
         # O1567 fx-worker-relogin-no-manual: a worker re-login
         # (allow_manual=False) never opens a manual window, this route included.
@@ -496,6 +512,10 @@ class AuthMixin:
                 ok,msg,cookies=result
                 if ok:
                     self.set_cookies(cookies)
+                    # tpl95-site-ma-brazzers-2 r3: the jar a settled-ok login
+                    # produced (read back after set_cookies normalised it).
+                    from .cookies import jar_fingerprint
+                    self._login_ok_jar = jar_fingerprint(self.cookies)
                     # Phase 18.fix: signal workers that fresh cookies are available
                     self._cookies_updated_at = time.time()
                     p=self.config.get("cookie_file","")
@@ -1569,6 +1589,10 @@ class AuthMixin:
         We do NOT increment the retry counter for auth-required — the URL
         was never really attempted; the cookies were just stale. (If
         login itself fails, that's handled separately and won't re-queue.)"""
+        # tpl95-site-ma-brazzers-2 r3: the server refused this jar, so the
+        # live-session gate in login_async must not keep it.
+        from .cookies import jar_fingerprint
+        self._auth_refused_jar = jar_fingerprint(self.cookies or [])
         if self._hold_for_parked_takeover(url, why):
             return
         with self._lock:
@@ -1761,6 +1785,9 @@ class AuthMixin:
         self.log_event("preemptive_relogin",
                        f"Cookies are {age:.0f}h old — triggering pre-emptive re-login")
         try:
+            # The jar is still in date by design: it is due for replacement,
+            # so the live-session gate in login_async must not keep it.
+            self._login_ok_jar = None
             self.login_async()
         except Exception as e:
             self.log_event("preemptive_relogin", f"Failed to start re-login: {e}")
@@ -1833,6 +1860,28 @@ class AuthMixin:
         # next request; re-logging in instead hit a reCAPTCHA puzzle. A jar
         # the server does refuse goes through _handle_auth_required.
         return ei["session"] != 0 or ei["expired"] < len(self.cookies)
+
+    def _session_reads_ok(self):
+        """tpl95-site-ma-brazzers-2 r3: the jar is the one this runner's own
+        login settled ok with, still usable, and nothing has refused it since:
+        no auth-required answer (_handle_auth_required), no login wall met
+        with this exact jar, no failed attempt settled since it arrived."""
+        ok_jar = getattr(self, "_login_ok_jar", None)
+        if not ok_jar or not self._stored_session_usable():
+            return False
+        from .cookies import jar_fingerprint
+        fp = jar_fingerprint(self.cookies)
+        if ok_jar != fp:
+            return False
+        if fp in (getattr(self, "_login_wall_jar", None),
+                  getattr(self, "_auth_refused_jar", None)):
+            return False
+        rec = getattr(self, "_login_outcome", None)
+        if isinstance(rec, tuple) and len(rec) >= 2 and rec[1] is False:
+            at = getattr(self, "_login_outcome_at", None)
+            if not isinstance(at, (int, float)) or at >= (getattr(self, "_cookies_updated_at", 0) or 0):
+                return False
+        return True
 
     def session_for_capture(self, timeout=60.0):
         """tpl95-bang-1 (O1517): the cookie jar a template capture starts
