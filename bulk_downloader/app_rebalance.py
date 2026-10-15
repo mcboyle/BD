@@ -61,6 +61,22 @@ def api_rebalance_execute():
     body = request.json or {}
     if not body.get("plan"):
         return jsonify({"ok": False, "error": "plan required"}), 400
+    # The plan comes from the client, so it is re-validated here: every move's
+    # source AND destination must lie inside a configured download root, or
+    # nothing moves. Unchecked, a plan moved any file the app user can write.
+    from .paths import within_download_roots
+    plan = body["plan"]
+    moves = (plan.get("moves") or []) if isinstance(plan, dict) else None
+    if not isinstance(moves, list):
+        return jsonify({"ok": False, "error": "plan.moves must be a list"}), 400
+    outside = [m for m in moves
+               if not isinstance(m, dict)
+               or not within_download_roots(m.get("from"))
+               or not within_download_roots(m.get("to"))]
+    if outside:
+        return jsonify({"ok": False,
+                        "error": "plan names a path outside the download roots",
+                        "refused": outside[:20]}), 400
     try:
         from . import storage_rebalance as _sr
         return jsonify(_sr.execute_plan(
