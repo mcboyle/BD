@@ -12,7 +12,7 @@
     {
       "bytes": 1204,
       "key": "tests/test_f2_3_needs_review_wired.py::test_action_endpoints_registered_and_contract::app_src[i:i + 1200]::1",
-      "sha256": "ea3819f387ddf5afbc7b39b4d932268f0bd052838c809c9e06a90e183b1d5578"
+      "sha256": "0cbeaa3df528ee6934eb19f9e8fee4e7019f9433e1d78733aaa348a72ad37640"
     },
     {
       "bytes": 1414,

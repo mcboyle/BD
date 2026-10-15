@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6569,
+  "edge_count": 6575,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -712,6 +712,7 @@
       "bulk_downloader/jd_bridge.py",
       "bulk_downloader/qb_bridge.py",
       "bulk_downloader/queue_templates.py",
+      "bulk_downloader/request_peer.py",
       "bulk_downloader/resume.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/sse_broker.py",
@@ -1142,6 +1143,7 @@
       "bulk_downloader/db_lifecycle.py",
       "bulk_downloader/db_profiler.py",
       "bulk_downloader/egress_identity.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/hot_write_buffer.py",
       "bulk_downloader/library.py",
@@ -7019,6 +7021,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_row665_terminal_jobs_are_visible.py": [
+      "bulk_downloader/db.py"
+    ],
     "tests/test_row666_candidates_inspect_prefers_caller_url.py": [
       "bulk_downloader/app_sites_id_core.py",
       "bulk_downloader/app_sites_teach.py",
@@ -7770,6 +7775,10 @@
       "bulk_downloader/capture_redact.py",
       "bulk_downloader/diagnostics_bundle.py",
       "bulk_downloader/shares.py"
+    ],
+    "tests/test_sec2_job_url_token_r1.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
     ],
     "tests/test_sec2_withhold_import_roundtrip.py": [
       "bulk_downloader/app.py",
@@ -11604,7 +11613,8 @@
       "bulk_downloader/template_manager.py"
     ],
     "tools/queue_intelligence.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/egress_withhold.py"
     ],
     "tools/reap_orphan_tempdirs.py": [
       "tools/safe_temp_remove.py"
