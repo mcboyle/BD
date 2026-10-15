@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1884 - train282h: row
+
+T282h-A = train-24 (C lane, app.py members; O3142 F3: on MAIN 7a50cb3b = train-23b (#1259) merge; member list frozen at assembly; every clean BOARD at assembly rides, O3193). BOARD per O1672; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub on a verified host; version re-claimed on the actual tip if main moves before merge (O3194).
+FIX: A1 ci-fleet-runners r3 (S75-A; BOARD B1 01:26Z; .github/workflows/ci.yml fleet runners + tests/test_ci_fleet_runners.py; RULING-pm-A4-A-pass-0027Z item 1: per-cut CI resumes on the 16 fleet runners after this lands; X11 runner-image row released).
+FIX: FF-B train11-band-fixfwd r1 (S134-B; BOARD B6; app.py request actor/pair-session fixes for the 4 red request_capture_redact + pair_admission tests; removes nothing from quarantine.tsv unless that cut lands first).
+FIX: proxy-peer-key r2 (S143-A; BOARD B8; app.py, app_stream.py, request_peer.py + test; 4 paths).
+FIX: ext-csrf-token r1-restack (S141-A; correctness AGY-council + security B9 BOARD 01:13Z, hold lifted; app.py + test; 2 paths).
+FIX: quarantine-ff r1 (integrator-C; BOARD agy-dl-5; O3194 item 1 + O3205: tests/quarantine.tsv with 6 TEST-ONLY xfail lines for the FF-C family, conftest loader, contract test; 3 paths).
+FIX: FF-B part 2 train11-band-fixfwd r1b (S147-A; BOARD agy-dl-6; test-only tests/test_request_capture_redact.py; lands with F1 r1 = train-24).
+
+
 ## v3.66.1882 - train283b: row
 
 T283b-d (train-26, integrator D2-D, lane 2) on main 2c028fed (train-23 merged). Spec paths disjoint from C's train-24/25 (checked vs LANE-STATE-integrator-C + members-train2*-C.tsv).

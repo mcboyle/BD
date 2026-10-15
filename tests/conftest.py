@@ -774,6 +774,41 @@ def pytest_unconfigure(config):
         _run_context.prune()
 
 
+def _load_quarantine():
+    """O3194 quarantine list: tests/quarantine.tsv rows ``test id<TAB>row<TAB>added-at``.
+
+    Each listed test id becomes xfail(strict=False) with reason ``<row>``; the fix row
+    removes its own lines. Comments (#) and blank lines are ignored.
+    """
+    import os
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "quarantine.tsv")
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.rstrip("\n")
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) != 3:
+                    raise ValueError(f"quarantine.tsv: expected 3 tab fields, got {len(parts)}: {line!r}")
+                out[parts[0]] = parts[1]
+    except FileNotFoundError:
+        pass
+    return out
+
+
+_QUARANTINE = _load_quarantine()
+
+
+def _quarantine_nodeid(item):
+    import os
+    path = str(getattr(item, "path", None) or item.fspath)
+    rel = os.path.relpath(path, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    tail = item.nodeid.split("::", 1)[1] if "::" in item.nodeid else ""
+    return f"{rel}::{tail}" if tail else rel
+
+
 def pytest_collection_modifyitems(items):
     """Apply exactly one capture lane marker to every collected test item.
 
@@ -783,6 +818,9 @@ def pytest_collection_modifyitems(items):
     and source.
     """
     for item in items:
+        reason = _QUARANTINE.get(_quarantine_nodeid(item))
+        if reason is not None:
+            item.add_marker(pytest.mark.xfail(strict=False, reason=reason))
         if item.get_closest_marker("capture_serial") is not None:
             item.add_marker(pytest.mark.capture_serial)
             continue

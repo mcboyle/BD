@@ -1160,6 +1160,18 @@ def _check_csrf():
     # attacker doesn't have, so there's no cross-origin attack to defend
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "): return None
+    # ext-bridge F1: the extension's URL-queue calls send X-BD-Token, not
+    # Bearer, from Origin chrome-extension://<id>. A VALID X-BD-Token (the
+    # same _token_eq over every accepted token as _check_token) is the
+    # credential, so it skips the Origin rule; an invalid one is still checked
+    # below. With auth unconfigured (no accepted token) its PRESENCE exempts
+    # (PM 1440Z): a cross-site page cannot send X-BD-Token without a CORS
+    # preflight, and the one Access-Control-Allow-Headers setter
+    # (_teach_cors_response, "Content-Type") never grants it.
+    bd_tok = request.headers.get("X-BD-Token", "").strip()
+    accepted = _accepted_tokens()
+    if bd_tok and (not accepted or any(_token_eq(bd_tok, t) for t in accepted)):
+        return None
     # Defense-in-depth (rec #4): refuse a CROSS-ORIGIN state-changing /api/
     # request by Origin, independent of whether a session exists. This closes
     # CSRF on a no-auth-token / sessionless deployment, where _check_token does
@@ -4232,8 +4244,8 @@ def _request_actor_class() -> str:
     X-BD-Token), "session" (a live bd_session cookie) or "none". Never carries
     the credential itself. (r2: no "same_origin" class -- BASE dropped the
     Referer admission and _request_is_same_origin with it.)"""
-    ra = (request.remote_addr or "")
-    if ra in ("127.0.0.1", "::1", "localhost"):
+    from . import request_peer as _rp  # proxied loopback is remote (pair-admission-proxy)
+    if _rp.client_is_loopback(request, _rp.trusted_proxies()):
         return "loopback"
     if _request_has_master_token():
         return "master_token"
@@ -7081,9 +7093,11 @@ def _is_url_public(url: str) -> bool:
 
 def _rate_check(action: str) -> bool:
     """Return True if the request should be allowed, False if rate
-    limited. Uses request.remote_addr as the key; behind a proxy you'd
-    want X-Forwarded-For but we don't trust proxy headers by default."""
-    ip = request.remote_addr or "unknown"
+    limited. Keyed on request_peer.client_addr: the forwarded client
+    when the peer is a configured trusted proxy (trusted_proxies, empty by
+    default), else request.remote_addr (proxy-peer-key)."""
+    from . import request_peer as _rp
+    ip = _rp.client_addr(request, _rp.trusted_proxies()) or "unknown"
     key = (ip, action)
     now = time.time()
     with _rate_lock:
