@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1887 - T283b-g: release at merge
+
+T283b-g (lane 2, D2-D; at-merge mode per RULING-pm-A4-A-lanes-and-tryclick-0225Z after the T283b-f proof) on current main. Item 1 of ORDER-pm-A4-A-audit-all-actions-0320Z (SPLIT-D2-D-item1-0325Z.md).
+FIX: O1789/landing/dl95/dl95-relogin-blocked-latch-1/r1 (BOARD correctness + security per .review/VERDICT-*; auth path -> security leg present, O3194 item 3)
+
+
 ## v3.66.1886 - T283b-f: release at merge
 
 T283b-f (train-27 AT-MERGE PROOF, RULING-pm-A4-A-lanes-and-tryclick-0225Z item 1, integrator D2-D, lane 2) on main 7a50cb3b (train-26 merged). FIX-FORWARD FF-C (T281z/FIXFWD-band-zB-0020Z.md + FF-C+ scs_fix_alerts_tg in T283a-D/FIXFWD-band-main-0200Z.md). One lens (no security/auth/hook path; O3194 item 3).
