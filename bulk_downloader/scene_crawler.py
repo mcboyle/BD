@@ -120,6 +120,12 @@ _ANCHOR_JS = r"""
   let cardImg = false;
   if (routed) {
     url = resolve(a);
+  }
+  // dl95-discover-login-gate-1: porndoe's scene link is an EMPTY overlay
+  // <a class="video-item-link"> whose thumbnail is a sibling lazy
+  // <svg data-src>; like a router link, it takes the thumbnail of its card.
+  const bare = !routed && !a.children.length && !(a.textContent || "").trim();
+  if (routed || bare) {
     // Such a link wraps only its title; the thumbnail is a sibling.  The card
     // is the smallest ancestor holding no rival: another link, of either
     // representation, to a different URL of the same kind (same parent path).
@@ -129,7 +135,7 @@ _ANCHOR_JS = r"""
     for (let p = a.parentElement; p; p = p.parentElement) {
       const rivals = rivalLinks.filter((r) => r !== p && p.contains(r));
       if (rivals.length) break;
-      if (p.querySelector("img")) { cardImg = true; break; }
+      if (p.querySelector("img, svg[data-src]")) { cardImg = true; break; }
     }
   }
   const card = a.closest(
