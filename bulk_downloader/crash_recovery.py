@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import db as _db
+from . import paths as _paths
 from . import staging_claim as _staging_claim
 
 
@@ -152,10 +153,21 @@ def _read_meta_sidecar(part_path: Path) -> dict:
         return {}
 
 
+def _site_roots(s_cfg):
+    """(sid, cfg, root) for every existing directory among each site's
+    paths.download_roots -- the one roots source the delete bound uses too,
+    so /scan never lists a path /delete would refuse as out of bounds."""
+    for sid, cfg in (s_cfg or {}).items():
+        for root in _paths.download_roots({sid: cfg}):
+            root_path = Path(root)
+            if root_path.is_dir():
+                yield sid, cfg, root_path
+
+
 def scan_for_orphans(*, s_cfg: dict, runners: dict,
                     age_threshold_s: int = _ORPHAN_AGE_THRESHOLD_S) -> list:
-    """Walk every site's download_dir looking for orphaned `.part`
-    files. Returns a list of dicts:
+    """Walk every site's download roots (paths.download_roots: download_dir,
+    spillover_dirs, storage_tier_dir) looking for orphaned `.part` files. Returns a list of dicts:
 
         [{path, site_id, site_name, size_bytes, age_seconds,
           url (from .meta sidecar if available),
@@ -176,14 +188,9 @@ def scan_for_orphans(*, s_cfg: dict, runners: dict,
     now = time.time()
     orphans = []
 
-    for sid, cfg in (s_cfg or {}).items():
-        dl_dir = (cfg or {}).get("download_dir", "")
-        if not dl_dir:
-            continue
-        dl_path = Path(dl_dir)
-        if not dl_path.is_dir():
-            continue
-        site_name = (cfg.get("name") or sid)
+    seen = set()
+    for sid, cfg, dl_path in _site_roots(s_cfg):
+        site_name = ((cfg or {}).get("name") or sid)
 
         try:
             # rglob is recursive — operators sometimes nest into
@@ -193,8 +200,9 @@ def scan_for_orphans(*, s_cfg: dict, runners: dict,
                     if not part_path.is_file():
                         continue
                     path_str = str(part_path)
-                    if path_str in ignored:
+                    if path_str in ignored or (sid, path_str) in seen:
                         continue
+                    seen.add((sid, path_str))
                     stat = part_path.stat()
                     age_s = now - stat.st_mtime
                     if age_s < age_threshold_s:
@@ -220,15 +228,21 @@ def scan_for_orphans(*, s_cfg: dict, runners: dict,
                             # establish ownership. It is UNKNOWN, not absence.
                             continue
                         try:
-                            _staging_claim._read_owner_identity(owner_path)
+                            holder = _staging_claim._read_owner_identity(
+                                owner_path)
                         except _staging_claim.StagingUnavailable:
                             # A claim that cannot be measured is not absence.
                             continue
                         # A readable claim is still a claim even when its
                         # holder is absent from this process's runner snapshot.
                         # Only measured absence of BOTH a job and a claim is an
-                        # abandoned part that may be offered for deletion.
-                        continue
+                        # abandoned part that may be offered for deletion --
+                        # or the claim is this module's own operator delete,
+                        # interrupted after it reserved the name. Listing it
+                        # is what lets the operator finish that delete, since
+                        # delete_scanned_orphan only accepts listed paths.
+                        if holder != _interrupted_delete_identity(part_path):
+                            continue
                     elif active_urls:
                         # A pre-claim partial cannot be joined to one of the
                         # live jobs. Its state is UNKNOWN, not abandoned.
@@ -250,6 +264,36 @@ def scan_for_orphans(*, s_cfg: dict, runners: dict,
                         "total_bytes": total,
                         "downloaded_bytes": downloaded,
                         "progress_pct": pct,
+                    })
+                except OSError:
+                    continue
+            # An operator delete interrupted after the unlink leaves its
+            # marker (and maybe its claim) with no part. List it so the
+            # operator can finish it; nothing but sidecars remains.
+            marker_glob = ("*" + _staging_claim.STAGING_SUFFIX
+                           + _DELETE_MARKER_SUFFIX)
+            for marker_path in dl_path.rglob(marker_glob):
+                try:
+                    part_path = Path(
+                        str(marker_path)[:-len(_DELETE_MARKER_SUFFIX)])
+                    path_str = str(part_path)
+                    if (path_str in ignored or os.path.lexists(part_path)
+                            or (sid, path_str) in seen):
+                        continue
+                    seen.add((sid, path_str))
+                    if not _interrupted_delete_identity(part_path):
+                        continue
+                    orphans.append({
+                        "path": path_str,
+                        "site_id": sid,
+                        "site_name": site_name,
+                        "size_bytes": 0,
+                        "age_seconds": now - marker_path.lstat().st_mtime,
+                        "url": "",
+                        "total_bytes": 0,
+                        "downloaded_bytes": 0,
+                        "progress_pct": 0,
+                        "interrupted_delete": True,
                     })
                 except OSError:
                     continue
@@ -282,6 +326,23 @@ def mark_decision(path: str, decision: str, *,
 
 def _delete_marker_for(part_path: Path) -> Path:
     return Path(str(part_path) + _DELETE_MARKER_SUFFIX)
+
+
+def _interrupted_delete_identity(part_path: Path) -> str:
+    """The identity in ``part_path``'s operator delete marker, or "".
+
+    Only a regular marker holding a well-formed identity counts; anything else
+    is not evidence of an operator delete this module started.
+    """
+    marker_path = _delete_marker_for(part_path)
+    try:
+        if not _stat.S_ISREG(marker_path.lstat().st_mode):
+            return ""
+        raw = marker_path.read_bytes()[:256].decode("ascii", errors="replace")
+    except OSError:
+        return ""
+    raw = raw.strip()
+    return raw if _CLAIM_IDENTITY_RE.fullmatch(raw) else ""
 
 
 def _publish_delete_marker(marker_path: Path, flags: int) -> tuple:
@@ -508,6 +569,36 @@ def _finish_interrupted_delete(
     }, True)
 
 
+class DeleteRefused(ValueError):
+    """An operator delete request names a path that is not a deletable orphan."""
+
+
+def delete_scanned_orphan(path: str, *, s_cfg: dict, runners: dict) -> dict:
+    """Operator delete for a request-named path (the route's only entry).
+
+    The request path is a lookup key, never authority: it is deleted only when
+    it is a ``.part``, resolves inside a configured download root, and is in
+    the orphan set this server computes now. Anything else raises
+    ``DeleteRefused`` before any marker, claim or unlink touches the disk.
+    """
+    path = str(path)
+    if not path.endswith(_staging_claim.STAGING_SUFFIX):
+        raise DeleteRefused("refused: only a .part orphan can be deleted")
+    roots = _paths.download_roots(s_cfg)
+    if not _paths.within_download_roots(path, roots):
+        raise DeleteRefused("refused: path is outside every download root")
+    # Walk only the sites whose root holds the path: same scan, less disk.
+    owning = {sid: cfg for sid, cfg in (s_cfg or {}).items()
+              if _paths.within_download_roots(
+                  path, _paths.download_roots({sid: cfg}))}
+    listed = {o["path"] for o in scan_for_orphans(s_cfg=owning,
+                                                  runners=runners)}
+    if path not in listed:
+        raise DeleteRefused(
+            "refused: path is not an orphan listed by the current scan")
+    return delete_orphan(path)
+
+
 def delete_orphan(path: str) -> dict:
     """Delete an unclaimed ``.part`` and its sidecars.
 
@@ -515,8 +606,12 @@ def delete_orphan(path: str) -> dict:
     reservation operation as a worker. A worker that claimed after an earlier
     scan therefore wins and is left intact; if deletion wins, no worker can
     begin streaming into this path until the bytes are gone and the operator
-    claim is released. Missing files remain idempotent.
+    claim is released. Missing files remain idempotent. Only a ``.part`` is
+    ever deleted; request paths reach this through delete_scanned_orphan.
     """
+    if not str(path).endswith(_staging_claim.STAGING_SUFFIX):
+        return {"ok": False,
+                "error": "refused: only a .part orphan can be deleted"}
     p = Path(path)
     marker_path = _delete_marker_for(p)
     if not p.exists():
