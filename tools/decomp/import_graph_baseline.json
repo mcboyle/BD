@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6464,
+  "edge_count": 6471,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -752,6 +752,7 @@
     "bulk_downloader/app_stream.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/request_peer.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/stream_relay.py"
     ],
@@ -3759,6 +3760,10 @@
       "bulk_downloader/runner.py",
       "bulk_downloader/spa_media_extract.py"
     ],
+    "tests/test_dl95_hls_variant_lowest_1.py": [
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/spa_media_extract.py"
+    ],
     "tests/test_dl95_hoopla_age_gate_whole_label.py": [
       "bulk_downloader/interstitial.py"
     ],
@@ -6026,6 +6031,12 @@
     ],
     "tests/test_provider_resolve_surface_lock.py": [
       "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_proxy_peer_key.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/request_peer.py",
+      "bulk_downloader/sse_broker.py"
     ],
     "tests/test_put_numeric_range_backstop.py": [
       "bulk_downloader/app.py",

@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1879 - train282h: row
+
+T282h-A = train-24 (C lane, app.py members; O3142 F3: on MAIN 317c98a3 = train-22 merge; member list frozen at assembly; every clean BOARD at assembly rides, O3193). BOARD per O1672; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub on a verified host; version re-claimed on the actual tip if main moves before merge (O3194).
+FIX: FF-B train11-band-fixfwd r1 (S134-B; BOARD B6; app.py request actor/pair-session fixes for the 4 red request_capture_redact + pair_admission tests; removes nothing from quarantine.tsv unless that cut lands first).
+FIX: proxy-peer-key r2 (S143-A; BOARD B8; app.py, app_stream.py, request_peer.py + test; 4 paths).
+FIX: ext-csrf-token r1-restack (S141-A; correctness AGY-council + security B9 BOARD 01:13Z, hold lifted; app.py + test; 2 paths).
+FIX: dl95-hls-variant-lowest-1 r2 (S152-A; BOARD cx-lens-1 01:16Z; F1 whole-master parse + chooser cap; 3 paths).
+
+
 ## v3.66.1875 - train282g: row
 
 T282g-A = train-22 MAIN-GREEN (O3193 item 1; O3142 F3: on MAIN 1f235717 = train-21 merge; member list frozen at assembly; every clean BOARD at assembly rides, O3193 item 2). BOARD per O1672 / rule 32a generator lane; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub; version re-claimed on the actual tip if main moves before merge (O3194 item 2).
