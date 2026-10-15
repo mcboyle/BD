@@ -150,11 +150,11 @@ def _fire_auto_login_trigger(page):
     try:
         target, via = control.evaluate(
             "e => { if (e.tagName === 'A' && e.href) return [e.href, 'href'];"
-            " const raw = e.getAttribute('data-href') || '';"
-            " if (!raw) return ['', ''];"
-            " try { return [new URL(raw, location.href).href, 'data-href']; }"
-            " catch (_) { return ['', '']; } }")
-        if isinstance(target, str) and target.startswith(("http://", "https://")):
+            " const r = e.getAttribute('data-href') || ''; if (!r) return ['', ''];"
+            " try { return [new URL(r, location.href).href, 'data-href']; } catch (_) { return ['', '']; } }")
+        from urllib.parse import urlsplit
+        _ori = lambda s: (lambda u: (u.scheme.lower(), (u.hostname or "").lower(), u.port or (443 if u.scheme.lower() == "https" else 80)) if u.scheme.lower() in ("http", "https") and u.hostname and not u.username and not u.password else None)(urlsplit(s)) if isinstance(s, str) else None
+        if _ori(target) and _ori(target) == _ori(getattr(page, "url", None)):
             page.goto(target, wait_until="domcontentloaded", timeout=15000)
             if via == "data-href":
                 return True, True, (
