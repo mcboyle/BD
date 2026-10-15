@@ -55,11 +55,7 @@ FREE_TEXT_FIELDS = frozenset({
 
 # Query names a plain routing URL may carry. Anything else (token, sig, k, t,
 # pw, ...) makes the URL withheld: a name allow-list, never a secret deny-list.
-PLAIN_QUERY_NAMES = frozenset({
-    "page", "p", "sort", "order", "orderby", "q", "query", "search", "tag",
-    "tags", "category", "cat", "type", "view", "lang", "limit", "offset",
-    "per_page", "year", "month", "filter", "id", "start", "size",
-})
+PLAIN_QUERY_NAMES = frozenset({"page", "p", "sort", "order", "orderby", "q", "query", "search", "tag", "tags", "category", "cat", "type", "view", "lang", "limit", "offset", "per_page", "year", "month", "filter", "id", "start", "size", "a"})
 # Notifier hosts: the host or any subdomain of it (www.discord.com) is never
 # a plain routing URL. A path segment naming a hook (/hooks/, /webhook/) is
 # not plain on any host either; a token-in-path webhook on a host that is in
@@ -225,8 +221,9 @@ def url_value(value):
 
 def _token(m) -> str:
     t = m.group(0)
-    if _URLISH_CHARS.isdisjoint(t) and not _SCHEME_COLON.match(t) \
-            and "www." not in t.lower():
+    if len(t) <= 1:
+        return t
+    if _URLISH_CHARS.isdisjoint(t) and (not _SCHEME_COLON.match(t)) and ("www." not in t.lower()):
         return t
     return PLACEHOLDER
 
