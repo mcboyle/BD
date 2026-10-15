@@ -1637,6 +1637,20 @@
   "unknownType": true
  },
  {
+  "file": "src/hooks/useSchedules.ts",
+  "fn": "apiPost",
+  "keys": [
+   "cadence_hours",
+   "label"
+  ],
+  "path": "/api/schedules/${}/update",
+  "sample": {
+   "cadence_hours": 1,
+   "label": "x"
+  },
+  "unknownType": false
+ },
+ {
   "file": "src/hooks/useSemanticSearch.ts",
   "fn": "apiPost",
   "keys": [],

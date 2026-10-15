@@ -518,6 +518,7 @@
 /api/schedules	POST	api_schedules_add
 /api/schedules/<int:sid>/remove	POST	api_schedules_remove
 /api/schedules/<int:sid>/run_now	POST	api_schedules_run_now
+/api/schedules/<int:sid>/update	POST	api_schedules_update
 /api/schedules/export.ics	GET	api_schedules_export_ics
 /api/scrape_listing	POST	api_scrape_listing
 /api/scrapling/fingerprint	POST	api_scrapling_fingerprint

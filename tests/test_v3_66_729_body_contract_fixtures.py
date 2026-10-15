@@ -137,6 +137,13 @@ def _secrets_store_state_is_test_owned(monkeypatch):
 # response; seeding a dead-letter fixture whose url matches the probe's generated
 # body would touch the probe's value-filling internals and is out of scope here.
 UNKNOWN_BASELINE = 139  # T281h (dsq-batch-ops r3): +1, NAMED below
+# F038 (APP-FEATURE-QUEUE schedules edit, restacked onto acd7231b): +1 measured, baseline
+# UNCHANGED at 139 -- useSchedules.ts apiPost /api/schedules/${}/update {cadence_hours, label}.
+# The probe's placeholder id names no schedule, so the route answers 404 -- the same honest
+# UNKNOWN as its siblings /remove and /run_now. Main acd7231b measures 138 under a 139 pin
+# (F017 r2-restack-c note below); the cut measures 139. Identified by diffing the UNKNOWN sets
+# keyed by (file, fn, path) on acd7231b (138) and the cut tree (139): exactly this identity
+# added, none removed.
 # F017 r2-restack-c (template-manager draft CRUD, main 82585d41 -> cut): +0.
 # The four new mutating sites (TemplateAuthoringSection.tsx apiPost and
 # TemplateManager.tsx apiPost/apiPut /api/template_manager/draft, apiDelete

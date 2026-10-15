@@ -36,4 +36,28 @@ describe("Schedules (379)", () => {
     fireEvent.click(screen.getByRole("button", { name: /add schedule/i }));
     await waitFor(() => expect(apiPostMock).toHaveBeenCalledWith("/api/schedules", expect.objectContaining({ site_id: "foo.com", cadence_hours: 12 })));
   });
+  it("edits a schedule's cadence + label via POST /api/schedules/:id/update (F038)", async () => {
+    apiGetMock.mockResolvedValue({ ok: true, schedules: [{ id: 7, site_id: "ec82cec5", cadence_hours: 720, label: "TEST", urls: [] }] });
+    apiPostMock.mockResolvedValue({ ok: true, id: 7 });
+    mount();
+    await screen.findByText(/ec82cec5/);
+    // F038-RED: pre-fix the row has only Run now / Remove -- no Edit control.
+    fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    fireEvent.change(screen.getByLabelText("edit cadence hours"), { target: { value: "48" } });
+    fireEvent.change(screen.getByLabelText("edit label"), { target: { value: "TEST-edited" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(apiPostMock).toHaveBeenCalledWith("/api/schedules/7/update", { cadence_hours: 48, label: "TEST-edited" }));
+    await waitFor(() => expect(screen.queryByLabelText("edit cadence hours")).toBeNull());
+  });
+  it("disables Save for a fractional cadence (F038 r2)", async () => {
+    apiGetMock.mockResolvedValue({ ok: true, schedules: [{ id: 7, site_id: "ec82cec5", cadence_hours: 720, label: "TEST", urls: [] }] });
+    mount();
+    await screen.findByText(/ec82cec5/);
+    fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    fireEvent.change(screen.getByLabelText("edit cadence hours"), { target: { value: "1.5" } });
+    expect((screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("edit cadence hours"), { target: { value: "2" } });
+    expect((screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement).disabled).toBe(false);
+    expect(apiPostMock).not.toHaveBeenCalled();
+  });
 });

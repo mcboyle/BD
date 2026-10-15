@@ -81,7 +81,11 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # /api/template_manager/draft (app_template_manager.api_template_manager_draft_*),
 # the Template Manager's draft read/create/edit/delete. Baseline 1021 -> 1025 lines
 # with exactly those additions. INTENTIONAL surface change, stated here.
-_BASELINE_SHA = "c7f16e13def01592ef92ef5f468b6d0cf2ec4a3ac82ab9df76b31faa8dd271f5"
+# F038 (APP-FEATURE-QUEUE): re-frozen. ONE route ADDED, none removed or re-pathed:
+# POST /api/schedules/<int:sid>/update (app_schedules.api_schedules_update), the
+# edit a schedule never had (create/remove/run_now only). Baseline 1025 -> 1026
+# lines with exactly that addition (restacked onto acd7231b, after F017).
+_BASELINE_SHA = "d9d58708a8485cad1bbb330d077d91431de5bba4cc8565b2b0a3125b8047c1ff"
 
 
 def _live_snapshot() -> str:

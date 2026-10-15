@@ -66,6 +66,37 @@ def api_schedules_remove(sid):
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
+@schedules_bp.route("/api/schedules/<int:sid>/update", methods=["POST"])
+def api_schedules_update(sid):
+    """F038: edit a recurring-capture schedule. Body: {cadence_hours?,
+    label?}. CSRF-gated; 400 on invalid params (incl. a non-whole cadence),
+    404 on unknown id, 409 when the new cadence duplicates another enabled
+    schedule for the same site (the add-side double-fire guard)."""
+    _check_csrf()
+    body = request.json or {}
+    try:
+        from . import capture_schedules as _cs
+        res = _cs.update_schedule(
+            sid,
+            cadence_hours=body.get("cadence_hours"),
+            label=None if body.get("label") is None else str(body.get("label")),
+        )
+        st = res.get("status")
+        if st == "invalid":
+            return jsonify({"ok": False,
+                            "error": "invalid params (cadence_hours must be a "
+                                     "whole number > 0; label or cadence_hours "
+                                     "required)"}), 400
+        if st == "missing":
+            return jsonify({"ok": False, "error": "no such schedule"}), 404
+        if st == "duplicate":
+            return jsonify({"ok": False, "existing_id": res.get("existing_id"),
+                            "error": "this site already has an enabled schedule "
+                                     "at that cadence"}), 409
+        return jsonify({"ok": True, "id": sid})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
 @schedules_bp.route("/api/schedules/<int:sid>/run_now", methods=["POST"])
 def api_schedules_run_now(sid):
     """Force-run one schedule immediately (bypasses the cadence guard)."""

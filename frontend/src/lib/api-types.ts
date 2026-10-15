@@ -2077,6 +2077,12 @@ export interface ScheduleAddRequest {
   label?: string;
   urls?: string[];
 }
+// F038: POST /api/schedules/${id}/update -- edit cadence and/or label.
+export interface ScheduleUpdateRequest {
+  id: number;
+  cadence_hours?: number;
+  label?: string;
+}
 export interface OkIdResult { ok: boolean; id?: number; error?: string }
 export interface ScheduleRunResult { ok: boolean; result?: unknown; error?: string }
 

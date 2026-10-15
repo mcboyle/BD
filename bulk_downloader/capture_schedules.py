@@ -94,6 +94,74 @@ def add_schedule(*, site_id: str, cadence_hours: int,
         return None
 
 
+def _whole_hours(v) -> Optional[int]:
+    """A cadence is a whole number of hours: an int, an integral float, or a
+    digit string. Fractions, bools and junk are rejected, never truncated."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return int(v) if v.is_integer() else None
+    if isinstance(v, str) and v.strip().isdigit():
+        return int(v.strip())
+    return None
+
+
+def update_schedule(sid: int, *, cadence_hours=None,
+                    label: Optional[str] = None) -> dict:
+    """F038: edit an existing schedule's cadence and/or label.
+
+    Returns {"status": "ok"|"missing"|"invalid"|"duplicate", ...}. A new
+    cadence re-times next_run from the last run (a never-run schedule stays
+    due as-is). The edit is ONE conditional UPDATE, so the add_schedule
+    double-fire guard holds atomically: a cadence that would give this
+    enabled schedule the same (site_id, cadence_hours) as another enabled
+    one writes nothing and reports that schedule's id."""
+    _ensure_table()
+    if cadence_hours is None and label is None:
+        return {"status": "invalid"}
+    if cadence_hours is not None:
+        cadence_hours = _whole_hours(cadence_hours)
+        if cadence_hours is None or cadence_hours <= 0:
+            return {"status": "invalid"}
+    if label is not None:
+        label = str(label)[:200]
+    try:
+        from . import db as _db
+        with _db.db_conn() as cx:
+            cur = cx.execute(
+                """UPDATE capture_schedules
+                   SET cadence_hours = COALESCE(?, cadence_hours),
+                       label = COALESCE(?, label),
+                       next_run_ts = CASE
+                           WHEN ? IS NOT NULL AND COALESCE(last_run_ts, 0) > 0
+                           THEN last_run_ts + ? * 3600
+                           ELSE next_run_ts END
+                   WHERE id = ?
+                     AND (? IS NULL OR enabled = 0 OR NOT EXISTS (
+                         SELECT 1 FROM capture_schedules o
+                         WHERE o.site_id = capture_schedules.site_id
+                           AND o.cadence_hours = ? AND o.enabled = 1
+                           AND o.id != capture_schedules.id))""",
+                (cadence_hours, label, cadence_hours, cadence_hours, int(sid),
+                 cadence_hours, cadence_hours))
+            if cur.rowcount > 0:
+                return {"status": "ok"}
+            row = cx.execute("SELECT site_id FROM capture_schedules WHERE id = ?",
+                             (int(sid),)).fetchone()
+            if row is None:
+                return {"status": "missing"}
+            other = cx.execute(
+                """SELECT id FROM capture_schedules WHERE site_id = ?
+                   AND cadence_hours = ? AND enabled = 1 AND id != ?""",
+                (row[0], cadence_hours, int(sid))).fetchone()
+            return {"status": "duplicate",
+                    "existing_id": int(other[0]) if other is not None else None}
+    except Exception:
+        return {"status": "invalid"}
+
+
 def remove_schedule(sid: int) -> bool:
     _ensure_table()
     try:
