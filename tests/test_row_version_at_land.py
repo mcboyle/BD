@@ -1,7 +1,9 @@
-"""Land-time stamps refuse ambiguous inputs and change exactly the release set.
+"""Land-time stamps refuse ambiguous inputs; no refusal pays for a generator run.
 
 The fixtures are real local Git clones; neither bd-bump nor bd-regen-order is
-stubbed. In particular the positive case cannot pass over fake generator output.
+stubbed. The two positive arms, which each need one real ``--write`` stamp,
+live in tests/test_row_version_at_land_stamp.py so this module, the PINNED
+version-at-land shard, stays under 60 s (see tests/_land_trio.py).
 """
 from __future__ import annotations
 
@@ -9,130 +11,47 @@ import hashlib
 import importlib.machinery
 import importlib.util
 import json
-import os
-from pathlib import Path
 import re
-import subprocess
-import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from _land_trio import (
+    TOOL, _bump_committed, _file_digests, _git, _next, _receipt,
+    _refused_without_writes, _snapshot, _stamp, _version, discard_tree, make_tree,
+)
+
 BD_GATE_SCOPE = "repo-wide"
-ROOT = Path(__file__).resolve().parents[1]
-TOOL = ROOT / "toolchain/bin/bd-land-trio"
-RELEASE_PATHS = {
-    "bulk_downloader/__init__.py",
-    "tests/test_settings_center_slice4.py",
-    "CHANGELOG.md",
-    "PIN_INDEX.json",
-    "project-knowledge/STATIC_KB_MANIFEST.json",
-}
-TITLE = "Land the reviewed feature"
-# The two whole-tree steps (bd-regen-order in the baseline, the first bd-land-trio
-# --write) ran 98-298 s in a loaded -n 12 battery on a 64-core host (load 28-36),
-# against ~100 s idle; 180 s cut them off. Each gets 2x the loaded worst (298 s),
-# rounded up to a minute. The item bound sits above both, so a hung step is named by
-# its own TimeoutExpired before pytest-timeout fires. Every other step keeps 180 s.
-_WHOLE_TREE_STEP_S = 600
-_STAMP_ITEM_S = 2 * _WHOLE_TREE_STEP_S + 60
 
 
-def _env(work):
-    env = dict(os.environ)
-    for key in ("BD_INSTALL_DIR", "PYTHONPATH", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
-        env.pop(key, None)
-    env.update(BD_HOME=str(work.parent / (work.name + "-home")),
-               BD_DISABLE_KEEPALIVE="1", PYTHONDONTWRITEBYTECODE="1",
-               GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
-               GIT_AUTHOR_NAME="Trio fixture", GIT_AUTHOR_EMAIL="trio@example.invalid",
-               GIT_COMMITTER_NAME="Trio fixture", GIT_COMMITTER_EMAIL="trio@example.invalid")
-    return env
+@pytest.fixture(scope="module")
+def _clones(request, tmp_path_factory):
+    """Every arm's fresh clone, built concurrently before the first arm runs.
 
+    Each arm still gets its own real clone; only the clone, about 1.8 s of
+    each arm's 3.4 s, leaves the serial path.
+    """
+    wanted = sum(item.module is request.module and "tree" in item.fixturenames
+                 for item in request.session.items)
+    root = tmp_path_factory.mktemp("trees")
 
-def _run(work, argv, *, ok=False, timeout=180):
-    cp = subprocess.run(argv, cwd=work, env=_env(work), capture_output=True,
-                        text=True, timeout=timeout)
-    if ok:
-        assert cp.returncode == 0, cp.stdout + cp.stderr
-    return cp
+    def build(at):
+        (root / str(at)).mkdir()
+        return make_tree(root / str(at))
 
-
-def _git(work, *args):
-    return _run(work, ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], ok=True).stdout.strip()
-
-
-def _stamp(work, *args, title=TITLE, timeout=180):
-    return _run(work, [sys.executable, str(TOOL), "--work", str(work),
-                       "--title", title, *args], timeout=timeout)
-
-
-def _version(work):
-    text = (work / "bulk_downloader/__init__.py").read_text()
-    return re.search(r'__version__ = "(3\.66\.\d+)"', text).group(1)
-
-
-def _next(version, amount=1):
-    return "3.66." + str(int(version.rsplit(".", 1)[1]) + amount)
-
-
-def _receipt(work):
-    path = Path(_git(work, "rev-parse", "--git-path", "bd-land-trio.json"))
-    return path if path.is_absolute() else work / path
-
-
-def _snapshot(work):
-    """Tracked/untracked bytes plus index and refs; exclude Git's read caches."""
-    names = _git(work, "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
-    files = {name: hashlib.sha256((work / name).read_bytes()).hexdigest()
-             for name in names if (work / name).is_file()}
-    index = Path(_git(work, "rev-parse", "--git-path", "index"))
-    if not index.is_absolute():
-        index = work / index
-    return (files, index.read_bytes(), _git(work, "rev-parse", "HEAD"),
-            _git(work, "rev-parse", "origin/main"),
-            _receipt(work).read_bytes() if _receipt(work).exists() else None)
+    with ThreadPoolExecutor() as pool:
+        built = list(pool.map(build, range(wanted)))
+    yield built
+    for work in built:
+        discard_tree(work)
 
 
 @pytest.fixture
-def tree(tmp_path):
-    work = tmp_path / "work"
-    _run(tmp_path, ["git", "clone", "--quiet", "--shared", "--no-checkout",
-                    str(ROOT), str(work)], ok=True)
-    head = _git(ROOT, "rev-parse", "HEAD")
-    _git(work, "checkout", "--quiet", "--detach", head)
-    _git(work, "update-ref", "refs/remotes/origin/main", head)
-    # The host interpreter carries runtime dependencies; no shared env is edited.
-    # Git excludes this link and every generator's private runtime output.
-    (work / ".git/info/exclude").write_text("\n/venv\n")
-    (work / "venv").symlink_to(Path(sys.executable).parent.parent, target_is_directory=True)
-    assert _git(work, "status", "--porcelain") == ""
-    return work
-
-
-def _clean_generated_baseline(work):
-    """A real reviewed tree has its derived artifacts current before stamping."""
-    _run(work, [sys.executable, str(work / "toolchain/bin/bd-regen-order"),
-                "--work", str(work)], ok=True, timeout=_WHOLE_TREE_STEP_S)
-    _git(work, "add", "--all")
-    if _git(work, "diff", "--cached", "--name-only"):
-        _git(work, "commit", "--quiet", "-m", "Fixture reviewed generated baseline")
-    assert _git(work, "status", "--porcelain") == ""
-
-
-def _bump_committed(work, version):
-    _run(work, [sys.executable, str(work / "toolchain/bin/bd-bump"), version,
-                "--work", str(work), "--title", "Fixture prior release", "--write"], ok=True)
-    _git(work, "add", "--all")
-    _git(work, "commit", "--quiet", "-m", "Fixture prior release")
-
-
-def _refused_without_writes(work, reason, *args, **kwargs):
-    before = _snapshot(work)
-    cp = _stamp(work, *args, **kwargs)
-    assert cp.returncode == 3, cp.stdout + cp.stderr
-    assert cp.stderr.splitlines()[0] == "TRIO-REFUSED " + reason, cp.stderr
-    assert not any(line.startswith("TRIO-STAMPED ") for line in cp.stdout.splitlines())
-    assert _snapshot(work) == before, "refusal changed file bytes, index, HEAD or main"
+def tree(_clones, tmp_path):
+    # A pool short of arms (-k, a worker that runs a subset) clones on demand.
+    work = _clones.pop() if _clones else make_tree(tmp_path)
+    yield work
+    discard_tree(work)
 
 
 @pytest.mark.parametrize("dirty", ["unstaged", "staged", "untracked", "deleted-release"])
@@ -204,98 +123,20 @@ def test_check_uses_max_main_and_tree_without_any_write(tree, tree_ahead, main_a
     assert _snapshot(tree) == before
 
 
-@pytest.mark.timeout(_STAMP_ITEM_S)
-def test_real_stamp_stages_exactly_five_paths_and_replays_byte_identically(tree, tmp_path):
-    """Omitting a generator, moving an extra path, or rebumping a replay fails here."""
-    _clean_generated_baseline(tree)
-    old = _version(tree)
-    new = _next(old)
-    head = _git(tree, "rev-parse", "HEAD")
-    body = tmp_path / "body.txt"
-    body.write_text("Reviewed behavior is stamped at landing.\n")
-    args = ["--body", str(body), "--write"]
-    cp = _stamp(tree, *args, timeout=_WHOLE_TREE_STEP_S)
-    assert cp.returncode == 0, cp.stdout + cp.stderr
-    changed = _git(tree, "diff", "--cached", "--name-only").splitlines()
-    assert len(changed) == 5, changed
-    assert set(changed) == RELEASE_PATHS
-    assert _git(tree, "diff", "--name-only") == ""
-    assert _git(tree, "ls-files", "--others", "--exclude-standard") == ""
-    assert _git(tree, "rev-parse", "HEAD") == head, "stamp must not commit implicitly"
-    assert _version(tree) == new
-    manifest = json.loads((tree / "project-knowledge/STATIC_KB_MANIFEST.json").read_text())
-    assert manifest["version_context"] == "v" + new
-    pin_index = json.loads((tree / "PIN_INDEX.json").read_text())
-    pins = [pin for pin in pin_index["pins"] if pin["form"] == "version"]
-    assert [(pin["file"], pin["value"]) for pin in pins] == [
-        ("tests/test_settings_center_slice4.py", new)]
-    changelog = (tree / "CHANGELOG.md").read_text()
-    assert f"## v{new} - {TITLE}\n\n{body.read_text()}" in changelog
-    assert changelog.count(f"## v{new} - ") == 1
-    stamp_lines = [line for line in cp.stdout.splitlines() if line.startswith("TRIO-STAMPED ")]
-    assert stamp_lines == [f"TRIO-STAMPED {old}->{new} files=5 tree={_git(tree, 'write-tree')}"]
-    assert cp.stdout.splitlines().count(f"trio: {old}->{new} (bd-land-trio)") == 1
-    assert _receipt(tree).is_file(), "stamp needs a private Git receipt for safe replay"
-    before = _snapshot(tree)
-    replay = _stamp(tree, *args)
-    assert replay.returncode == 0, replay.stdout + replay.stderr
-    assert _snapshot(tree) == before, "identical replay must not change bytes/index/refs"
-    check = _stamp(tree, "--body", str(body), "--check")
-    assert check.returncode == 0, check.stdout + check.stderr
-    assert _snapshot(tree) == before
-
-
-
-@pytest.mark.timeout(_STAMP_ITEM_S)
-def test_pending_stamp_rejects_changed_inputs_head_main_and_foreign_dirt(tree, tmp_path):
-    """A replay receipt cannot authorize a different request or integration tree."""
-    _clean_generated_baseline(tree)
-    body = tmp_path / "body.txt"
-    body.write_text("Original reviewed body.\n")
-    args = ["--body", str(body), "--write"]
-    cp = _stamp(tree, *args, timeout=_WHOLE_TREE_STEP_S)
-    assert cp.returncode == 0, cp.stdout + cp.stderr
-
-    _refused_without_writes(tree, "DIRTY-TREE", *args, title="Different title")
-    body.write_text("Different body.\n")
-    _refused_without_writes(tree, "DIRTY-TREE", *args)
-    body.write_text("Original reviewed body.\n")
-
-    foreign = tree / "unreviewed-after-stamp.txt"
-    foreign.write_text("Not covered by the receipt.\n")
-    _refused_without_writes(tree, "DIRTY-TREE", *args)
-    foreign.unlink()
-
-    main = _git(tree, "rev-parse", "origin/main")
-    moved_main = _git(tree, "commit-tree", "origin/main^{tree}", "-p", main,
-                      "-m", "Sibling landed after stamp")
-    _git(tree, "update-ref", "refs/remotes/origin/main", moved_main)
-    _refused_without_writes(tree, "STALE-STAMP", *args)
-    _git(tree, "update-ref", "refs/remotes/origin/main", main)
-
-    head = _git(tree, "rev-parse", "HEAD")
-    moved_head = _git(tree, "commit-tree", "HEAD^{tree}", "-p", head,
-                      "-m", "Reviewed HEAD changed after stamp")
-    _git(tree, "update-ref", "HEAD", moved_head)
-    before = _snapshot(tree)
-    cp = _stamp(tree, *args)
-    assert cp.returncode == 3, cp.stdout + cp.stderr
-    assert _snapshot(tree) == before
-    _git(tree, "update-ref", "HEAD", head)
-
-    receipt = _receipt(tree)
-    receipt_bytes = receipt.read_bytes()
-    pending = json.loads(receipt_bytes)
-    pending["status"] = "applying"
-    receipt.write_text(json.dumps(pending))
-    _refused_without_writes(tree, "INCOMPLETE-STAMP", *args)
-    receipt.write_bytes(receipt_bytes)
-
-    changelog = tree / "CHANGELOG.md"
-    original = changelog.read_bytes()
-    changelog.write_bytes(original + b"\nUnreviewed staged edit.\n")
-    _git(tree, "add", "CHANGELOG.md")
-    _refused_without_writes(tree, "DIRTY-TREE", *args)
+def test_snapshot_digests_equal_serial_sha256_over_every_listed_file(tmp_path):
+    """The chunked sha256sum hasher is a speed-up of the snapshot, not a different measurement."""
+    names = []
+    for index in range(600):  # spans several argv chunks, the last one partial
+        name = f"d{index % 7}/f{index}.txt"
+        (tmp_path / name).parent.mkdir(exist_ok=True)
+        (tmp_path / name).write_bytes(b"%d\n" % index * (index + 1))
+        names.append(name)
+    (tmp_path / "d0/sub").mkdir()
+    names += ["d0/sub", "missing.txt"]  # a directory and an absent path are not files
+    serial = {name: hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()
+              for name in names if (tmp_path / name).is_file()}
+    assert len(serial) == 600
+    assert _file_digests(tmp_path, names) == serial
 
 
 def test_transform_control_imports_generator_without_judging_a_stamp():
