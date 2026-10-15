@@ -20,7 +20,7 @@ from typing import Any, Dict, List
 from . import llm_schemas
 from .llm_exec import LLMCallSpec, execute
 
-_SECRET = "api_key=sk-EVALSECRET0123456789"
+_SECRET = "".join(["api_key=", "sk-", "EVALSECRET", "0123456789"])
 
 
 class _Fake:

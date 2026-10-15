@@ -105,22 +105,16 @@ def validate_video_rpc(
         else:
             conn = http.client.HTTPConnection(host, port, timeout=timeout)
 
-        conn.request(
-            "POST",
-            path_query,
-            body=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-        )
-        resp = conn.getresponse()
-        raw = resp.read()
-        if resp.status != 200:
-            # 5xx/4xx is the SERVICE failing, not a verdict on the file: fall back.
-            raise SatelliteResponseError(f"HTTP {resp.status} from {endpoint}")
-        data = json.loads(raw.decode("utf-8"))
-        valid, has_video, err = _parse_verdict(data)
+        try:
+            conn.request("POST", path_query, body=payload, headers={"Content-Type": "application/json", "Accept": "application/json"})
+            resp = conn.getresponse()
+            raw = resp.read()
+            if resp.status != 200:
+                raise SatelliteResponseError(f"HTTP {resp.status} from {endpoint}")
+            data = json.loads(raw.decode("utf-8"))
+            valid, has_video, err = _parse_verdict(data)
+        finally:
+            conn.close()
 
         if valid and has_video:
             return True, ""
