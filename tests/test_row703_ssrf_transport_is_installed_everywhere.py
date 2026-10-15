@@ -387,6 +387,49 @@ def test_pinned_transport_refuses_only_what_can_never_be_a_peer():
     assert st.never_admissible(ipaddress.ip_address("0.0.0.0")) == "unspecified"
 
 
+def test_pinned_transport_refuses_cloud_metadata_wherever_it_lives(monkeypatch):
+    """BD-SEC-3 r4 (F2): the metadata addresses that sit in ranges a PINNED site admits (ULA,
+    CGNAT, a public address) and the metadata NAMES are refused from the one deny set; a name
+    is refused before any lookup. The ranges themselves stay admitted."""
+    import httpx
+    import socket
+    st = _seam()
+    transport = st.guarded_transport(st.PINNED)
+    looked_up = []
+    monkeypatch.setattr(socket, "getaddrinfo",
+                        lambda host, *a, **k: looked_up.append(host) or (_ for _ in ()).throw(OSError("no dns")))
+    urls = [_url(lit) for lit in ("fd00:ec2::254", "fd00:ec2::23", "100.100.100.200", "192.0.0.192",
+                                   "168.63.129.16", "::ffff:100.100.100.200", "64:ff9b::6464:64c8")]
+    urls += ["http://metadata.google.internal/", "http://METADATA.Google.Internal./x", "http://metadata.goog/"]
+    # r5 (lens R17-B R1): a zone id, and three more forms that carry an IPv4 destination
+    urls += [_url(lit) for lit in ("fd00:ec2::254%2", "fd00:ec2::23%1", "fd20:ce::254%1",
+                                    "::100.100.100.200", "::ffff:0:100.100.100.200",
+                                    "64:ff9b:1::6464:64c8", "64:ff9b:1:6464:64:c800::",
+                                    # r6: the /56 and /64 layouts inside 64:ff9b:1::/48
+                                    "64:ff9b:1:64:64:64c8::", "64:ff9b:1:0:64:6464:c800:0",
+                                    "64:ff9b:1:a8:3f:8110::", "64:ff9b:1:0:a8:3f81:1000:0")]
+    for url in urls:
+        with pytest.raises(st.GuardedTransportRefused) as caught:
+            transport.pin(httpx.Request("GET", url))
+            pytest.fail(f"BD-SEC-3-R4-F2-PINNED-METADATA-ADMITTED: {url}")
+        assert caught.value.reason == "cloud-metadata", f"BD-SEC-3-R4-F2-PINNED-METADATA-ADMITTED: {url} {caught.value.reason}"
+    assert looked_up == [], looked_up
+    for literal in ("fd00:ec2::1", "fd00::254", "100.100.100.201", "100.64.0.1"):
+        assert transport.pin(httpx.Request("GET", _url(literal))) is None, f"BD-SEC-3-R4-F2-NEG-PINNED-LAN-REFUSED: {literal}"
+    assert st.never_admissible(ipaddress.ip_address("169.254.169.254")) == "link-local"
+    for literal, reason in (("::1%2", "zone-id"), ("fd00::1%3", "zone-id"),
+                            ("::169.254.169.254", "link-local"), ("::ffff:0:169.254.169.254", "link-local"),
+                            ("64:ff9b:1::a9fe:a9fe", "link-local"), ("64:ff9b:1:a9fe:a9:fe00::", "link-local"),
+                            ("64:ff9b:1:a9:fe:a9fe::", "link-local"), ("64:ff9b:1:0:a9:fea9:fe00:0", "link-local"),
+                            ("::0.0.0.0", "unspecified"), ("fe80::1%2", "link-local")):
+        with pytest.raises(st.GuardedTransportRefused) as caught:
+            transport.pin(httpx.Request("GET", _url(literal)))
+            pytest.fail(f"BD-SEC-3-R5-R1-PINNED-ADMITTED: {literal}")
+        assert caught.value.reason == reason, f"BD-SEC-3-R5-R1-PINNED-ADMITTED: {literal} {caught.value.reason}"
+    for literal in ("::1", "::10.0.0.7", "64:ff9b:1::c0a8:114", "64:ff9b:1:a:0:7::", "64:ff9b:1:0:a:0:700:0"):
+        assert transport.pin(httpx.Request("GET", _url(literal))) is None, f"BD-SEC-3-R5-R1-NEG-PINNED: {literal}"
+
+
 def test_public_only_policy_is_the_unchanged_guard():
     st = _seam()
     from bulk_downloader.provider_resolve_impl import _common

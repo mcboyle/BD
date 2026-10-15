@@ -406,6 +406,10 @@ def validate_endpoint(url: str, provider: Optional[str] = None) -> Tuple[bool, s
     # Ollama: keep the existing LAN-only enforcement
     # Allowlist common LAN suffixes (avoid DNS lookups for these)
     lower = host.lower()
+    # BD-SEC-3 r4: metadata.google.internal carries a "LAN suffix".
+    from .ssrf_transport import metadata_host as _metadata_host
+    if _metadata_host(host):
+        return False, f"refusing cloud-metadata host {host}"
     for suffix in (".local", ".lan", ".home", ".internal", ".intranet"):
         if lower.endswith(suffix): return True, "allowed (LAN suffix)"
     # localhost / loopback names
@@ -422,7 +426,16 @@ def validate_endpoint(url: str, provider: Optional[str] = None) -> Tuple[bool, s
         ip = a[4][0]
         try:
             ip_obj = ipaddress.ip_address(ip)
-        except Exception: continue
+        except Exception:
+            # r5: an answer that cannot be judged is refused, not skipped.
+            return False, f"refusing unjudgeable address {ip!r} for {host}"
+        # BD-SEC-3 r3: "private" never meant link-local. 169.254.169.254 (cloud
+        # metadata), fe80::/10, unspecified, multicast and reserved are refused.
+        from .ssrf_transport import never_admissible as _never_admissible
+        _never = _never_admissible(ip_obj)
+        if _never is not None:
+            return False, (f"refusing {_never} address {ip} — an ollama endpoint "
+                           "must be a loopback or private LAN address")
         if not (ip_obj.is_private or ip_obj.is_loopback
                 or ip_obj.is_link_local or ip_obj.is_reserved):
             return False, (f"refusing public IP {ip} — for ollama, only "
@@ -514,13 +527,17 @@ def _record_call(kind, ms, ok, error=""):
 
 
 def _ip_is_lan(ip: str) -> bool:
-    """True if ip is loopback/private/link-local/reserved -- the same classes
+    """True if ip is loopback/private and not never-admissible -- the same classes
     validate_endpoint accepts for the ollama LAN-only gate."""
     try:
         o = ipaddress.ip_address(ip)
     except Exception:
         return False
-    return bool(o.is_private or o.is_loopback or o.is_link_local or o.is_reserved)
+    # BD-SEC-3 r4: link-local, reserved and the cloud-metadata addresses are not LAN.
+    from .ssrf_transport import never_admissible as _never_admissible
+    if _never_admissible(o) is not None:
+        return False
+    return bool(o.is_private or o.is_loopback)
 
 
 def _pin_lan_endpoint(url: str):

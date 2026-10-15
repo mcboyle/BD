@@ -63,7 +63,18 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+from . import outbound_guard as _outbound_guard
+
+
+def urlopen(req, timeout=15):
+    """BD-SEC-3 r3: every provider request goes to the configured ``ai_endpoint``, a value a
+    request can set (/api/global_config, /api/ai/models).  It is resolved once, every answer is
+    judged (LAN and loopback stay admitted for a local model server; link-local incl. the
+    cloud-metadata endpoint, unspecified, multicast and reserved are refused), the socket opens
+    to the vetted literal, and each redirect hop is judged and pinned the same way."""
+    return _outbound_guard.urlopen(req, policy=_outbound_guard.LAN_OK, timeout=timeout)
 
 
 # ── Result objects ───────────────────────────────────────────────────
