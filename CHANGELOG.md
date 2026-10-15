@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1872 - train282e: row
+
+T282e-A = train-20 (O3142 F3: on MAIN acd7231b = train-19 merge; member list frozen at assembly). Product train; BOARD per O1672; no other train PR open at kit time (rule a); merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub.
+FIX: dl95/tpl95-site-ma-brazzers-2 r3 -- login/auth gate: armed-jar stamp, no re-submit after restart/refusal/preemptive relogin (S139-A; BOARDED 23:55Z AGY-council; owed FUNCTION_INDEX/INV_TAGS regen + import-graph re-freeze taken by the train release commit).
+
+
 ## v3.66.1870 - train282d: row
 
 T282d-A = train-19 (O3142 F3: on MAIN ae29838b = train-17 merge; member list frozen at assembly; disjoint from train-17/18 paths). Product train; BOARD per O1672; PR opens only after train-18's merge is on main (rule a), release re-kitted then; merge = gh pr merge --auto --merge (F5); band post-merge from a worktree (F4); gates off-hub.
