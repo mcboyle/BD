@@ -725,6 +725,22 @@ _API_TOKEN_ROUTE_POLICY = {
     "/api/retention/apply":         ({"POST"}, "admin"),
     "/api/api_tokens":              ({"GET", "POST"}, "admin"),
     "/api/api_tokens/<token_id>":   ({"DELETE"}, "admin"),
+    # fed-api-token-policy r1 (PM-B 1337Z item 2): the /api/fed routes. The
+    # policy only admits the token; with a fed_token configured the fed
+    # writes still need the fed HMAC (app_fed._fed_write_refusal), since an
+    # API token is not the master token.
+    "/api/fed/peers":               ({"GET", "HEAD"}, "read"),
+    "/api/fed/status":              ({"GET", "HEAD"}, "read"),
+    "/api/fed/sync_pull":           ({"GET", "HEAD"}, "read"),
+    "/api/fed/templates_available": ({"GET", "HEAD"}, "read"),
+    "/api/fed/template_pull":       ({"GET", "HEAD"}, "read"),
+    "/api/fed/pending_templates":   ({"GET", "HEAD"}, "read"),
+    "/api/fed/announce":            ({"POST"}, "enqueue"),
+    "/api/fed/claim_url":           ({"POST"}, "enqueue"),
+    "/api/fed/template_push":       ({"POST"}, "enqueue"),
+    "/api/fed/manual_register":     ({"POST"}, "admin"),
+    "/api/fed/set_trust":           ({"POST"}, "admin"),
+    "/api/fed/pending_review":      ({"POST"}, "admin"),
 }
 
 

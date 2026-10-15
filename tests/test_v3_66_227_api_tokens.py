@@ -14,7 +14,8 @@ The security contract being pinned:
     scope level; anything else → 403 (authenticated-but-not-authorized),
   * read < enqueue < admin (a lower scope is 403 on a higher-scope route),
   * all three named scopes are mintable and their exact cumulative permitted
-    action sets contain 8, 10, and 16 route/method pairs respectively,
+    action sets contain 22, 28, and 37 route/method pairs respectively
+    (fed-api-token-policy r1 adds the 12 /api/fed routes: 18 pairs),
   * an invalid / revoked / expired token never grants and falls through to
     401 (so it cannot downgrade a request carrying other valid auth),
   * the OPERATOR path (master bearer / session) is unaffected — it is
@@ -35,6 +36,31 @@ _MASTER = "test-master-bearer-227"
 # Literal, independently reviewed authorization denominator.  The live gate
 # consumes app._API_TOKEN_ROUTE_POLICY; this expectation must not be built from
 # that object or a missing policy entry would disappear from both sides.
+# fed-api-token-policy r1 (PM-B 1337Z item 2): the 12 /api/fed routes.
+_FED_READ_ACTIONS = {
+    ("GET", "/api/fed/peers"),
+    ("HEAD", "/api/fed/peers"),
+    ("GET", "/api/fed/status"),
+    ("HEAD", "/api/fed/status"),
+    ("GET", "/api/fed/sync_pull"),
+    ("HEAD", "/api/fed/sync_pull"),
+    ("GET", "/api/fed/templates_available"),
+    ("HEAD", "/api/fed/templates_available"),
+    ("GET", "/api/fed/template_pull"),
+    ("HEAD", "/api/fed/template_pull"),
+    ("GET", "/api/fed/pending_templates"),
+    ("HEAD", "/api/fed/pending_templates"),
+}
+_FED_ENQUEUE_ACTIONS = {
+    ("POST", "/api/fed/announce"),
+    ("POST", "/api/fed/claim_url"),
+    ("POST", "/api/fed/template_push"),
+}
+_FED_ADMIN_ACTIONS = {
+    ("POST", "/api/fed/manual_register"),
+    ("POST", "/api/fed/set_trust"),
+    ("POST", "/api/fed/pending_review"),
+}
 _EXPECTED_ACTIONS_BY_SCOPE = {
     "read": {
         ("GET", "/api/capacity"),
@@ -47,7 +73,7 @@ _EXPECTED_ACTIONS_BY_SCOPE = {
         ("HEAD", "/api/history"),
         ("GET", "/api/discovery/scenes/status"),
         ("HEAD", "/api/discovery/scenes/status"),
-    },
+    } | _FED_READ_ACTIONS,
     "enqueue": {
         ("GET", "/api/capacity"),
         ("HEAD", "/api/capacity"),
@@ -62,7 +88,7 @@ _EXPECTED_ACTIONS_BY_SCOPE = {
         ("POST", "/api/queue/v2/add_url"),
         ("POST", "/api/sites/<sid>/queue_url"),
         ("POST", "/api/discovery/scenes/start"),
-    },
+    } | _FED_READ_ACTIONS | _FED_ENQUEUE_ACTIONS,
     "admin": {
         ("GET", "/api/capacity"),
         ("HEAD", "/api/capacity"),
@@ -83,7 +109,7 @@ _EXPECTED_ACTIONS_BY_SCOPE = {
         ("GET", "/api/api_tokens"),
         ("POST", "/api/api_tokens"),
         ("DELETE", "/api/api_tokens/<token_id>"),
-    },
+    } | _FED_READ_ACTIONS | _FED_ENQUEUE_ACTIONS | _FED_ADMIN_ACTIONS,
 }
 
 
@@ -285,9 +311,9 @@ def test_each_scope_has_the_exact_permitted_action_set(monkeypatch):
     from bulk_downloader import app as a, api_tokens as t
 
     assert t.SCOPES == {"read": 1, "enqueue": 2, "admin": 3}
-    assert len(a._API_TOKEN_ROUTE_POLICY) == 12
+    assert len(a._API_TOKEN_ROUTE_POLICY) == 24
     assert sum(len(methods) for methods, _ in
-               a._API_TOKEN_ROUTE_POLICY.values()) == 19
+               a._API_TOKEN_ROUTE_POLICY.values()) == 37
 
     actual_actions = {}
     for scope in ("read", "enqueue", "admin"):
@@ -300,9 +326,9 @@ def test_each_scope_has_the_exact_permitted_action_set(monkeypatch):
         }
     assert actual_actions == _EXPECTED_ACTIONS_BY_SCOPE
     assert {scope: len(actions) for scope, actions in actual_actions.items()} == {
-        "read": 10,
-        "enqueue": 13,
-        "admin": 19,
+        "read": 22,
+        "enqueue": 28,
+        "admin": 37,
     }
 
     registered_actions = {
@@ -313,7 +339,7 @@ def test_each_scope_has_the_exact_permitted_action_set(monkeypatch):
         for method in rule.methods
         if (method, rule.rule) in _EXPECTED_ACTIONS_BY_SCOPE["admin"]
     }
-    assert len(registered_actions) == 19
+    assert len(registered_actions) == 37
     assert registered_actions == _EXPECTED_ACTIONS_BY_SCOPE["admin"]
 
     minted = {}
@@ -353,9 +379,9 @@ def test_each_scope_has_the_exact_permitted_action_set(monkeypatch):
     client = a.app.test_client()
     all_actions = _EXPECTED_ACTIONS_BY_SCOPE["admin"]
     expected_counts = {
-        "read": {"allowed": 10, "denied": 9},
-        "enqueue": {"allowed": 13, "denied": 6},
-        "admin": {"allowed": 19, "denied": 0},
+        "read": {"allowed": 22, "denied": 15},
+        "enqueue": {"allowed": 28, "denied": 9},
+        "admin": {"allowed": 37, "denied": 0},
     }
     for scope in ("read", "enqueue", "admin"):
         handler_calls.clear()
@@ -557,3 +583,57 @@ def test_mgmt_create_list_revoke_round_trip_via_operator():
         assert dr.status_code == 200 and dr.get_json()["ok"] is True
     finally:
         os.environ.pop("BD_AUTH_TOKEN", None)
+
+
+# ── fed-api-token-policy r1: fed routes on the real handlers ──────────
+
+_FEDTOK = "fed-api-token-policy-r1-fixture"
+
+
+@pytest.fixture
+def fed_token_set(monkeypatch):
+    from bulk_downloader import global_config as gc
+    orig = gc.get_config
+    monkeypatch.setattr(gc, "get_config",
+                        lambda: {**(orig() or {}), "fed_token": _FEDTOK})
+
+
+def test_fed_read_token_reaches_fed_reads_not_fed_writes(monkeypatch):
+    from bulk_downloader import app as a
+    monkeypatch.setenv("BD_AUTH_TOKEN", _MASTER)
+    tok = _mint("read")
+    c = a.app.test_client()
+    r = c.get("/api/fed/peers", headers=_hdr(tok))
+    assert r.status_code == 200 and "peers" in r.get_json(), (
+        "FED-TOKEN-READ-REFUSED", r.status_code, r.get_json())
+    w = c.post("/api/fed/announce", headers=_hdr(tok), json={})
+    assert w.status_code == 403 and w.get_json()["required_scope"] == "enqueue", (
+        "FED-TOKEN-READ-WROTE", w.status_code, w.get_json())
+    adm = c.post("/api/fed/set_trust", headers=_hdr(_mint("enqueue")), json={})
+    assert adm.status_code == 403 and adm.get_json()["required_scope"] == "admin", (
+        "FED-TOKEN-ENQUEUE-ADMIN", adm.status_code, adm.get_json())
+
+
+def test_fed_hmac_still_required_for_api_token_when_fed_token_set(
+        monkeypatch, fed_token_set):
+    """An admin API token passes the route policy, but with a fed_token
+    configured a fed write still needs the fed HMAC: the token is not the
+    master token, so _fed_write_refusal answers 401 inside the handler."""
+    import json
+    from bulk_downloader import app as a, federation as fed
+    monkeypatch.setenv("BD_AUTH_TOKEN", _MASTER)
+    tok = _mint("admin")
+    c = a.app.test_client()
+    path = "/api/fed/set_trust"
+    raw = json.dumps({"instance_id": "fatp-peer", "trust": "trusted"}).encode()
+    h = {**_hdr(tok), "Content-Type": "application/json"}
+    r = c.post(path, data=raw, headers=h)
+    assert r.status_code == 401 and r.get_json().get("required") == (
+        "X-BD-Fed-Sig or master token"), (
+        "FED-TOKEN-HMAC-BYPASSED", r.status_code, r.get_json())
+    # positive control: the same token with a valid fed signature gets past
+    # both the route policy and the HMAC gate
+    signed = c.post(path, data=raw,
+                    headers={**h, **fed.sign_request(_FEDTOK, "POST", path, raw)})
+    assert signed.status_code not in (401, 403), (
+        "FED-TOKEN-SIGNED-REFUSED", signed.status_code, signed.get_json())
