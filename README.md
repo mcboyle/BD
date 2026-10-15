@@ -28,6 +28,19 @@ cd frontend && npm ci && cd ..
 ./venv/bin/python -m pytest tests/test_v3_66_1180_capture_root_orphan_hygiene.py   # fast sanity check
 ```
 
+### Running the application
+
+BulkDownloader is started via the authoritative web daemon entry point `downloader_ui.py`:
+```bash
+./venv/bin/python downloader_ui.py   # binds to http://0.0.0.0:5555
+```
+*Note: BulkDownloader does not provide a `python -m bulk_downloader` module entry point or a root-level `cli.py`.*
+
+To inspect running downloads from the terminal:
+```bash
+./venv/bin/python -m bulk_downloader.cli_dashboard --api http://127.0.0.1:5555
+```
+
 Do **not** run the whole `tests/` directory locally — it contains known long
 runners (`test_perf_lab.py`). Run a derived band.
 

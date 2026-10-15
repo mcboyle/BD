@@ -22,18 +22,16 @@ tracker row. **Memory may be stale** — a memory summary said T11 was "next" wh
 it had been LIVE for 12 versions. Re-derive status from the tracker + source each
 session; never act on a memory/plan claim without confirming against the tree.
 
-## 3. JSON -> generated Markdown/XLSX is the gated order
-After changing `TASK_TRACKER_DATA.json`, run these in order:
+## 3. Backlog register governance (TASK_TRACKER retired)
+The historical `TASK_TRACKER` and `tools/tasktracker_gen.py` subsystem was retired in
+commit `f34dc74b5` (#128). Product work and backlog rows are now tracked strictly in
+`project-knowledge/IMPROVEMENT_BACKLOG.md` and verified mechanically using:
 
-1. `python3 tools/tasktracker_gen.py --render <pack-dir>`
-2. `python3 tools/tasktracker_gen.py --audit <pack-dir>`
-3. `python3 tools/tasktracker_gen.py --check <pack-dir>`
-
-`--audit` checks section schemas and duplicate IDs; `--check` independently
-renders both generated artifacts and rejects drift. `tasktracker_sync.py` is a
-legacy recovery/diagnostic tool, not the canonical editing path. A GCW-3 row
-once lived in the xlsx but not the md and was caught only by an ad-hoc diff;
-the generator gates make that class of drift impossible to miss.
+```bash
+venv/bin/python project-knowledge/build_current_overlay.py --repo "$PWD" --out OUT.json --check
+```
+Toolchain utilities `bd-register-append`, `bd-register-close`, and `bd-register-amend`
+manage row lifecycle under `guards.json`.
 
 ## 4. Canonical plans travel in the pack or land in-tree
 A doc referenced as canonical at the time (for example, the historical backlog named

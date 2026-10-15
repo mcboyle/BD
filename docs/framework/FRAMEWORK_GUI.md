@@ -15,6 +15,7 @@ under /framework).
 
 ## Or run standalone (local viewing)
     BD_FRAMEWORK_REPORTS=./reports python3 tools/framework_dashboard.py   # serves 127.0.0.1:8770
+    BD_FRAMEWORK_PORT=8775 BD_FRAMEWORK_REPORTS=./reports python3 tools/framework_dashboard.py  # custom port
 
 ## Routes (all read-only GET)
 - `/framework`                 — cockpit overview (maturity, debt, risks, fragile sites, stale evidence)
