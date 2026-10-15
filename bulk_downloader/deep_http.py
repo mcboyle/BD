@@ -17,6 +17,7 @@ refused whether or not a test is running.
 """
 from __future__ import annotations
 
+import functools
 import ipaddress
 import urllib.error
 import urllib.parse
@@ -25,6 +26,10 @@ import urllib.request
 import requests
 
 from bulk_downloader.provider_resolve_impl._common import SSRFBlocked, _is_safe_public_host
+from bulk_downloader.provider_resolve_impl._common import _classify_ip
+from bulk_downloader.urllib_ssrf import (PinnedUrlOpener, PinnedUrlRefused,
+                                         _PinnedHTTPSHandler,
+                                         _PinnedResponseHandler)
 
 _MAX_REDIRECTS = 5
 _IPV6_LOOPBACK = ipaddress.ip_address("::1")
@@ -99,8 +104,30 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class _PinToVetted(urllib.request.BaseHandler):
+    """Rebind pin for :func:`guarded_open`: the send connects to the address
+    judged here, from one lookup, never to a second lookup of the name."""
+
+    handler_order = 100   # before urllib fills the Host header from the URL
+
+    def http_request(self, req):
+        policy = (_lan_address_allowed
+                  if getattr(req, "_bd_allow_private_hosts", False)
+                  else public_address_allowed)
+        try:
+            pinned = PinnedUrlOpener(policy).pin_request(req)
+        except PinnedUrlRefused as exc:
+            raise SSRFBlocked(f"rebind pin: {exc.reason}") from exc
+        pinned.timeout = req.timeout
+        return pinned
+
+    https_request = http_request
+
+
 # The transport every guarded send goes through, AFTER classification.
-_OPENER = urllib.request.build_opener(_NoRedirect)
+_OPENER = urllib.request.build_opener(_NoRedirect, _PinToVetted(),
+                                      _PinnedHTTPSHandler(),
+                                      _PinnedResponseHandler())
 
 
 def guarded_open(url, *, data=None, method="GET", headers=None, timeout,
@@ -115,6 +142,7 @@ def guarded_open(url, *, data=None, method="GET", headers=None, timeout,
         request = urllib.request.Request(current, data=request_data,
                                          method=request_method,
                                          headers=request_headers)
+        request._bd_allow_private_hosts = allow_private_hosts
         try:
             from . import http_client
             return http_client.proxy_open(request, timeout=timeout,
@@ -162,3 +190,111 @@ class _GuardedSession(requests.Session):
 def guarded_session(*, allow_private_hosts=False):
     """Return a session which classifies every request and never redirects."""
     return _GuardedSession(allow_private_hosts=allow_private_hosts)
+
+
+# -- DNS-rebinding pin --------------------------------------------------------
+# The checks above judge a host by name and the transport then looked the name
+# up again to connect, so a name answering a public address to the check and a
+# refused one to the connect (TTL-0 rebinding) reached the refused address.
+# Below, the lookup a connect uses is the lookup that is judged.
+
+def public_address_allowed(address, host):
+    """The public-only policy: ``_is_safe_public_host``'s per-address predicate."""
+    return _classify_ip(address, host)
+
+
+def hook_address_allowed(address, host):
+    """``hooks``' LAN policy: loopback and RFC 1918 admitted; link-local and
+    cloud metadata, CGNAT, reserved, multicast and unspecified refused."""
+    from bulk_downloader.hooks import _hook_address_allowed
+    return _hook_address_allowed(address, host)
+
+
+def _lan_address_allowed(address, host):
+    # As _check: the opt-in admits ::1, which hooks classes as reserved.
+    if address == _IPV6_LOOPBACK:
+        return True, ""
+    return hook_address_allowed(address, host)
+
+
+def _vetted_address(host, port, address_allowed) -> str:
+    """Resolve ``host`` once, judge every answer, return the first as a literal."""
+    import socket
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError) as exc:
+        raise SSRFBlocked(
+            f"rebind pin: DNS resolution failed for {host!r}: {exc}") from exc
+    literals = []
+    for family, _type, _proto, _canon, sockaddr in infos:
+        if family not in (socket.AF_INET, socket.AF_INET6):
+            continue
+        try:
+            address = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            raise SSRFBlocked(
+                f"rebind pin: non-IP DNS answer {sockaddr[0]!r} for {host!r}")
+        ok, reason = address_allowed(address, host)
+        if not ok:
+            raise SSRFBlocked(f"rebind pin: {reason}")
+        literals.append(str(address))
+    if not literals:
+        raise SSRFBlocked(
+            f"rebind pin: DNS returned no usable addresses for {host!r}")
+    return literals[0]
+
+
+class _PinnedConnectionMixin:
+    """urllib3 connection that connects to the vetted literal.  ``host`` (the
+    Host header, TLS SNI and certificate check) stays the name."""
+
+    _address_allowed = None
+
+    def _new_conn(self):
+        logical = self._dns_host
+        self._dns_host = _vetted_address(logical, self.port,
+                                         type(self)._address_allowed)
+        try:
+            return super()._new_conn()
+        finally:
+            self._dns_host = logical
+
+
+@functools.lru_cache(maxsize=None)
+def _pinned_pool_classes(address_allowed):
+    from urllib3 import connection, connectionpool
+    policy = {"_address_allowed": address_allowed}
+    http_conn = type("_PinnedHTTPConnection",
+                     (_PinnedConnectionMixin, connection.HTTPConnection), policy)
+    https_conn = type("_PinnedHTTPSConnection",
+                      (_PinnedConnectionMixin, connection.HTTPSConnection), policy)
+    return {
+        "http": type("_PinnedHTTPConnectionPool",
+                     (connectionpool.HTTPConnectionPool,),
+                     {"ConnectionCls": http_conn}),
+        "https": type("_PinnedHTTPSConnectionPool",
+                      (connectionpool.HTTPSConnectionPool,),
+                      {"ConnectionCls": https_conn}),
+    }
+
+
+class _PinnedAdapter(requests.adapters.HTTPAdapter):
+    """Direct connections go only to an address ``address_allowed`` admitted.
+    A configured proxy resolves the name itself and is used as before."""
+
+    def __init__(self, address_allowed, **kwargs):
+        self._pool_classes = _pinned_pool_classes(address_allowed)
+        super().__init__(**kwargs)
+
+    def init_poolmanager(self, *args, **kwargs):
+        super().init_poolmanager(*args, **kwargs)
+        self.poolmanager.pool_classes_by_scheme = self._pool_classes
+
+
+def pinned_session(address_allowed):
+    """A ``requests`` session whose http and https connects carry the rebind pin."""
+    session = requests.Session()
+    adapter = _PinnedAdapter(address_allowed)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session

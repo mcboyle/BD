@@ -41,19 +41,30 @@ ACCOUNTED = {
         "guarded",
         "the request override disables requests' redirects, classifies every "
         "hop through _check and refuses a cross-origin Location"),
+    "bulk_downloader/deep_http.py::pinned_session": (
+        "guarded",
+        "every connect resolves the host once, judges each answer with the "
+        "caller's address policy and connects only to the vetted literal "
+        "(ssrf-rebind-pin)"),
     "bulk_downloader/webhooks.py::_deliver_one": (
         "guarded",
         "_validate_webhook_url re-vets the stored subscription URL at delivery "
-        "time and the POST sets allow_redirects=False (F-CBD12-01)"),
+        "time and the POST sets allow_redirects=False (F-CBD12-01); a named "
+        "host is sent through deep_http.pinned_session, so the address "
+        "connected to is judged by the hook policy (ssrf-rebind-pin)"),
     "bulk_downloader/selector_playground.py::fetch_page": (
         "guarded",
         "_host_public is re-checked at every hop with allow_redirects=False, so "
-        "a public first hop cannot 302 the fetch to an internal address"),
+        "a public first hop cannot 302 the fetch to an internal address; a "
+        "named host is connected through deep_http.pinned_session, so the "
+        "address connected to is the one judged public (ssrf-rebind-pin)"),
     "bulk_downloader/site_weather.py::probe_http._fetch": (
         "guarded",
         "_host_is_public is re-checked at every redirect hop with "
         "allow_redirects=False, so a public first hop cannot 302 the probe to "
-        "an internal address; the verb is chosen at runtime, the module is not"),
+        "an internal address; the verb is chosen at runtime, the module is not; "
+        "a named host is connected through deep_http.pinned_session, so the "
+        "address connected to is the one judged public (ssrf-rebind-pin)"),
     "bulk_downloader/aiassist.py::_post_json": (
         "guarded",
         "_pin_lan_endpoint resolves the operator's endpoint and sends to the "
