@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1905**
+- internal import edges: **1911**
 - tools: 235 · with internal edge: 135 · with tool→package edge: 75
 - blueprints: 163 · config stores: 5
 
@@ -25,16 +25,16 @@ Graph version: 1
 - `bulk_downloader/plugins.py`: 23
 - `bulk_downloader/cookies.py`: 22
 - `bulk_downloader/secrets_store.py`: 20
+- `bulk_downloader/capture_artifact_redact.py`: 19
 - `bulk_downloader/registrable_domain.py`: 19
-- `bulk_downloader/capture_artifact_redact.py`: 18
 - `bulk_downloader/capture_ingest.py`: 17
+- `bulk_downloader/capture_redact.py`: 17
 - `bulk_downloader/cloak.py`: 17
 - `bulk_downloader/runner.py`: 17
 - `bulk_downloader/site_editor.py`: 17
 - `bulk_downloader/aiassist.py`: 16
-- `bulk_downloader/capture_redact.py`: 16
 - `bulk_downloader/ffmpeg_bin.py`: 15
-- `bulk_downloader/log.py`: 14
+- `bulk_downloader/log.py`: 15
 - `bulk_downloader/session_keeper.py`: 13
 
 ## Blueprints → providers
@@ -127,7 +127,7 @@ Graph version: 1
 - **pause_all** (`app_pause_all.py`) — routes 1, providers 0
 - **phoenix** (`app_phoenix.py`) — routes 4, providers 0
 - **playground** (`app_playground.py`) — routes 2, providers 1
-- **plex** (`app_plex.py`) — routes 8, providers 2
+- **plex** (`app_plex.py`) — routes 8, providers 3
 - **plugins** (`app_plugins.py`) — routes 7, providers 1
 - **provenance** (`app_provenance.py`) — routes 5, providers 2
 - **push** (`app_push.py`) — routes 5, providers 1
