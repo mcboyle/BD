@@ -431,6 +431,8 @@ class AuthMixin:
                     self._set_login_status("✗ " + _refusal)
                     sys.stderr.write(
                         f"[{self.site_id}] login_async refused: {_refusal}\n")
+                    if _reservation["status"] == "LOCKOUT":
+                        self._login_lockout_attempt = _attempt  # dl95-relogin-blocked-latch-1
                     _settle(False)
                     return
                 # Only pause the keepers for a login that is actually going to
@@ -464,6 +466,10 @@ class AuthMixin:
                     and str(result[1]).startswith(LOGIN_VAULT_LOCKED_PREFIX))
                 if _vault_locked:
                     self._login_vault_locked_attempt = _attempt
+                # dl95-relogin-blocked-latch-1: the site's lockout page (now also
+                # a /blocked submit landing) -- the re-login path dead-letters.
+                if result and result[0] is False and isinstance(result[1], _sk.LoginLockout):
+                    self._login_lockout_attempt = _attempt
                 if (result and result[0] is False
                         and (str(result[1]).startswith(LOGIN_CANCELLED_PREFIX)
                              or _vault_locked)
@@ -1670,6 +1676,17 @@ class AuthMixin:
                 self._update_job(url,"pending",
                                  "Session refreshed — will retry",
                                  retries=retries+1, retry_after=0)
+            elif getattr(self, "_login_lockout_attempt", 0) >= _awaited_attempt:
+                # dl95-relogin-blocked-latch-1: the site answered /blocked (or the
+                # lockout hold refused the login). A retry only meets the hold, or
+                # posts the credentials again once it expires: dead-letter now.
+                self._update_job(url, "dead_letter",
+                                 "site answered /blocked -- no automatic re-login")
+                try:
+                    from .db import db_queue_dead_letter as _dql
+                    _dql(self.site_id, url, "auth-required, login lockout")
+                except Exception:
+                    pass
             elif not self._hold_for_parked_takeover(url, why):
                 # Login failed (manual takeover required, captcha unsolved,
                 # bad credentials, etc.). Mark URL pending with a 60s backoff
