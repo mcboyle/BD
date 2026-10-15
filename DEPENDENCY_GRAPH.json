@@ -2302,6 +2302,7 @@
     "global_config": {
       "readers": [
         "bulk_downloader/ai_boot_status.py",
+        "bulk_downloader/ai_provider.py",
         "bulk_downloader/aiassist.py",
         "bulk_downloader/api_tokens.py",
         "bulk_downloader/app.py",
@@ -2461,7 +2462,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1926,
+    "edge_count": 1943,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4122,6 +4123,22 @@
       "bulk_downloader/otel_trace_spans.py": [
         "bulk_downloader/runner_telemetry.py"
       ],
+      "bulk_downloader/outbound_guard.py": [
+        "bulk_downloader/ai_provider.py",
+        "bulk_downloader/dev_suite/audit_security.py",
+        "bulk_downloader/hls_downloader.py",
+        "bulk_downloader/login_impl/manual.py",
+        "bulk_downloader/login_impl/replay.py",
+        "bulk_downloader/login_impl/submit.py",
+        "bulk_downloader/macro_replay.py",
+        "bulk_downloader/notify_apprise.py",
+        "bulk_downloader/request_replay.py",
+        "bulk_downloader/runner_browser.py",
+        "bulk_downloader/runner_integrations.py",
+        "bulk_downloader/runner_manual.py",
+        "bulk_downloader/scene_crawler.py",
+        "bulk_downloader/takeover_vnc.py"
+      ],
       "bulk_downloader/password_import.py": [
         "bulk_downloader/app_secrets.py"
       ],
@@ -4681,6 +4698,7 @@
         "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/ssrf_transport.py": [
+        "bulk_downloader/aiassist.py",
         "bulk_downloader/app_scrape_listing.py",
         "bulk_downloader/app_sites_auth.py",
         "bulk_downloader/async_object_storage.py",
@@ -4697,6 +4715,7 @@
         "bulk_downloader/mp4_metadata.py",
         "bulk_downloader/multi_conn.py",
         "bulk_downloader/oidc.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/qb_bridge.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_challenge.py",
@@ -4951,7 +4970,8 @@
         "bulk_downloader/deep_http.py",
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/doh_resolver.py",
-        "bulk_downloader/hooks.py"
+        "bulk_downloader/hooks.py",
+        "bulk_downloader/outbound_guard.py"
       ],
       "bulk_downloader/user_accounts.py": [
         "bulk_downloader/app_auth.py",
@@ -5490,6 +5510,9 @@
       "bulk_downloader/ai_login.py": [
         "bulk_downloader/aiassist.py"
       ],
+      "bulk_downloader/ai_provider.py": [
+        "bulk_downloader/outbound_guard.py"
+      ],
       "bulk_downloader/ai_review.py": [
         "bulk_downloader/llm_exec.py",
         "bulk_downloader/llm_schemas.py",
@@ -5500,6 +5523,7 @@
         "bulk_downloader/detect.py",
         "bulk_downloader/hooks.py",
         "bulk_downloader/secrets_store.py",
+        "bulk_downloader/ssrf_transport.py",
         "bulk_downloader/weakref_lifecycle.py"
       ],
       "bulk_downloader/alerts_engine.py": [
@@ -6664,6 +6688,7 @@
         "bulk_downloader/csv_bulk.py",
         "bulk_downloader/extractors.py",
         "bulk_downloader/jd_bridge.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/plugins.py",
         "bulk_downloader/qb_bridge.py",
         "bulk_downloader/site_editor.py"
@@ -6970,6 +6995,7 @@
       ],
       "bulk_downloader/hls_downloader.py": [
         "bulk_downloader/ffmpeg_bin.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/runtime_flags.py"
       ],
       "bulk_downloader/honeypot_threshold.py": [
@@ -7098,6 +7124,7 @@
         "bulk_downloader/cookies.py",
         "bulk_downloader/interstitial.py",
         "bulk_downloader/learn.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/stealth.py"
       ],
@@ -7112,6 +7139,7 @@
         "bulk_downloader/log.py",
         "bulk_downloader/login_flow_recorder.py",
         "bulk_downloader/macro_recorder.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/selector_chains.py",
         "bulk_downloader/stealth.py"
@@ -7126,6 +7154,7 @@
         "bulk_downloader/interstitial.py",
         "bulk_downloader/learn.py",
         "bulk_downloader/log.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/registrable_domain.py",
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/session_keeper.py",
@@ -7141,7 +7170,8 @@
       ],
       "bulk_downloader/macro_replay.py": [
         "bulk_downloader/cloak.py",
-        "bulk_downloader/macro_recorder.py"
+        "bulk_downloader/macro_recorder.py",
+        "bulk_downloader/outbound_guard.py"
       ],
       "bulk_downloader/maintenance.py": [
         "bulk_downloader/db.py",
@@ -7203,6 +7233,9 @@
         "bulk_downloader/capture_artifact_redact.py",
         "bulk_downloader/capture_redact.py"
       ],
+      "bulk_downloader/notify_apprise.py": [
+        "bulk_downloader/outbound_guard.py"
+      ],
       "bulk_downloader/oidc.py": [
         "bulk_downloader/global_config.py",
         "bulk_downloader/ssrf_transport.py",
@@ -7210,6 +7243,10 @@
       ],
       "bulk_downloader/ollama_boot_probe.py": [
         "bulk_downloader/llm_readiness.py"
+      ],
+      "bulk_downloader/outbound_guard.py": [
+        "bulk_downloader/ssrf_transport.py",
+        "bulk_downloader/urllib_ssrf.py"
       ],
       "bulk_downloader/paths.py": [
         "bulk_downloader/app_state.py",
@@ -7344,6 +7381,7 @@
         "bulk_downloader/capture_artifact_redact.py",
         "bulk_downloader/capture_redact.py",
         "bulk_downloader/feature_flags.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/site_editor.py"
       ],
       "bulk_downloader/retention.py": [
@@ -7495,6 +7533,7 @@
         "bulk_downloader/detect.py",
         "bulk_downloader/eme_detect.py",
         "bulk_downloader/interop_registry.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/plugins.py",
         "bulk_downloader/stealth.py",
         "bulk_downloader/verification_settlement.py",
@@ -7545,6 +7584,7 @@
         "bulk_downloader/jd_bridge.py",
         "bulk_downloader/jellyfin_deep.py",
         "bulk_downloader/library.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/plex_deep.py",
         "bulk_downloader/qb_bridge.py",
         "bulk_downloader/stash_deep.py",
@@ -7565,6 +7605,7 @@
         "bulk_downloader/cookies.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/learn.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/plugins.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/ssrf_transport.py",
@@ -7674,6 +7715,7 @@
         "bulk_downloader/cookies.py",
         "bulk_downloader/db.py",
         "bulk_downloader/interstitial.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/playlist_extractor.py",
         "bulk_downloader/session_keeper.py"
       ],
@@ -7833,6 +7875,7 @@
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/netns_isolation.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/runner_auth.py",
         "bulk_downloader/takeover.py"
       ],
