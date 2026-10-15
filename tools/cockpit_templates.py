@@ -437,7 +437,7 @@ def _relogin_history(site_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         from bulk_downloader import db as _db
         with _db.db_conn() as cx:
             rs = cx.execute(
-                "SELECT ts, cookie_score, action, outcome FROM cookie_relogin_log "
+                "SELECT ts, triggered_score AS cookie_score, action, outcome FROM cookie_relogin_log "
                 "WHERE site_id = ? ORDER BY ts DESC LIMIT ?", (site_id, limit)).fetchall()
         return [{"ts": r["ts"], "cookie_score": r["cookie_score"],
                  "action": _safe(r["action"] or ""), "outcome": _safe(r["outcome"] or "")}
