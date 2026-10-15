@@ -2912,38 +2912,22 @@ def _start_window_scheduler():
             "window_action_outside") or "paused").strip().lower()
         if should_run:
             # Entering an active window — resume
+            # ddr-fix F4: resume only what the window parked
+            # (runner.window_enter); an operator Stop/Pause stays put.
             try:
-                runner.log_event("window",
-                    "Entered active window — resuming workers")
-            except Exception:
-                pass
-            try:
-                runner.start()
+                runner.window_enter()
             except Exception as e:
                 _sys.stderr.write(
-                    f"  window: start({site_id}) failed: {e}\n")
+                    f"  window: window_enter({site_id}) failed: {e}\n")
         else:
             # Leaving the active window — pause or stop depending on
-            # the per-site action_outside setting
+            # the per-site action_outside setting; runner.window_leave
+            # parks only a running site and marks it for window_enter.
             try:
-                runner.log_event("window",
-                    f"Left active window — applying {action!r}")
-            except Exception:
-                pass
-            if action == "stopped":
-                try:
-                    runner.stop()
-                except Exception as e:
-                    _sys.stderr.write(
-                        f"  window: stop({site_id}) failed: {e}\n")
-            else:
-                # "paused": just flip state. Don't tear down in-flight
-                # workers; let them finish naturally. The next start()
-                # call will respect the window check.
-                try:
-                    runner._state = "window_paused"
-                except Exception:
-                    pass
+                runner.window_leave(action)
+            except Exception as e:
+                _sys.stderr.write(
+                    f"  window: window_leave({site_id}) failed: {e}\n")
 
     sched = _dw.get_scheduler()
     sched.set_transition_callback(_on_transition)
