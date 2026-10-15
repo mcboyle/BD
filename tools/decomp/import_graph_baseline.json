@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6522,
+  "edge_count": 6525,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3220,6 +3220,11 @@
     ],
     "tests/test_cockpit_navigation_contract.py": [
       "bulk_downloader/app_cockpit_home.py"
+    ],
+    "tests/test_cockpit_relogin_col.py": [
+      "bulk_downloader/cookie_relogin.py",
+      "bulk_downloader/db.py",
+      "tools/cockpit_templates.py"
     ],
     "tests/test_cockpit_route_contract.py": [
       "bulk_downloader/app_cockpit_home.py"
