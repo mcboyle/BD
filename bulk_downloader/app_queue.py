@@ -92,6 +92,34 @@ def _m2_hold_reason(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_m2_hold_reason")(*_a, **_k)
 
+def _run_intent_is_running(site_id) -> bool:
+    """Delegate to db.run_intent_is_running at call time (lazy; a test seam)."""
+    try:
+        from .db import run_intent_is_running
+        return bool(run_intent_is_running(site_id))
+    except Exception:
+        return False
+
+
+def _m2_waiting_hold_reason(site_state, site_hold, intent, job, now) -> str:
+    """idle-site-wake r1: why a "pending" job is not moving. Never "" -- an
+    operator reading /api/queue/v2 must be able to tell a retry back-off
+    (retry_wait) from a site nobody started (not_started), from a drained
+    run waiting on its wake (site_idle), from a worker-starved run (queued),
+    from a held/paused/stopped site (the hold text, else the state token)."""
+    try:
+        retry_after = float(job.get("retry_after", 0) or 0)
+    except (TypeError, ValueError):
+        retry_after = 0.0
+    if retry_after > now:
+        return "retry_wait"
+    if site_state == "running":
+        return "queued"
+    if site_state in ("idle", "done", ""):
+        return "site_idle" if intent else "not_started"
+    return site_hold or site_state
+
+
 def _m2_site_drain_eta(*_a, **_k):
     """Delegate to app._m2_site_drain_eta at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -331,6 +359,13 @@ def api_queue_v2():
                 site_per_min = 0.0
             site_running = 0
             site_waiting = 0
+            state_fn = getattr(runner, "state", None)
+            try:
+                site_state = state_fn() if callable(state_fn) else ""
+            except Exception:
+                site_state = ""
+            site_hold = _m2_hold_reason(runner)
+            site_intent = None  # resolved once, only if a pending job needs it
             try:
                 with runner._lock:
                     for url, j in runner.jobs.items():
@@ -346,6 +381,9 @@ def api_queue_v2():
                             })
                         elif s == "pending":
                             site_waiting += 1
+                            if site_intent is None and site_state in (
+                                    "idle", "done", ""):
+                                site_intent = _run_intent_is_running(sid)
                             waiting.append({
                                 "site_id": sid, "site_name": name,
                                 "avatar_color": color,
@@ -353,6 +391,9 @@ def api_queue_v2():
                                 "filename": j.get("filename", ""),
                                 "priority": j.get("priority", 0),
                                 "queued_ts": j.get("queued_ts", 0),
+                                "hold_reason": _m2_waiting_hold_reason(
+                                    site_state, site_hold, site_intent, j,
+                                    _t.time()),
                             })
                         elif s in _QUEUE_V2_TERMINAL_STATUSES:
                             terminal.append({
@@ -390,14 +431,19 @@ def api_queue_v2():
             except Exception:
                 continue
             if site_running or site_waiting:
-                state_fn = getattr(runner, "state", None)
-                site_state = state_fn() if callable(state_fn) else ""
+                # idle-site-wake r1: a site with waiting jobs and no run in
+                # flight names why (not_started / site_idle / state token);
+                # _m2_hold_reason's own text (paused_no_button) wins.
+                if (not site_hold and site_waiting and not site_running
+                        and site_state != "running"):
+                    site_hold = _m2_waiting_hold_reason(
+                        site_state, "", site_intent, {}, 0.0)
                 per_site_acc.append({
                     "site_id": sid, "site_name": name, "avatar_color": color,
                     # dl95-file-examples-2: the SPA offers Resume for a held
                     # site and names why its waiting jobs are not moving.
                     "state": site_state,
-                    "hold_reason": _m2_hold_reason(runner),
+                    "hold_reason": site_hold,
                     "waiting_count": site_waiting,
                     "running_count": site_running,
                     "drain_eta_seconds": _m2_site_drain_eta(
