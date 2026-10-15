@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6575,
+  "edge_count": 6577,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3971,6 +3971,10 @@
     ],
     "tests/test_dl95_porndoe_1_live_2_scope.py": [
       "bulk_downloader/runner_transport.py",
+      "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_dl95_porndoe_1_live_3.py": [
+      "bulk_downloader/runner_extractors.py",
       "bulk_downloader/spa_media_extract.py"
     ],
     "tests/test_dl95_porndoe_1_unstarted_player_feature_media.py": [
