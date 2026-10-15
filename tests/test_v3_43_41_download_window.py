@@ -366,14 +366,16 @@ def test_scheduler_init_at_startup():
 
 
 def test_scheduler_callback_routes_to_runner():
-    """The callback must call runner.start() / runner.stop() based
-    on the should_run flag + the window_action_outside config."""
+    """The callback must route to runner.window_enter() /
+    runner.window_leave(action) based on the should_run flag + the
+    window_action_outside config (window-operator-pause r1: only what the
+    window parked resumes; behaviour in test_window_operator_pause.py)."""
     src = _APP_SRC()
     pos = src.find("_on_transition")
     assert pos > 0
     body = src[pos:pos + 2500]
-    assert "runner.start()" in body
-    assert "runner.stop()" in body
+    assert "runner.window_enter()" in body
+    assert "runner.window_leave(" in body
     assert "window_action_outside" in body
 
 

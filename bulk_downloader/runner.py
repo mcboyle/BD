@@ -1310,6 +1310,11 @@ def _record_window_park(runner, parked):
         log.warning("window-park mark not persisted for %s", site_id)
 
 
+# window-operator-pause r2: marks the runner whose window_enter() is driving
+# start() on this thread, so its transitions re-read the run intent it took.
+_WINDOW_ENTRY = threading.local()
+
+
 class StartOutcome(str, enum.Enum):
     """Exceptional public outcomes from ``start()``.
 
@@ -2143,7 +2148,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # dl95-evilangel-1: a boot resume acts on the intent recorded before
         # the restart; it must not record a new one (the serialized recheck in
         # _start_serialized is what lets a later Stop win).
-        if not _restart_resume:
+        # window-operator-pause r2: window_enter() recorded it with the park.
+        if not (_restart_resume or self._in_window_entry()):
             _record_run_intent(self, True)
         # A stopped generation may still be unwinding a browser owned by one
         # of its worker threads. Wait outside the lifecycle lock: a worker
@@ -2206,6 +2212,21 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                        "paused after boot")
         return True
 
+    def _in_window_entry(self):
+        """window-operator-pause r2: this thread is inside window_enter()'s
+        start() of this runner."""
+        return getattr(_WINDOW_ENTRY, "runner", None) is self
+
+    def _window_entry_withdrawn(self):
+        """window-operator-pause r2: True (and logged) when this start() is a
+        window entry and an operator Stop/Pause has since cleared the run
+        intent window_enter() recorded with the park."""
+        if not self._in_window_entry() or run_intent_is_running(self.site_id):
+            return False
+        self.log_event("window", "Window entry skipped: the site was stopped "
+                       "or paused after the window opened")
+        return True
+
     def _refuse_for_download_hold(
             self, hold_state, verb, *, resumable_state=None):
         """Publish the runner-visible refusal for a held/unmeasurable hold.
@@ -2236,6 +2257,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # an operator Stop issued after boot scheduled this resume wins.
         # pause() is not on this lock; it is fenced at the arming transition.
         if _restart_resume and self._restart_resume_withdrawn():
+            return None
+        if self._window_entry_withdrawn():
             return None
         if _restart_resume:
             self.log_event("restart_resume",
@@ -2290,8 +2313,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             from . import download_window as _dw
             if not _dw.site_in_window(self.config):
                 # ddr-fix F4: this start was parked by the window; window
-                # entry (window_enter) resumes it.
-                _record_window_park(self, True)
+                # entry (window_enter) resumes it -- unless a Pause withdrew it.
+                with _download_hold.barrier():
+                    if self._window_entry_withdrawn():
+                        return
+                    _record_window_park(self, True)
                 if self._state != "window_paused":
                     self._state = "window_paused"
                     self.log_event("window",
@@ -2307,6 +2333,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # early; otherwise an in-flight transfer stays blocked behind it.
         if self._state == "window_paused":
             with _download_hold.barrier():
+                if self._window_entry_withdrawn():
+                    return
                 if (self._state == "window_paused"
                         and _download_hold.downloads_allowed()[0]):
                     self._pause.set()
@@ -2595,6 +2623,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # the transition (and pauses a running pool).
             if _restart_resume and self._restart_resume_withdrawn():
                 return
+            if self._window_entry_withdrawn():
+                return
             with self._worker_heartbeats_lock:
                 if run_generation != self._worker_run_generation:
                     return
@@ -2805,6 +2835,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         with _download_hold.barrier():
             _record_run_intent(self, False)
             _record_window_park(self, False)  # ddr-fix F4: operator Pause wins
+            if self._state == "window_paused":
+                # window-operator-pause r3: a window entry may already have
+                # lifted the gate (start() under this barrier) before its
+                # final arming; the withdrawn entry returns without closing
+                # it, so this Pause shuts it. The site stays window_paused.
+                self._pause.clear()
             if self._state != "running":
                 return
             self._hold_refused_resume_state = None
@@ -2839,6 +2875,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         Preserve the state interrupted by resume() so a later clear read can
         recover it.  The same token published by start() carries no provenance,
         because start() refuses before spawning workers."""
+        if self._state == "window_paused":
+            # window-operator-pause: an operator Pause of a window-paused site
+            # leaves it window_paused; start() reopens it inside the window
+            # (or parks it for window_enter outside), under the same hold.
+            return self.start(_restart_resume=_restart_resume)
         resumable_states = ("paused", "low_disk", "paused_no_button")
         resumable_state = self._state
         if resumable_state in _DOWNLOAD_HOLD_STATE_TOKENS:
@@ -2862,6 +2903,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # override a Pause/Stop that cleared the intent.
                 if _restart_resume and self._restart_resume_withdrawn():
                     return
+                if self._window_entry_withdrawn():
+                    return
                 self._hold_refused_resume_state = None
                 if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
                     self.lifecycle_subsystem.resume()
@@ -2883,8 +2926,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         window_enter() resumes it; an idle, stopped or operator-paused site is
         not touched. action "stopped" stops it; anything else holds the
         workers at the pause gate without recording run intent."""
-        parked = self._state in ("running", "window_paused") or (
-            window_park_is_set(self.site_id))
+        # window-operator-pause: a window_paused site without the park mark
+        # is held by an operator Pause; re-parking it would let the next
+        # window_enter() override that Pause.
+        parked = self._state == "running" or window_park_is_set(self.site_id)
         if not parked:
             self.log_event("window", "Left active window — site not running "
                            f"({self._state}); nothing to park")
@@ -2902,13 +2947,23 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         download window opened. Resume only a site the window itself parked;
         an operator Stop/Pause or a never-started site stays put, and no run
         intent is recorded for it."""
-        if not window_park_is_set(self.site_id):
-            self.log_event("window", "Entered active window — not parked by "
-                           f"the window ({self._state}); left as is")
-            return None
-        _record_window_park(self, False)
+        # window-operator-pause r2: take the park and record the run intent
+        # under the barrier pause() clears both under; start() re-reads the
+        # intent under it at each transition, so a Pause landing in between
+        # withdraws this entry instead of being overridden by it.
+        with _download_hold.barrier():
+            if not window_park_is_set(self.site_id):
+                self.log_event("window", "Entered active window — not parked "
+                               f"by the window ({self._state}); left as is")
+                return None
+            _record_window_park(self, False)
+            _record_run_intent(self, True)
         self.log_event("window", "Entered active window — resuming workers")
-        return self.start()
+        outer, _WINDOW_ENTRY.runner = getattr(_WINDOW_ENTRY, "runner", None), self
+        try:
+            return self.start()
+        finally:
+            _WINDOW_ENTRY.runner = outer
 
     def _reopen_window_held_run(self):
         """ddr-fix r3 (R158-C F1): window_paused closed the gate on a live run;
@@ -2941,6 +2996,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if (self._state != "window_paused"
                     or not _download_hold.downloads_allowed()[0]):
                 return False
+            if self._window_entry_withdrawn():
+                return True  # withdrawn: nothing for start() to do either
             self._pause.set()
             self._state = "running"
         self.log_event("window", "Entered active window — in-flight work "
