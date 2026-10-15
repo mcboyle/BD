@@ -177,6 +177,9 @@ def test_running_and_pending_shapes_are_unchanged(monkeypatch):
         "site_id": _SITE, "site_name": "Row 665 Site",
         "avatar_color": _COLOR, "url": pending_url,
         "filename": "pending.mp4", "priority": 4, "queued_ts": 7,
+        # idle-site-wake r1: every waiting item names why it is not moving;
+        # this fake runner has no state() and no run intent -> not_started.
+        "hold_reason": "not_started",
     }]
     assert _terminal_map(body) == {done_url: "done"}
     assert body["done_today_count"] == 1

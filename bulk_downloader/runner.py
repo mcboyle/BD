@@ -4653,6 +4653,44 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if action == "notify":
                 self._notify_watch_done_if_current(run_generation, payload)
             return
+    def _wake_for_new_jobs(self, urls):
+        """idle-site-wake r1: pending jobs load_urls just created or re-armed
+        reach a worker without an operator Start.
+
+          * run in flight: the ready URLs go on the live _url_queue under the
+            current generation (load_urls never fed the queue; start() is its
+            only producer, so a mid-run import drained with the run).
+          * drained run ("idle"/"done") whose durable run intent is still
+            True: start() again -- the operator asked this site to run and
+            never stopped it (vip4k: two imports sat pending 22:28Z->00:20Z).
+          * never started (intent False), stopped, paused, any hold state:
+            untouched; those are operator decisions (queue/v2 names them).
+        A put that lands after the overseer's drain check is repaid by
+        _finalize_watch_done (unfinished_tasks > 0 -> restart)."""
+        with self._lock:
+            now = time.time()
+            ready = []
+            for u in urls:
+                j = self.jobs.get(u)
+                if (j is not None and j.get("status") == "pending"
+                        and now >= (j.get("retry_after", 0) or 0)):
+                    ready.append(u)
+        if not ready:
+            return
+        with self._worker_heartbeats_lock:
+            state = self._state
+            if state == "running" and not self._stop.is_set():
+                run_generation = self._worker_run_generation
+                for u in ready:
+                    self._url_queue.put((run_generation, u))
+                self.log_event("wake", f"Enqueued {len(ready)} new URL(s) "
+                               "into the running pool")
+                return
+        if state in ("idle", "done") and run_intent_is_running(self.site_id):
+            self.log_event("wake", f"Waking the drained run for {len(ready)} "
+                           "new URL(s)")
+            self.start()
+
     def _finalize_watch_done(self, run_generation):
         """Commit retry/final state only if this overseer still owns the run."""
         with self._run_lifecycle_lock:
@@ -4663,15 +4701,25 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     return None
 
             restart = False
-            with self._lock:
+            with self._lock, self._worker_heartbeats_lock:
                 self._completion_notification_token = None
                 retryable = [
                     (u, j["retry_after"]) for u, j in self.jobs.items()
                     if j["status"] == "pending" and j.get("retry_after", 0) > 0
                 ]
-                if retryable:
-                    wait = min(ra for _, ra in retryable) - time.time()
-                    if wait > 0:
+                # idle-site-wake r1: a _wake_for_new_jobs put that landed
+                # after this overseer's drain check (the workers have left)
+                # is still on the queue; the restart's _drain_url_queue
+                # repays it and start() re-feeds every ready pending job.
+                late_puts = self._url_queue.unfinished_tasks > 0
+                if late_puts:
+                    self.log_event("wake", "Restarting the drained run for "
+                                   f"{self._url_queue.unfinished_tasks} URL(s) "
+                                   "added during teardown")
+                if retryable or late_puts:
+                    wait = (min(ra for _, ra in retryable) - time.time()
+                            if retryable else 0)
+                    if wait > 0 and not late_puts:
                         now = time.time()
                         for url, retry_after in retryable:
                             mins = max(1, int((retry_after - now) // 60))

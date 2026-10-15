@@ -655,6 +655,15 @@ class QueueMixin:
                           "ts": _ts()})
             except Exception:
                 pass
+        # idle-site-wake r1 (vip4k 2026-10-14): the jobs this call created or
+        # re-armed reach a worker without an operator Start. load_urls never
+        # fed _url_queue (start() is its only producer), so an import into a
+        # running or drained site sat "pending" until a service restart.
+        if added:
+            try:
+                self._wake_for_new_jobs(list(new_urls) + list(rearmed))
+            except Exception as e:
+                self.log.warning("wake for new jobs failed: %s", e)
         # F9 (S11): refusals are reported apart from duplicates in the import
         # event above; slot 1 of the return stays "not queued" (dupes +
         # refused) because callers unpack exactly three values and existing
