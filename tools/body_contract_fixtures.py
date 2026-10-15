@@ -123,6 +123,23 @@ class _StubRunner:
         # Mirror the real shape: everything queued, nothing duped or skipped.
         return (len(list(urls)), 0, 0)
 
+    # The take_over trio (app_sites_auth.py) unpacks `ok,msg=` from each of these,
+    # and the REAL ManualMixin (runner_manual.py) always answers (bool, str). The
+    # __getattr__ no-op returned 0 -> "cannot unpack non-iterable int object" -> a
+    # 500 the product never had (mechanism #5 a third time, surfaced when FF-D's
+    # regen put take_over_url in the scanned set). Answer what the real runner
+    # answers in a world with no browser and no pending session.
+    def start_manual_download(self, target_url):
+        if not target_url or not target_url.startswith("http"):
+            return False, "target_url must be an http(s) URL"
+        return False, "Couldn't open browser: the fixture world has no browser"
+
+    def finish_manual_download(self):
+        return False, "No pending manual download"
+
+    def cancel_manual_download(self):
+        return False, "No pending manual download"
+
     def __getattr__(self, name):
         # THE LINE, drawn where the evidence put it:
         #

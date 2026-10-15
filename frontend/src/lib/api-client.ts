@@ -146,7 +146,7 @@ async function sendJson<T>(
 
 export async function apiPost<T>(
   path: string,
-  payload: unknown,
+  payload?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
   return sendJson<T>("POST", path, payload, signal);

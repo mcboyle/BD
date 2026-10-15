@@ -80,7 +80,7 @@ def test_card_posts_each_endpoint_as_a_full_literal():
     src = open(CARD, encoding="utf-8").read()
     for seg in ("take_over_url", "take_over_done", "take_over_cancel"):
         calls = re.findall(
-            r"apiPost<[^>]+>\(`/api/sites/\$\{[^}]+\}/%s`,\s*(\{[^)]*\})\)" % seg, src)
+            r"apiPost<[^>]+>\(`/api/sites/\$\{[^}]+\}/%s`(?:,\s*(\{[^)]*\}))?\)" % seg, src)
         assert len(calls) == 1, "expected one apiPost literal for %s, got %r" % (seg, calls)
         body = re.sub(r"\s+", "", calls[0])
-        assert body == ("{url:target}" if seg == "take_over_url" else "{}"), (seg, body)
+        assert body == ("{url:target}" if seg == "take_over_url" else ""), (seg, body)

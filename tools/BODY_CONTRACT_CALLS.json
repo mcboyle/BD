@@ -490,16 +490,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/take_over_cancel",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/TeachSessionCard.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/take_over_done",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/TeachSessionCard.tsx",
