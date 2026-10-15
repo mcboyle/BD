@@ -378,20 +378,20 @@ Schema version: 2
   - L0018 `IntegrationsMixin._get_stash_client` `[private]` — Lazy Stash client constructor. Returns None when Stash
   - L0027 `IntegrationsMixin._stash_dedup_check` `[private]` — Check if `url` is already in Stash's library. If so, mark
   - L0089 `IntegrationsMixin._stash_scrape_preview` `[private]` — Pre-download metadata preview. Surfaces what Stash would
-  - L0110 `IntegrationsMixin._stash_enrich_after_scan` `[private]` — Post-download enrichment. Called after the Stash scan
-  - L0207 `IntegrationsMixin._get_plex_client` `[private]` — Lazy Plex client constructor. Returns None when Plex isn't
-  - L0216 `IntegrationsMixin._plex_enrich_after_scan` `[private]` — Post-download Plex enrichment. Runs in a background thread
-  - L0318 `IntegrationsMixin._get_jellyfin_client` `[private]` — Lazy Jellyfin client constructor. None when not configured.
-  - L0326 `IntegrationsMixin._jellyfin_enrich_after_scan` `[private]` — Post-download Jellyfin enrichment. Background thread after
-  - L0415 `IntegrationsMixin._get_qb_client` `[private]` — Lazy qB client constructor. Returns None when httpx isn't
-  - L0426 `IntegrationsMixin._record_qb_outcome` `[private]` — Append a qB outcome to the rolling window. The ratio drives
-  - L0430 `IntegrationsMixin.qb_health` — Return current qB bridge health for the site. Surfaces in
-  - L0454 `IntegrationsMixin._try_qb_download` `[private]` — Attempt a qB-backed download. Returns (succeeded, reason).
-  - L0609 `IntegrationsMixin._get_jd_client` `[private]` — Lazy JD client constructor. Returns None when JD is not
-  - L0620 `IntegrationsMixin._read_cookies_for_jd` `[private]` — Read the latest cookies for this site and convert to JD's
-  - L0643 `IntegrationsMixin._record_jd_outcome` `[private]` — Append a JD outcome to the rolling window. Triggered by the
-  - L0649 `IntegrationsMixin.jd_health` — Return current JD bridge health for the site. Called from
-  - L0673 `IntegrationsMixin._try_jd_download` `[private]` — Attempt a JD-backed download for `url`. Returns
+  - L0116 `IntegrationsMixin._stash_enrich_after_scan` `[private]` — Post-download enrichment. Called after the Stash scan
+  - L0213 `IntegrationsMixin._get_plex_client` `[private]` — Lazy Plex client constructor. Returns None when Plex isn't
+  - L0222 `IntegrationsMixin._plex_enrich_after_scan` `[private]` — Post-download Plex enrichment. Runs in a background thread
+  - L0324 `IntegrationsMixin._get_jellyfin_client` `[private]` — Lazy Jellyfin client constructor. None when not configured.
+  - L0332 `IntegrationsMixin._jellyfin_enrich_after_scan` `[private]` — Post-download Jellyfin enrichment. Background thread after
+  - L0421 `IntegrationsMixin._get_qb_client` `[private]` — Lazy qB client constructor. Returns None when httpx isn't
+  - L0432 `IntegrationsMixin._record_qb_outcome` `[private]` — Append a qB outcome to the rolling window. The ratio drives
+  - L0436 `IntegrationsMixin.qb_health` — Return current qB bridge health for the site. Surfaces in
+  - L0460 `IntegrationsMixin._try_qb_download` `[private]` — Attempt a qB-backed download. Returns (succeeded, reason).
+  - L0615 `IntegrationsMixin._get_jd_client` `[private]` — Lazy JD client constructor. Returns None when JD is not
+  - L0626 `IntegrationsMixin._read_cookies_for_jd` `[private]` — Read the latest cookies for this site and convert to JD's
+  - L0649 `IntegrationsMixin._record_jd_outcome` `[private]` — Append a JD outcome to the rolling window. Triggered by the
+  - L0655 `IntegrationsMixin.jd_health` — Return current JD bridge health for the site. Called from
+  - L0679 `IntegrationsMixin._try_jd_download` `[private]` — Attempt a JD-backed download for `url`. Returns
 ```
 
 
@@ -406,18 +406,18 @@ Schema version: 2
   - L0093 `_ManualDownloadSession.error`
   - L0096 `_ManualDownloadSession._launch` `[private]` — Open browser+context+page. Only called from the worker thread.
   - L0162 `_ManualDownloadSession._run` `[private]` — Owner thread for the manual download Playwright session.
-  - L0487 `_ManualDownloadSession._send` `[private]` — Dispatch a command and wait for the response. Returns the
-  - L0504 `_ManualDownloadSession.finalize` — Harvest recordings + cookies, close session. Returns
-  - L0514 `_ManualDownloadSession.verify` — Test the user's picked selectors against the live DOM.
-  - L0522 `_ManualDownloadSession.test_download` — v3.43.0: dry-run a real fetch of the URL the picks would
-  - L0533 `_ManualDownloadSession.commit` — Snapshot cookies and close the session for a Teach Mode commit.
-  - L0542 `_ManualDownloadSession.cancel` — Signal closure and prove it within one shared timeout.
-  - L0551 `_ManualDownloadSession.snapshot_cookies` — Read cookies without closing the session.
-- L0558 `ManualMixin` `[class]`
-  - L0560 `ManualMixin.start_manual_download` — Phase 41.3: open a non-headless Chromium at `target_url` with
-  - L0598 `ManualMixin.finish_manual_download` — User clicked 'Done' on the download takeover. Harvest the
-  - L0682 `ManualMixin.cancel_manual_download` — User clicked Cancel. Close the session, no learning.
-  - L0709 `ManualMixin.is_awaiting_manual_download`
+  - L0500 `_ManualDownloadSession._send` `[private]` — Dispatch a command and wait for the response. Returns the
+  - L0517 `_ManualDownloadSession.finalize` — Harvest recordings + cookies, close session. Returns
+  - L0527 `_ManualDownloadSession.verify` — Test the user's picked selectors against the live DOM.
+  - L0535 `_ManualDownloadSession.test_download` — v3.43.0: dry-run a real fetch of the URL the picks would
+  - L0546 `_ManualDownloadSession.commit` — Snapshot cookies and close the session for a Teach Mode commit.
+  - L0555 `_ManualDownloadSession.cancel` — Signal closure and prove it within one shared timeout.
+  - L0564 `_ManualDownloadSession.snapshot_cookies` — Read cookies without closing the session.
+- L0571 `ManualMixin` `[class]`
+  - L0573 `ManualMixin.start_manual_download` — Phase 41.3: open a non-headless Chromium at `target_url` with
+  - L0619 `ManualMixin.finish_manual_download` — User clicked 'Done' on the download takeover. Harvest the
+  - L0703 `ManualMixin.cancel_manual_download` — User clicked Cancel. Close the session, no learning.
+  - L0730 `ManualMixin.is_awaiting_manual_download`
 ```
 
 
@@ -534,16 +534,16 @@ Schema version: 2
   - L0845 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
   - L0873 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
   - L1079 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
-  - L1118 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
-  - L1173 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
-  - L1196 `BrowserMixin._spa_settlement_script` `[private]` — Row 914: JS installed on a page to detect SPA route transitions
-  - L1285 `BrowserMixin._install_spa_settlement_hooks` `[private]` — Arm the pushState/replaceState + MutationObserver settlement
-  - L1297 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
-  - L1309 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
-  - L1326 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
-  - L1399 `BrowserMixin.check_challenge_and_pause` — Row 935: Scan frame descriptors on the current page for challenge widgets and pause lane on match.
-  - L1415 `BrowserMixin.maybe_acknowledge_dialogs` — Acknowledge standard web dialogs and consent banners if enabled (Row 1048).
-- L1440 `_watch_verification_settlement` `[private]` — Watch page verification settlement and capture session headers.
+  - L1128 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
+  - L1205 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
+  - L1228 `BrowserMixin._spa_settlement_script` `[private]` — Row 914: JS installed on a page to detect SPA route transitions
+  - L1317 `BrowserMixin._install_spa_settlement_hooks` `[private]` — Arm the pushState/replaceState + MutationObserver settlement
+  - L1329 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
+  - L1341 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
+  - L1358 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
+  - L1431 `BrowserMixin.check_challenge_and_pause` — Row 935: Scan frame descriptors on the current page for challenge widgets and pause lane on match.
+  - L1447 `BrowserMixin.maybe_acknowledge_dialogs` — Acknowledge standard web dialogs and consent banners if enabled (Row 1048).
+- L1472 `_watch_verification_settlement` `[private]` — Watch page verification settlement and capture session headers.
 ```
 
 
@@ -1092,15 +1092,15 @@ Schema version: 2
   - L0247 `ManualLoginSession.error`
   - L0250 `ManualLoginSession._close_launched` `[private]` — O1826 M110: close what _launch has opened so far (ctx, browser, pw:
   - L0265 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
-  - L0530 `ManualLoginSession._autofill_tick` `[private]` — fx-takeover-autofill: fill the login form in any page of this
-  - L0551 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
-  - L0691 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
-  - L0710 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
-  - L0727 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
-  - L0755 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
-- L0772 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
-- L0801 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
-- L0830 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
+  - L0540 `ManualLoginSession._autofill_tick` `[private]` — fx-takeover-autofill: fill the login form in any page of this
+  - L0561 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
+  - L0713 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
+  - L0732 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
+  - L0749 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
+  - L0777 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
+- L0794 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
+- L0823 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
+- L0852 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
 ```
 
 
@@ -1132,10 +1132,10 @@ Schema version: 2
 - L0576 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
 - L0631 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
 - L0672 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0895 `_probe_member_url` `[private]` — Step 3 of verify: open the member-only URL on `page` and check for
-- L0945 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0990 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L1050 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0904 `_probe_member_url` `[private]` — Step 3 of verify: open the member-only URL on `page` and check for
+- L0956 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L1001 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L1061 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 
