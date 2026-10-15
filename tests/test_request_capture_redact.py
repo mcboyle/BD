@@ -253,6 +253,14 @@ def _session_client(app_mod, sess):
     return sc, {"X-CSRF-Token": app_mod._csrf_token_for(sess)}
 
 
+def _paired_refused(app_mod, resp):
+    """dev-paired-session-scope: a pair_redeem session is refused /api/dev/* with
+    _DEV_PAIRED_REFUSAL. The body is sent only when the cookie is a LIVE paired
+    login (a dead cookie gets the generic 403), so it also proves the session."""
+    return resp.status_code == 403 and \
+        (resp.get_json(silent=True) or {}).get("error") == app_mod._DEV_PAIRED_REFUSAL
+
+
 def test_session_or_referer_cannot_flip_capture_on(flags, monkeypatch, caplog):
     a = _mod("app")
     ff = _mod("feature_flags")
@@ -266,36 +274,43 @@ def test_session_or_referer_cannot_flip_capture_on(flags, monkeypatch, caplog):
     sc, h = _session_client(a, sess)
     ctl = sc.post("/api/dev/feature_flag_set", json={"name": "zz_ctl", "value": True},
                  headers=h, environ_base=REMOTE)
-    assert ctl.status_code == 200 and ff.is_on("zz_ctl"), \
-        f"RCR-SETUP pair session cannot set a plain flag -> {ctl.status_code}"
+    assert _paired_refused(a, ctl) and not ff.is_on("zz_ctl"), \
+        f"RCR-PAIRED-GATE pair session set a plain flag -> {ctl.status_code} on={ff.is_on('zz_ctl')}"
     r = sc.post("/api/dev/feature_flag_set", json={"name": "request_capture", "value": True},
                 headers=h, environ_base=REMOTE)
     assert r.status_code == 403 and not ff.is_on("request_capture"), \
         f"RCR-FLIP-SESSION pair_redeem session flipped capture: status={r.status_code} on={ff.is_on('request_capture')}"
-    off = sc.post("/api/dev/feature_flag_set", json={"name": "request_capture", "value": False},
-                 headers=h, environ_base=REMOTE)
-    assert off.status_code == 200, f"RCR-CONTROL session turning capture OFF -> {off.status_code}"
+    assert _paired_refused(a, r), f"RCR-PAIRED-GATE capture ON refused past the gate -> {r.status_code}"
 
     on = c.post("/api/dev/feature_flag_set", json={"name": "request_capture", "value": True},
                 headers={"X-BD-Token": mt}, environ_base=REMOTE)
     assert on.status_code == 200 and rr.is_enabled(), f"RCR-CONTROL master token flip -> {on.status_code}"
+    # The session cannot turn capture OFF either (it was ON when it tried).
+    off = sc.post("/api/dev/feature_flag_set", json={"name": "request_capture", "value": False},
+                 headers=h, environ_base=REMOTE)
+    assert _paired_refused(a, off) and rr.is_enabled(), \
+        f"RCR-PAIRED-GATE pair session turned capture OFF -> {off.status_code} on={rr.is_enabled()}"
 
     # 5d: the pair session reads the list after master / bdapi_ traffic was captured.
     c.get("/api/dev/feature_flags", headers={"X-BD-Token": mt})
     c.get("/api/dev/feature_flags", headers={"X-BD-API-Token": "bdapi_" + bk})
+    full = c.get("/api/dev/request_replay_list?limit=200", headers={"X-BD-Token": mt}).get_data(as_text=True)
+    assert full.count("X-Bd-Token") >= 1 and not _hits(full, {"MT": mt, "BK": bk}), \
+        f"RCR-CONTROL master list header name present={full.count('X-Bd-Token')} leak={_hits(full, {'MT': mt, 'BK': bk})}"
     lst = sc.get("/api/dev/request_replay_list?limit=200", environ_base=REMOTE)
     body = lst.get_data(as_text=True)
-    assert lst.status_code == 200 and body.count("X-Bd-Token") >= 1, \
-        f"RCR-CONTROL pair session list -> {lst.status_code}, header name present={body.count('X-Bd-Token')}"
+    assert _paired_refused(a, lst), f"RCR-PAIRED-GATE pair session read the list -> {lst.status_code}"
     leak = _hits(body, {"MT": mt, "BK": bk})
     assert not leak, f"RCR-PAIR-LIST canaries served to a pair session: {leak}"
 
     log = caplog.text
     lines = [ln for ln in log.splitlines() if "feature_flag_change" in ln]
-    want = {"refused": "actor=session result=refused", "token": "actor=master_token result=ok"}
+    want = {"token": "actor=master_token result=ok"}
     absent = [k for k, v in want.items()
               if not any("name='request_capture'" in ln and v in ln and "ts=" in ln for ln in lines)]
     assert not absent, f"RCR-FLAG-LOG missing audit lines: {absent} (lines={len(lines)})"
+    reached = [ln for ln in lines if "actor=session" in ln]
+    assert not reached, f"RCR-PAIRED-GATE pair session reached the flag handler: {len(reached)} audit lines"
     assert log.count(mt) == 0, "RCR-FLAG-LOG master token in the log"
 
 
@@ -489,8 +504,10 @@ def test_query_every_shape_masked_in_ring_get_and_replay(flags, monkeypatch):
 
 
 def _replay_launder(monkeypatch, mt):
-    """R235-C P6: capture ON from loopback, a pair_redeem session turns it OFF, is
-    refused turning it back ON, then replays the captured ON request at this box."""
+    """R235-C P6: capture ON from loopback; a pair_redeem session is refused turning
+    it OFF (dev-paired-session-scope), the authorized caller turns it OFF, the
+    session is refused turning it back ON, then replays the captured ON request
+    at this box. Returns (json, capture on, id, app, replay HTTP status)."""
     from werkzeug.serving import make_server
     a = _auth(monkeypatch, mt)
     ff = _mod("feature_flags")
@@ -507,32 +524,39 @@ def _replay_launder(monkeypatch, mt):
         sc, h = _session_client(a, sess)
         off = sc.post("/api/dev/feature_flag_set", json={"name": "request_capture", "value": False},
                       headers=h, environ_base=REMOTE)
+        still_on = ff.is_on("request_capture")
+        ctl_off = _client().post("/api/dev/feature_flag_set",
+                                 json={"name": "request_capture", "value": False}, headers=hdr)
+        now_off = not ff.is_on("request_capture")
         direct = sc.post("/api/dev/feature_flag_set", json={"name": "request_capture", "value": True},
                          headers=h, environ_base=REMOTE)
-        assert on.status_code == 200 and ids and off.status_code == 200 and direct.status_code == 403, \
-            f"RCR-SETUP P6 on={on.status_code} ids={len(ids)} off={off.status_code} direct={direct.status_code}"
+        assert on.status_code == 200 and ids and _paired_refused(a, off) and still_on \
+            and ctl_off.status_code == 200 and now_off and _paired_refused(a, direct), \
+            f"RCR-SETUP P6 on={on.status_code} ids={len(ids)} off={off.status_code} still_on={still_on} " \
+            f"ctl_off={ctl_off.status_code} now_off={now_off} direct={direct.status_code}"
         rp = sc.post(f"/api/dev/request_replay/{ids[0]}",
                      json={"base_url": f"http://127.0.0.1:{srv.server_port}"},
                      headers=h, environ_base=REMOTE)
-        return rp.get_json() or {}, ff.is_on("request_capture"), ids[0], a
+        return rp.get_json(silent=True) or {}, ff.is_on("request_capture"), ids[0], a, rp.status_code
     finally:
         srv.shutdown()
 
 
 def test_pair_session_replay_cannot_turn_capture_back_on(flags, monkeypatch):
-    """F2 (R235-C P6, auth unset): the replay is refused (self target, no master
-    token exists) and capture stays OFF."""
-    out, on, _rid, _a = _replay_launder(monkeypatch, "")
+    """F2 (R235-C P6, auth unset): the replay is refused (a paired session never
+    reaches /api/dev/*; the route's own self-target refusal is
+    test_replay_to_this_box_needs_master_token) and capture stays OFF."""
+    out, on, _rid, a, status = _replay_launder(monkeypatch, "")
     assert not on, f"RCR-REPLAY-LAUNDER capture back ON after a pair-session replay (status={out.get('replay_status')})"
-    assert out.get("replay_status") is None and "master token" in str(out.get("error")), \
-        f"RCR-REPLAY-SELF self-target replay not refused: status={out.get('replay_status')}"
+    assert status == 403 and out.get("replay_status") is None and out.get("error") == a._DEV_PAIRED_REFUSAL, \
+        f"RCR-PAIRED-GATE pair session reached the replay route: http={status} status={out.get('replay_status')}"
 
 
 def test_master_token_replay_of_capture_on_still_refused(flags, monkeypatch):
     """F2 control (auth set): a master-token caller may replay at this box, but the
     replayed request carries no credential and bears the marker: 401, stays OFF."""
     mt = _canary("mt")
-    out, on, rid, a = _replay_launder(monkeypatch, mt)
+    out, on, rid, a, _status = _replay_launder(monkeypatch, mt)
     assert not on and out.get("replay_status") is None, \
         f"RCR-REPLAY-LAUNDER auth set: on={on} status={out.get('replay_status')}"
     from werkzeug.serving import make_server
