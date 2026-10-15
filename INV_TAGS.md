@@ -19,7 +19,7 @@ authoritative; this file is only a deterministic locality view.
 ## INV-002 — live source tags
 
 - `bulk_downloader/dev_suite/audit_security.py:146` — `_DISPATCH_CHAIN = [  # INV-002`
-- `bulk_downloader/runner.py:5677` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
+- `bulk_downloader/runner.py:5725` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
 
 ## INV-003 — live source tags
 
