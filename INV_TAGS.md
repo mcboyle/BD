@@ -28,9 +28,9 @@ authoritative; this file is only a deterministic locality view.
 
 ## INV-004 — live source tags
 
-- `bulk_downloader/db.py:836` — `cx.isolation_level = None  # INV-004; autocommit; the PRAGMA call only`
-- `bulk_downloader/db.py:837` — `cur = cx.execute("PRAGMA journal_mode=WAL")  # INV-004`
-- `bulk_downloader/db.py:841` — `cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)`
+- `bulk_downloader/db.py:839` — `cx.isolation_level = None  # INV-004; autocommit; the PRAGMA call only`
+- `bulk_downloader/db.py:840` — `cur = cx.execute("PRAGMA journal_mode=WAL")  # INV-004`
+- `bulk_downloader/db.py:844` — `cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)`
 - `bulk_downloader/dev_suite/introspection.py:223` — `try:                                            # INV-004`
 
 ## INV-005 — live source tags
