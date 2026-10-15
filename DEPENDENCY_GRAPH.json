@@ -74,12 +74,14 @@
         "bulk_downloader/alerts_engine.py",
         "bulk_downloader/egress_withhold.py"
       ],
-      "route_count": 4,
+      "route_count": 6,
       "routes": [
         "ROUTE /api/alerts/active",
         "ROUTE /api/alerts/evaluate",
         "ROUTE /api/alerts/rules",
-        "ROUTE /api/alerts/rules/<rule_id>/remove"
+        "ROUTE /api/alerts/rules/<rule_id>/remove",
+        "ROUTE /api/notifications/inbox",
+        "ROUTE /api/notifications/inbox/<int:event_id>/read"
       ],
       "var": "alerts_bp"
     },
@@ -2459,7 +2461,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1921,
+    "edge_count": 1922,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2554,7 +2556,8 @@
       "bulk_downloader/alerts_engine.py": [
         "bulk_downloader/app_alerts.py",
         "bulk_downloader/app_widgets_api.py",
-        "bulk_downloader/bg_scheduler.py"
+        "bulk_downloader/bg_scheduler.py",
+        "tools/body_contract_fixtures.py"
       ],
       "bulk_downloader/api_tokens.py": [
         "bulk_downloader/app.py",
@@ -8145,6 +8148,7 @@
         "tools/body_contract_fixtures.py"
       ],
       "tools/body_contract_fixtures.py": [
+        "bulk_downloader/alerts_engine.py",
         "bulk_downloader/db.py",
         "bulk_downloader/knowledge.py"
       ],

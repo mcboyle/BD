@@ -250,9 +250,9 @@
       "sha256": "e7b89872f06a9e024e7416daf1b95172194ac6bd008e3f1105b77d7f08227c46"
     },
     {
-      "bytes": 2582,
+      "bytes": 2580,
       "key": "tests/test_v3_43_41_download_window.py::test_scheduler_callback_routes_to_runner::src[pos:pos + 2500]::1",
-      "sha256": "6f4648c1516d61c1ba1728fabbd13fc685dd5c03b3cb5f368ecf76828cf52f3e"
+      "sha256": "12f7fb64287f2519d8ed72916c87092c7f3906e13f9dd10885eed8fd95217b54"
     },
     {
       "bytes": 1002,

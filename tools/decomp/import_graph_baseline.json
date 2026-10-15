@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6553,
+  "edge_count": 6562,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4392,6 +4392,11 @@
       "bulk_downloader/capture_template.py",
       "bulk_downloader/capture_workbench.py"
     ],
+    "tests/test_f005_notification_inbox.py": [
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
     "tests/test_f017_template_draft_crud.py": [
       "bulk_downloader/app_template_manager.py",
       "bulk_downloader/template_manager.py"
@@ -7813,6 +7818,9 @@
     "tests/test_selftest_captures_root_disk.py": [
       "bulk_downloader/selftest.py"
     ],
+    "tests/test_selftest_nfs_guard.py": [
+      "bulk_downloader/selftest.py"
+    ],
     "tests/test_selftest_wal_firstrun.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/selftest.py"
@@ -11062,6 +11070,12 @@
       "bulk_downloader/migrations.py",
       "bulk_downloader/runner_challenge.py"
     ],
+    "tests/test_window_operator_pause.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/download_window.py",
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_worker_pipeline.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py"
@@ -11235,6 +11249,7 @@
       "tools/body_contract_fixtures.py"
     ],
     "tools/body_contract_fixtures.py": [
+      "bulk_downloader/alerts_engine.py",
       "bulk_downloader/db.py",
       "bulk_downloader/knowledge.py"
     ],
