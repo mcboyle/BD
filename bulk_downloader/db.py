@@ -15,6 +15,9 @@ import weakref as _weakref
 from contextlib import contextmanager
 from pathlib import Path as _Path_top
 from .constants import DB_PATH
+import hashlib
+import re
+from .egress_withhold import MASK, PLAIN_QUERY_NAMES
 # v3.66.800 (MOD-3 cut 2): the dual-write mirror. Imported eagerly (it is
 # stdlib-only and does NOT import psycopg at module scope), so the new edge
 # db->pg_backend is declared and frozen rather than hidden in a function.
@@ -2845,7 +2848,8 @@ def queue_group_by(site_id, group_by: str = "host", *, limit=2000) -> dict:
         else:
             # host or path — parse the URL
             try:
-                parsed = _urlparse(r.get("url") or "")
+                # sec2-job-url-token r1: a group key never carries a token
+                parsed = _urlparse(queue_display_url(r.get("url") or ""))
             except ValueError:
                 parsed = None
             if group_by == "host":
@@ -2931,6 +2935,82 @@ def queue_headers_entry(url: str, headers) -> str:
     if not headers or queue_headers_error(headers):
         return url
     return "\t".join([url] + [f"{k}={v}" for k, v in headers.items()])
+
+
+# sec2-job-url-token r1: a job URL can carry a credential (?token=, a signed
+# link, user:pw@). A client is shown the display URL and the row id; the job
+# keeps its URL, and a route handed either form back finds the same job.
+_DISPLAY_QUERY_NAME = re.compile(r"[A-Za-z0-9_.\[\]-]{1,64}\Z")
+_DISPLAY_QUERY_VALUE = re.compile(r"[A-Za-z0-9._~+,-]*\Z")
+
+
+def _display_query(text: str) -> str:
+    out = []
+    for part in text.split("&"):
+        name, eq, value = part.partition("=")
+        if not _DISPLAY_QUERY_NAME.match(name):
+            out.append(part and MASK)
+        elif name.lower() in PLAIN_QUERY_NAMES and _DISPLAY_QUERY_VALUE.match(value):
+            out.append(part)
+        else:
+            out.append(f"{name}={MASK}" if eq else MASK)
+    return "&".join(out)
+
+
+def queue_display_url(url):
+    """The form of a job URL a client is shown: every query (and fragment
+    query) value whose name is not a plain routing name, and the whole userinfo
+    (r3: user too -- https://TOKEN:x-oauth-basic@host carries the token as the
+    user), replaced by MASK. A URL with nothing to mask comes back as is."""
+    if not isinstance(url, str) or not url:
+        return url
+    scheme, sep, rest = url.partition("://")
+    if not sep:  # r2: a scheme-relative //user:pw@host keeps its "//"
+        scheme, sep, rest = ("", "//", url[2:]) if url.startswith("//") else ("", "", url)
+    rest, hsep, frag = rest.partition("#")
+    rest, qsep, query = rest.partition("?")
+    host, slash, path = rest.partition("/")
+    userinfo, at, hostport = host.rpartition("@")
+    if at and sep:
+        host = f"{MASK}@{hostport}"
+    if hsep and "=" in frag:
+        frag = _display_query(frag)
+    return (f"{scheme}{sep}{host}{slash}{path}{qsep}"
+            f"{_display_query(query) if qsep else ''}{hsep}{frag}")
+
+
+def queue_row_id(url: str) -> str:
+    """A job's stable row id: derived from its URL, so no column or migration
+    and the same id from every process."""
+    return "q" + hashlib.sha256(str(url).encode("utf-8", "surrogatepass")).hexdigest()[:16]
+
+
+def queue_url_masked(url) -> bool:
+    """True for a display URL that withheld something (it cannot be fetched)."""
+    return isinstance(url, str) and MASK in url and queue_display_url(url) == url
+
+
+def queue_resolve_keys(keys, urls):
+    """Each key a client sent -> the job URL it names among ``urls``: the URL
+    itself, its row id, or its display URL when exactly one job shows it. A
+    key naming no job is returned unchanged ("not in queue" as before).
+    ``keys`` that is not a list is returned unchanged."""
+    if not isinstance(keys, list):
+        return keys
+    if all(not isinstance(k, str) or k in urls for k in keys):
+        return list(keys)
+    named = {}
+    for u in urls:
+        named[queue_row_id(u)] = u
+        d = queue_display_url(u)
+        if d != u:
+            named[d] = u if named.get(d, u) == u else None
+    out = []
+    for k in keys:
+        if isinstance(k, str) and k not in urls:
+            k = named.get(k.strip()) or k
+        out.append(k)
+    return out
 
 # dl95-porndig-3: a stopped row (Cancel, site Stop) is re-armed only through
 # "pending"; a "running" write is an in-flight transfer's trailing progress,

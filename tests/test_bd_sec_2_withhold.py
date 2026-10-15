@@ -641,13 +641,10 @@ def test_every_egress_withholds_every_r3_class(fresh_app, monkeypatch):
         signal.signal(signal.SIGALRM, old)
     for ctl in ("ctlR3aiQ7", "ctlR3fsQ7"):
         assert any(ctl in t for t in served.values()), f"BD_SEC_2_WITHHOLD_PROBE_BLIND: {ctl} served nowhere"
-    # OPEN PM CALL (r3 DONE): routes whose consumer needs the URL itself -- the noVNC iframe src and
-    # the job URL that keys a queue/history row. Exempt per (canary, route) pair, never per canary:
-    # the same job URL in broker frames and every other route must still be withheld.
-    pm_call = {("novnc_url", "/cockpit/api/novnc")} | {("frame_job", r.replace("{sid}", sid)) for r in (
-        "/api/data/queue_analytics", "/api/queue/v2", "/api/sites/{sid}/export_watchlist",
-        "/api/sites/{sid}/history/export", "/api/sites/{sid}/queue", "/api/sites/{sid}/queue/export",
-        "/api/sites/{sid}/queue/grouped", "/api/sites/{sid}/queue/search")}
+    # OPEN PM CALL (r3 DONE): routes whose consumer needs the URL itself -- the noVNC iframe src.
+    # Exempt per (canary, route) pair, never per canary. (sec2-job-url-token r1: the job URL that
+    # keys a queue/history row is served as a display URL plus row id; its 8 pairs are gone.)
+    pm_call = {("novnc_url", "/cockpit/api/novnc")}
     leaks = {k: sorted(n for n, t in served.items() if _decoded_has(t, v) and (k, n) not in pm_call)
              for k, v in c.items()}
     leaks = {k: v for k, v in leaks.items() if v}

@@ -165,17 +165,18 @@ def test_running_and_pending_shapes_are_unchanged(monkeypatch):
     }
 
     body = client.get("/api/queue/v2").get_json()
+    from bulk_downloader.db import queue_row_id  # sec2-job-url-token r1: v2 rows carry the row id
 
     assert body["running"] == [{
         "site_id": _SITE, "site_name": "Row 665 Site",
-        "avatar_color": _COLOR, "url": running_url,
+        "avatar_color": _COLOR, "url": running_url, "row_id": queue_row_id(running_url),
         "filename": "running.mp4", "progress": 25,
         "bytes_done": 10, "bytes_total": 40, "eta_seconds": 3,
         "rate_human": "10 B/s",
     }]
     assert body["waiting"] == [{
         "site_id": _SITE, "site_name": "Row 665 Site",
-        "avatar_color": _COLOR, "url": pending_url,
+        "avatar_color": _COLOR, "url": pending_url, "row_id": queue_row_id(pending_url),
         "filename": "pending.mp4", "priority": 4, "queued_ts": 7,
         # idle-site-wake r1: every waiting item names why it is not moving;
         # this fake runner has no state() and no run intent -> not_started.

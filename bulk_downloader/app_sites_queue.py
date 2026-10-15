@@ -19,6 +19,8 @@ from .runner import _ts, _ts_iso
 from datetime import datetime
 from .db import db_search
 from .db import queue_upsert
+from .db import queue_display_url, queue_resolve_keys, queue_row_id, queue_url_masked
+from .egress_withhold import withhold_text
 from .app_sites import (
     _app_runners,
     _app_s_cfg,
@@ -232,14 +234,14 @@ def api_site_queue_url(sid):
 def api_reorder(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    runners[sid].reorder_urls(request.json or []); return jsonify({"ok":True})
+    runners[sid].reorder_urls(_job_keys(runners[sid], request.json or [])); return jsonify({"ok":True})
 
 
 @sites_bp.route("/api/sites/<sid>/priority",methods=["POST"])
 def api_priority(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    data=request.json or {}; runners[sid].set_priority(data.get("url",""),data.get("priority","normal"))
+    data=request.json or {}; runners[sid].set_priority(_job_key(runners[sid], data.get("row_id") or data.get("url","")),data.get("priority","normal"))
     return jsonify({"ok":True})
 
 
@@ -248,7 +250,7 @@ def api_bulk_priority(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
     data=request.json or {}
-    urls=data.get("urls",[]) or []
+    urls=_job_keys(runners[sid], data.get("urls",[]) or [])
     pri=data.get("priority","normal")
     if pri not in ("normal","high"): return jsonify({"error":"bad priority"}),400
     n=runners[sid].bulk_priority(urls,pri)
@@ -259,7 +261,7 @@ def api_bulk_priority(sid):
 def api_bulk_delete(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    urls=(request.json or {}).get("urls",[]) or []
+    urls=_job_keys(runners[sid], (request.json or {}).get("urls",[]) or [])
     n=runners[sid].bulk_delete(urls)
     return jsonify({"ok":True,"removed":n})
 
@@ -268,7 +270,7 @@ def api_bulk_delete(sid):
 def api_bulk_approve(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    urls=(request.json or {}).get("urls",[]) or []
+    urls=_job_keys(runners[sid], (request.json or {}).get("urls",[]) or [])
     n=runners[sid].bulk_approve(urls)
     return jsonify({"ok":True,"approved":n})
 
@@ -277,7 +279,7 @@ def api_bulk_approve(sid):
 def api_bulk_pause(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}), 404
-    urls = (request.json or {}).get("urls", []) or []
+    urls = _job_keys(runners[sid], (request.json or {}).get("urls", []) or [])
     n = runners[sid].bulk_pause(urls)
     return jsonify({"ok": True, "paused": n})
 
@@ -286,7 +288,7 @@ def api_bulk_pause(sid):
 def api_bulk_resume(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}), 404
-    urls = (request.json or {}).get("urls", []) or []
+    urls = _job_keys(runners[sid], (request.json or {}).get("urls", []) or [])
     n = runners[sid].bulk_resume(urls)
     return jsonify({"ok": True, "resumed": n})
 
@@ -295,7 +297,7 @@ def api_bulk_resume(sid):
 def api_bulk_retry(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}), 404
-    urls = (request.json or {}).get("urls", []) or []
+    urls = _job_keys(runners[sid], (request.json or {}).get("urls", []) or [])
     n = runners[sid].bulk_retry(urls)
     return jsonify({"ok": True, "retried": n})
 
@@ -313,10 +315,47 @@ def api_bulk_retry(sid):
 # test_v3_49_phase2) and removing it is a separate blast radius.
 
 
+def _job_ref(url) -> dict:
+    """sec2-job-url-token r1: how a client is shown a job: its display URL
+    (token values masked) and its row id. Every route that takes a job back
+    accepts either, through _job_keys."""
+    return {"url": queue_display_url(url), "row_id": queue_row_id(url or "")}
+
+
+def _job_keys(runner, keys):
+    """The job URLs a client named by URL, row id or display URL (a key that
+    names no job is passed on unchanged). Takes runner._lock: call outside it."""
+    with runner._lock:
+        return queue_resolve_keys(keys, runner.jobs)
+
+
+def _job_key(runner, key):
+    return _job_keys(runner, [key])[0] if isinstance(key, str) and key else key
+
+
+def _include_tokens():
+    """sec2-job-url-token r1: ?include_tokens=1 asks an export for the job
+    URLs as stored, for a local backup. (False, None) when not asked; a client
+    that is not on this machine gets (False, 403 response). r2: the
+    request_peer law -- behind the shipped Caddyfile every caller's peer is
+    127.0.0.1, so the forwarded client decides, not the peer."""
+    if not _import_flag(request.args.get("include_tokens")):
+        return False, None
+    from . import request_peer
+    if request_peer.client_is_loopback(request, request_peer.trusted_proxies()):
+        return True, None
+    return False, (jsonify({"ok": False, "error":
+                            "include_tokens is for a local backup only"}), 403)
+
+
 def _client_row(row: dict) -> dict:
     """queue-headers-redact r1: a queue DB row as a client sees it. Its
     custom_headers text keeps the header names, every value masked: values
-    leave only on the job's own request."""
+    leave only on the job's own request. sec2-job-url-token r1: the url is
+    the display URL, plus the row id."""
+    row = {**row, **_job_ref(row.get("url"))}
+    if row.get("depends_on"):
+        row["depends_on"] = queue_display_url(row["depends_on"])
     if not row.get("custom_headers"):
         return row
     from .db import queue_headers_decode, queue_headers_encode, queue_headers_masked
@@ -397,11 +436,15 @@ def api_queue_export(sid):
     the values the target site already holds (queue-headers-redact r1)."""
     runners = _app_runners()
     if sid not in runners: return jsonify({"error": "Not found"}), 404
+    # sec2-job-url-token r1: token values masked unless a local backup opts in
+    raw, refused = _include_tokens()
+    if refused: return refused
     from .db import queue_load, queue_headers_decode, queue_headers_masked
     rows = queue_load(sid)
     out = []
     for r in rows:
-        row = {"url": r["url"], "priority": r.get("priority", ""),
+        row = {**({"url": r["url"]} if raw else _job_ref(r["url"])),
+               "priority": r.get("priority", ""),
                "status": r.get("status", "pending"),
                "force_download": bool(r.get("force_download")),
                "message": r.get("message", "")}
@@ -418,6 +461,7 @@ def api_queue_export(sid):
         "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "site_id": sid,
         "count": len(rows),
+        "tokens_included": raw,
         "rows": out,
     })
 
@@ -478,6 +522,13 @@ def api_queue_import(sid):
                                    for u, j in runner.jobs.items()
                                    if j.get("custom_headers")])
     headers_dropped = 0
+    # sec2-job-url-token r1: a redacted export row names a job by its display
+    # URL. One this queue holds is a duplicate; any other cannot be fetched
+    # and is dropped (counted), never queued with its mask.
+    with runner._lock:
+        shown = dict(zip((r.get("url") for r in rows),
+                         queue_resolve_keys([r.get("url") for r in rows], runner.jobs)))
+    tokens_dropped = 0
     if mode == "replace":
         with runner._lock:
             from .db import queue_delete_site
@@ -499,6 +550,9 @@ def api_queue_import(sid):
         key = job_url(url)
         if not key: continue
         if key in runner.jobs: continue  # already queued — skip
+        if queue_url_masked(key):
+            if shown.get(row.get("url")) not in runner.jobs: tokens_dropped += 1
+            continue
         if row.get("custom_headers"):
             # hand load_urls the entry form it already parses and persists;
             # the row's own "custom_headers" win over any written in the url
@@ -549,7 +603,8 @@ def api_queue_import(sid):
                 sys.stderr.write(f"  queue import metadata persist failed: {e}\n")
     return jsonify({"ok": True, "added": added,
                     "mode": mode, "site_id": sid,
-                    "headers_dropped": headers_dropped})
+                    "headers_dropped": headers_dropped,
+                    "tokens_dropped": tokens_dropped})
 
 
 @sites_bp.route("/api/sites/<sid>/queue/save_template", methods=["POST"])
@@ -616,6 +671,8 @@ def api_export(sid):
     if fmt not in ("csv","txt"):
         # was: any other fmt silently answered the txt URL list
         return jsonify({"error":"fmt must be csv or txt"}),400
+    raw, refused = _include_tokens()
+    if refused: return refused
     if fmt=="csv":
         import csv, io
         from .exports import csv_cells
@@ -626,12 +683,19 @@ def api_export(sid):
         buf=io.StringIO()
         w=csv.writer(buf,quoting=csv.QUOTE_MINIMAL,lineterminator="\n")
         w.writerow(_HISTORY_EXPORT_COLS)
-        for r in rows: w.writerow(csv_cells(r.get(c) for c in _HISTORY_EXPORT_COLS))
+        for r in rows:
+            if not raw:  # sec2-job-url-token r1
+                r = {**r, "url": queue_display_url(r.get("url")),
+                     "message": withhold_text(r.get("message"))}
+            w.writerow(csv_cells(r.get(c) for c in _HISTORY_EXPORT_COLS))
         return Response(buf.getvalue(),mimetype="text/csv",headers={
             "Content-Disposition":f"attachment;filename={sid}_history.csv",
             "X-BD-Export-Rows":str(len(rows)),
             "X-BD-Export-Truncated":"1" if truncated else "0"})
-    return Response(runners[sid].export_urls(status),mimetype="text/plain",
+    text = runners[sid].export_urls(status)
+    if not raw:
+        text = "\n".join(queue_display_url(u) for u in text.split("\n"))
+    return Response(text,mimetype="text/plain",
                     headers={"Content-Disposition":f"attachment;filename={sid}_{status or 'all'}.txt"})
 
 
@@ -648,9 +712,10 @@ def api_retry_one(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}), 404
     data = request.get_json(silent=True) or {}
-    url = data.get("url") or ""
+    url = data.get("row_id") or data.get("url") or ""
     if not url: return jsonify({"ok": False, "error": "missing url"}), 400
     runner = runners[sid]
+    url = _job_key(runner, url)
     with runner._lock:
         job = runner.jobs.get(url)
         if not job:
@@ -682,11 +747,12 @@ def api_jobs_mark(sid):
     if sid not in runners:
         return jsonify({"error": "Not found"}), 404
     body = request.get_json(silent=True) or {}
-    url = (body.get("url") or "").strip()
+    url = (body.get("row_id") or body.get("url") or "").strip()
     status = (body.get("status") or "").strip()
     message = (body.get("message") or "").strip()
     if not url:
         return jsonify({"ok": False, "error": "missing url"}), 400
+    url = _job_key(runners[sid], url)
     allowed = {"failed", "needs_review", "pending", "done"}
     if status not in allowed:
         return jsonify({"ok": False, "error": f"status must be one of {sorted(allowed)}"}), 400
@@ -744,7 +810,7 @@ def api_jobs_mark(sid):
         if _mark_tokens.get((sid, url)) is token:
             del _mark_tokens[(sid, url)]
     runner.log_event("manual_mark", f"Marked {prev}{status} via API", url=url)
-    return jsonify({"ok": True, "status": status, "url": url})
+    return jsonify({"ok": True, "status": status, **_job_ref(url)})
 
 
 @sites_bp.route("/api/sites/<sid>/jobs/bulk_mark", methods=["POST"])
@@ -757,7 +823,7 @@ def api_jobs_bulk_mark(sid):
     ok, urls_or_err = _validate_bulk_urls(body)
     if not ok:
         return jsonify(urls_or_err), 400
-    urls = urls_or_err
+    urls = _job_keys(runners[sid], urls_or_err)
     status = (body.get("status") or "").strip()
     message = (body.get("message") or "").strip()
     allowed = {"pending", "failed", "needs_review", "done"}
@@ -885,7 +951,7 @@ def api_jobs_bulk_delete(sid):
     ok, urls_or_err = _validate_bulk_urls(body)
     if not ok:
         return jsonify(urls_or_err), 400
-    urls = urls_or_err
+    urls = _job_keys(runners[sid], urls_or_err)
     force_cleanup = bool(body.get("force_cleanup", False))
     runner = runners[sid]
     affected = 0
@@ -942,7 +1008,7 @@ def api_jobs_bulk_priority(sid):
     ok, urls_or_err = _validate_bulk_urls(body)
     if not ok:
         return jsonify(urls_or_err), 400
-    urls = urls_or_err
+    urls = _job_keys(runners[sid], urls_or_err)
     priority = (body.get("priority") or "").strip()[:20]
     runner = runners[sid]
     affected = 0
@@ -997,6 +1063,7 @@ def api_jobs_reorder(sid):
         return jsonify({"ok": False,
                         "error": "ord values must be integers"}), 400
     runner = runners[sid]
+    coerced = dict(zip(_job_keys(runner, list(coerced)), coerced.values()))
     affected = 0
     with runner._lock:
         for u, ord_val in coerced.items():
@@ -1049,10 +1116,11 @@ def api_jobs_detail(sid):
     runners = _app_runners()
     if sid not in runners:
         return jsonify({"error": "Not found"}), 404
-    url = request.args.get("url", "").strip()
+    url = (request.args.get("row_id") or request.args.get("url", "")).strip()
     if not url:
         return jsonify({"ok": False, "error": "url required"}), 400
     runner = runners[sid]
+    url = _job_key(runner, url)
     with runner._lock:
         j = runner.jobs.get(url)
         if j is None:
@@ -1064,6 +1132,11 @@ def api_jobs_detail(sid):
         # queue-headers-redact r1: names only; a new dict, the job's is untouched
         from .db import queue_headers_masked
         job_snapshot["custom_headers"] = queue_headers_masked(job_snapshot["custom_headers"])
+    if "remediation" in job_snapshot:
+        # sec2-job-url-token r2: the advice quotes the job URL (its text and
+        # diagnostic_metadata.url); served as /api/status serves a job
+        from .egress_withhold import frame_view
+        job_snapshot["remediation"] = frame_view(job_snapshot["remediation"])
     # Pull prior history from the history table. O1826 M021: the url filter
     # is in the SQL, before the LIMIT -- filtering the site's newest 20 rows
     # afterwards left any job older than them with an empty history. Exact
@@ -1092,9 +1165,10 @@ def api_jobs_detail(sid):
     return jsonify({
         "ok": True,
         "site_id": sid,
-        "url": url,
+        **_job_ref(url),
         "job": job_snapshot,
-        "history": history,
+        "history": [{**h, "url": queue_display_url(h["url"])} if h.get("url") else h
+                    for h in history],
         "history_count": len(history),
         "elapsed_s": elapsed_s,
     })
@@ -1133,7 +1207,7 @@ def api_queue(sid):
     out_rows = []
     for r in rows:
         out_rows.append({
-            "url": r["url"],
+            **_job_ref(r["url"]),
             "status": r["status"],
             "message": r.get("message",""),
             "filename": r.get("filename",""),
