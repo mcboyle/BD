@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import bulk_downloader.db as DB  # type: ignore  # noqa: E402
+from bulk_downloader.egress_withhold import withhold_text  # type: ignore  # noqa: E402
 
 _FAILURE_RULES = [
     (re.compile(r"time?d?\s*out|timeout", re.I), "timeout"),
@@ -109,8 +110,10 @@ def analyze(site_id=None, stuck_retries=3, stuck_age_hours=24, cap=5000):
 
     err_rows = _collect("error", site_id, cap) + _collect("failed", site_id, cap)
     fail_categories = Counter(categorize(r.get("message")) for r in err_rows)
+    # sec2-job-url-token r1: a message names its job URL; withheld before the
+    # cut, so a reason never carries a token (as a value or as a dict key)
     retry_reasons = Counter(
-        (r.get("message") or "").strip()[:120] for r in err_rows
+        withhold_text((r.get("message") or "").strip())[:120] for r in err_rows
         if (r.get("message") or "").strip())
     retries_dist = Counter(int(r.get("retries") or 0) for r in err_rows)
     over_retry = [r for r in err_rows if int(r.get("retries") or 0) >= stuck_retries]
@@ -121,9 +124,10 @@ def analyze(site_id=None, stuck_retries=3, stuck_age_hours=24, cap=5000):
         rt = int(r.get("retries") or 0)
         age = _age_hours(r.get("ts_updated"))
         if rt >= stuck_retries or (age is not None and age >= stuck_age_hours):
-            stuck.append({"url": r.get("url"), "status": r.get("status"),
-                          "retries": rt, "age_hours": age,
-                          "message": (r.get("message") or "")[:120]})
+            stuck.append({"url": DB.queue_display_url(r.get("url")),
+                          "row_id": DB.queue_row_id(r.get("url") or ""),
+                          "status": r.get("status"), "retries": rt, "age_hours": age,
+                          "message": withhold_text(r.get("message") or "")[:120]})
 
     recovery = _safe(DB.db_queue_recovery_summary, {}) or {}
     return {

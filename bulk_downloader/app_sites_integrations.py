@@ -19,6 +19,8 @@ from .runner import _ts
 from datetime import datetime
 from .db import db_search
 from .db import queue_upsert
+from .db import queue_display_url
+from .egress_withhold import withhold_text
 from .app_sites import (
     _app_runners,
     _app_s_cfg,
@@ -366,9 +368,10 @@ def api_export_watchlist(sid):
         for u in runner.urls:
             j=runner.jobs.get(u,{})
             if "all" in statuses or j.get("status") in statuses:
+                # sec2-job-url-token r1: token values masked, URLs in the message withheld
                 if include_msg and j.get("message"):
-                    lines.append(f"# [{j.get('status','?')}] {j['message']}")
-                lines.append(u); count+=1
+                    lines.append(f"# [{j.get('status','?')}] {withhold_text(j['message'])}")
+                lines.append(queue_display_url(u)); count+=1
     lines.insert(3, f"# Total URLs: {count}")
     body="\n".join(lines)+"\n"
     fname=f"watchlist_{site_name}_{datetime.now().strftime('%Y-%m-%d')}.txt"

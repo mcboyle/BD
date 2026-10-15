@@ -375,7 +375,7 @@ def api_queue_v2():
                             running.append({
                                 "site_id": sid, "site_name": name,
                                 "avatar_color": color,
-                                "url": url,
+                                **_v2_job_ref(url),
                                 "filename": j.get("filename", ""),
                                 **_m2_live_progress(runner, url, j),
                             })
@@ -387,7 +387,7 @@ def api_queue_v2():
                             waiting.append({
                                 "site_id": sid, "site_name": name,
                                 "avatar_color": color,
-                                "url": url,
+                                **_v2_job_ref(url),
                                 "filename": j.get("filename", ""),
                                 "priority": j.get("priority", 0),
                                 "queued_ts": j.get("queued_ts", 0),
@@ -399,7 +399,7 @@ def api_queue_v2():
                             terminal.append({
                                 "site_id": sid, "site_name": name,
                                 "avatar_color": color,
-                                "url": url,
+                                **_v2_job_ref(url),
                                 "filename": j.get("filename", ""),
                                 "status": s,
                                 "message": j.get("message", ""),
@@ -413,7 +413,7 @@ def api_queue_v2():
                             unclassified.append({
                                 "site_id": sid, "site_name": name,
                                 "avatar_color": color,
-                                "url": url,
+                                **_v2_job_ref(url),
                                 "filename": j.get("filename", ""),
                                 "message": j.get("message", ""),
                                 # `status` last on purpose. The terminal record
@@ -531,6 +531,21 @@ def api_queue_starvation():
         "starved_count": sum(s.get("starved_count", 0) for s in sites),
         "ts": int(_t.time()),
     })
+def _v2_job_ref(url) -> dict:
+    """sec2-job-url-token r1: a job as a client is shown it -- its display
+    URL (token values masked) and row id; _v2_job_key takes either back."""
+    from .db import queue_display_url, queue_row_id
+    return {"url": queue_display_url(url), "row_id": queue_row_id(url or "")}
+
+
+def _v2_job_key(runner, key):
+    """The job URL a client named by URL, row id or display URL (unchanged
+    when it names none). Takes runner._lock: call outside it."""
+    from .db import queue_resolve_keys
+    with runner._lock:
+        return queue_resolve_keys([key], runner.jobs)[0]
+
+
 @queue_bp.route("/api/queue/v2/cancel", methods=["POST"])
 def api_queue_v2_cancel():
     """Cancel one URL. Body: {site_id, url}. Marks the job as stopped
@@ -545,6 +560,7 @@ def api_queue_v2_cancel():
     if not url:
         return jsonify({"ok": False, "error": "missing url"}), 400
     runner = runners[sid]
+    url = _v2_job_key(runner, url)
     with runner._lock:
         job = runner.jobs.get(url)
         if not job:
@@ -579,6 +595,7 @@ def api_queue_v2_job_log():
     if not url:
         return jsonify({"ok": False, "error": "missing url"}), 400
     runner = runners[sid]
+    url = _v2_job_key(runner, url)
     ev_log = list(getattr(runner, "_event_log", None) or [])
     # Filter to this URL and take the last `limit`. The event log is
     # already in chronological order (append-only with cap), so the
@@ -720,8 +737,9 @@ def api_queue_v2_bulk_cancel():
             continue
         runner = runners[sid]
         try:
+            job_url = _v2_job_key(runner, url)
             with runner._lock:
-                job = runner.jobs.get(url)
+                job = runner.jobs.get(job_url)
                 if not job:
                     results["errors"].append({
                         "site_id": sid, "url": url, "error": "url not in queue",
@@ -734,7 +752,7 @@ def api_queue_v2_bulk_cancel():
                     "error": f"can't cancel from status {current_status!r}",
                 })
                 continue
-            runner._update_job(url, "stopped", "Cancelled by user")
+            runner._update_job(job_url, "stopped", "Cancelled by user")
             results["cancelled"] += 1
         except Exception as e:
             results["errors"].append({
