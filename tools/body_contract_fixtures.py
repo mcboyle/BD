@@ -130,7 +130,15 @@ class _StubRunner:
         # The __getattr__ no-op returned 0 -> TypeError -> a 500 the product
         # never had (mechanism #5; FF-E, f035 TeachSessionCard.tsx). Mirror the
         # real shape with the real refusal branch: no browser is ever launched.
+        if not target_url or not target_url.startswith("http"):
+            return False, "target_url must be an http(s) URL"
         return False, "fixture runner: no browser for a manual download"
+
+    def finish_manual_download(self):
+        return False, "No pending manual download"
+
+    def cancel_manual_download(self):
+        return False, "No pending manual download"
 
     def __getattr__(self, name):
         # THE LINE, drawn where the evidence put it:
