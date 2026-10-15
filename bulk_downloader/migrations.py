@@ -23,7 +23,7 @@ import sqlite3
 import sys
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 
 class BarrierState(str, enum.Enum):
@@ -216,20 +216,30 @@ def reset_barrier() -> None:
         _GLOBAL_BARRIER = None
 
 
-# Migration registry — populated by @migration decorator.
-# Each entry: {version, name, fn(cx), applied_at}
 _MIGRATIONS: list = []
 
+def migration(version: int, name: str="", down_fn: Optional[Callable]=None):
 
-def migration(version: int, name: str = ""):
-    """Decorator: register a migration. Migrations apply in version
-    order, lowest first."""
     def decorator(fn: Callable):
-        _MIGRATIONS.append({
-            "version": int(version),
-            "name": name or fn.__name__,
-            "fn": fn,
-        })
+        for m in _MIGRATIONS:
+            if m["version"] == int(version):
+                m["name"] = name or fn.__name__
+                m["fn"] = fn
+                if down_fn is not None:
+                    m["down_fn"] = down_fn
+                return fn
+        _MIGRATIONS.append({"version": int(version), "name": name or fn.__name__, "fn": fn, "down_fn": down_fn})
+        return fn
+    return decorator
+
+def downgrade(version: int):
+
+    def decorator(fn: Callable):
+        for m in _MIGRATIONS:
+            if m["version"] == int(version):
+                m["down_fn"] = fn
+                return fn
+        _MIGRATIONS.append({"version": int(version), "name": f"migration_{version}", "fn": None, "down_fn": fn})
         return fn
     return decorator
 
@@ -291,8 +301,7 @@ def apply_pending(
     bounded adaptive retry on table lock contention (SQLITE_LOCKED).
     """
     pend = pending_migrations()
-    out = {"considered": len(pend), "applied": 0, "errors": 0,
-           "dry_run": dry_run, "results": []}
+    out: dict[str, Any] = {"considered": len(pend), "applied": 0, "errors": 0, "dry_run": dry_run, "results": []}
     if not pend:
         return out
     if dry_run:
@@ -372,7 +381,7 @@ def apply_pending(
     # the pooled handle the migrations then reuse; PRAGMA data_version on that
     # handle moves only for OTHER connections' commits. Moved, or the handle was
     # replaced -> the restore is refused and the late rows are kept.
-    pin = {}
+    pin: dict[str, Any] = {}
 
     def _take_backup():
         with _db.db_conn() as cx:
@@ -480,6 +489,138 @@ def apply_pending(
     return out
 
 
+def downgrade_to(
+    target_version: int,
+    *,
+    backup_first: bool = True,
+    zero_downtime: bool = True,
+    barrier_timeout: float = 5.0,
+    drain_timeout: float = 2.0,
+) -> dict:
+    """Revert applied migrations down to target_version (exclusive).
+
+    Migrations with version > target_version are reverted in descending order.
+    """
+    applied = applied_versions()
+    to_revert = [m for m in _MIGRATIONS if m["version"] in applied and m["version"] > target_version]
+    to_revert = sorted(to_revert, key=lambda m: m["version"], reverse=True)
+
+    out = {"considered": len(to_revert), "reverted": 0, "errors": 0, "results": []}
+    if not to_revert:
+        return out
+
+    from . import db as _db
+    barrier = get_barrier(drain_timeout=drain_timeout, barrier_timeout=barrier_timeout) if zero_downtime else None
+    total_retries = 0
+
+    if backup_first:
+        try:
+            bak = _backup_db_before_migration()
+            if bak:
+                out["backup"] = bak
+        except Exception:
+            pass
+
+    def _execute_downgrades():
+        nonlocal total_retries
+        for m in to_revert:
+            started = time.time()
+            down_fn = m.get("down_fn")
+            if not callable(down_fn):
+                err = f"Migration v{m['version']} ({m['name']}) has no callable down_fn"
+                out["errors"] += 1
+                out["results"].append({"version": m["version"], "name": m["name"], "ok": False, "error": err})
+                break
+            try:
+                with _db.db_conn() as cx:
+                    if barrier:
+                        _, retries = barrier.execute_ddl_guarded(cx, down_fn, timeout=barrier_timeout)
+                        total_retries += retries
+                    else:
+                        down_fn(cx)
+                    cx.execute("DELETE FROM schema_migrations WHERE version = ?", (m["version"],))
+                out["reverted"] += 1
+                out["results"].append({
+                    "version": m["version"],
+                    "name": m["name"],
+                    "ok": True,
+                    "duration_ms": (time.time() - started) * 1000,
+                })
+            except Exception as e:
+                out["errors"] += 1
+                out["results"].append({
+                    "version": m["version"],
+                    "name": m["name"],
+                    "ok": False,
+                    "error": str(e)[:300],
+                })
+                break
+
+    if barrier:
+        drain_start = time.time()
+        try:
+            with barrier.barrier_context(drain=True, timeout=drain_timeout):
+                _execute_downgrades()
+        except RuntimeError as exc:
+            if "drain failed" in str(exc).lower():
+                drain_dur = (time.time() - drain_start) * 1000
+                out["aborted"] = True
+                out["abort_reason"] = str(exc)
+                out["barrier_telemetry"] = {
+                    "zero_downtime": True,
+                    "drained": False,
+                    "barrier_state": barrier.state.value if hasattr(barrier.state, "value") else str(barrier.state),
+                    "leases_outstanding": barrier.active_leases_count,
+                    "drain_duration_ms": drain_dur,
+                    "retries": 0,
+                }
+                return out
+            raise
+        drain_dur = (time.time() - drain_start) * 1000
+        out["barrier_telemetry"] = {
+            "zero_downtime": True,
+            "drained": True,
+            "barrier_state": barrier.state.value if hasattr(barrier.state, "value") else str(barrier.state),
+            "leases_outstanding": barrier.active_leases_count,
+            "drain_duration_ms": drain_dur,
+            "retries": total_retries,
+        }
+    else:
+        _execute_downgrades()
+
+    return out
+
+
+def step_down(target_version: Optional[int] = None) -> dict:
+    """Step down by one version, or to target_version."""
+    applied = sorted(applied_versions())
+    if not applied:
+        return {"considered": 0, "reverted": 0, "errors": 0, "results": []}
+    if target_version is None:
+        target = applied[-2] if len(applied) >= 2 else 0
+    else:
+        target = target_version
+    return downgrade_to(target, backup_first=False)
+
+
+def step_up(target_version: Optional[int] = None) -> dict:
+    """Step up by one version, or to target_version."""
+    pend = pending_migrations()
+    if not pend:
+        return {"considered": 0, "applied": 0, "errors": 0, "results": []}
+    if target_version is not None:
+        target_v = target_version
+    else:
+        target_v = pend[0]["version"]
+
+    saved = list(_MIGRATIONS)
+    try:
+        _MIGRATIONS[:] = [m for m in saved if m["version"] <= target_v]
+        return apply_pending(backup_first=False)
+    finally:
+        _MIGRATIONS[:] = saved
+
+
 def _backup_db_before_migration(source=None):
     """ROB-2: copy the live DB aside before migrations mutate it, returning
     the backup path (``<db>.premigration.bak``) or None if there is no DB file /
@@ -516,7 +657,16 @@ def _backup_db_before_migration(source=None):
             opened = cx.execute("PRAGMA database_list").fetchone()[2]
             if not opened or not os.path.samefile(opened, src):
                 raise sqlite3.OperationalError("seam handle is not %s" % src)
-            cx.execute("VACUUM INTO ?", (tmp,))
+            # Use non-blocking online backup API with 100-page steps and 2ms sleeps to yield lock
+            try:
+                raw_cx = getattr(cx, "_cx", cx)
+                dst_conn = sqlite3.connect(tmp)
+                try:
+                    raw_cx.backup(dst_conn, pages=100, sleep=0.002)
+                finally:
+                    dst_conn.close()
+            except Exception:
+                cx.execute("VACUUM INTO ?", (tmp,))
 
         if source is not None:
             _copy(source)
@@ -570,9 +720,7 @@ def _restore_db_from_backup(bak: str) -> bool:
 
 
 def _snapshot_schema(cx) -> dict:
-    """Capture a structural snapshot of `cx`'s schema for diff comparison.
-    Returns {tables: set[str], columns: {table: set[str]}}."""
-    out = {"tables": set(), "columns": {}}
+    out: dict[str, Any] = {"tables": set(), "columns": {}}
     for row in cx.execute(
         "SELECT name FROM sqlite_master WHERE type='table'").fetchall():
         t = row[0]
@@ -614,10 +762,7 @@ EXPECTED_SCHEMA = {
 
 
 def detect_drift() -> dict:
-    """Compare actual DB schema to EXPECTED_SCHEMA. Returns
-    {ok, missing_tables, missing_columns, extra_tables}."""
-    out = {"ok": True, "missing_tables": [],
-           "missing_columns": {}, "extra_tables": []}
+    out: dict[str, Any] = {"ok": True, "missing_tables": [], "missing_columns": {}, "extra_tables": []}
     try:
         from . import db as _db
         with _db.db_conn() as cx:
@@ -674,39 +819,60 @@ def reset_registry():
 
 @migration(version=1, name="ensure_history_indexes")
 def _m1(cx):
-    """Add commonly-needed indexes that earlier versions may have missed."""
     cx.execute("CREATE INDEX IF NOT EXISTS idx_history_status ON history(status)")
     cx.execute("CREATE INDEX IF NOT EXISTS idx_history_site ON history(site_id)")
     cx.execute("CREATE INDEX IF NOT EXISTS idx_history_ts ON history(ts)")
 
+@downgrade(version=1)
+def _down_m1(cx):
+    cx.execute("DROP INDEX IF EXISTS idx_history_status")
+    cx.execute("DROP INDEX IF EXISTS idx_history_site")
+    cx.execute("DROP INDEX IF EXISTS idx_history_ts")
 
 @migration(version=2, name="add_history_retry_after")
 def _m2(cx):
-    """Add a retry_after column to history if missing. Used by Phase 99
-    circuit breaker to delay retries."""
     cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
     if "retry_after" not in cols:
         cx.execute("ALTER TABLE history ADD COLUMN retry_after TEXT DEFAULT NULL")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_history_retry_after_archive" in tables:
+        cx.execute("""
+            UPDATE history
+            SET retry_after = (
+                SELECT retry_after FROM _downgrade_history_retry_after_archive
+                WHERE _downgrade_history_retry_after_archive.id = history.id
+            )
+            WHERE id IN (SELECT id FROM _downgrade_history_retry_after_archive)
+        """)
 
-
-# ── v3.50 (Phase 3): library + tags schema ──────────────────────────────
-# The library table is the operator's collection: one row per FILE ON
-# DISK that the app knows about. Rows are produced two ways:
-#
-#   1. Forward: when runner completes a download, library_record() is
-#      called with the new file path + extracted metadata
-#   2. Backward: the library scanner walks configured roots and reconciles
-#      against the history table — historical downloads pre-dating this
-#      release pick up a library row on first scan
-#
-# The `tags` table is operator-defined free-form labels. A row in
-# `library_tags` is a many-to-many junction. ON DELETE CASCADE so dropping
-# a library row also drops its tag links (orphan-cleanup is essentially
-# free).
+@downgrade(version=2)
+def _down_m2(cx):
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
+    if "retry_after" not in cols:
+        return
+    cx.execute("""
+        CREATE TABLE IF NOT EXISTS _downgrade_history_retry_after_archive (
+            id INTEGER PRIMARY KEY,
+            retry_after TEXT,
+            archived_at REAL DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    cx.execute("""
+        INSERT OR REPLACE INTO _downgrade_history_retry_after_archive (id, retry_after)
+        SELECT id, retry_after FROM history WHERE retry_after IS NOT NULL
+    """)
+    try:
+        cx.execute("ALTER TABLE history DROP COLUMN retry_after")
+    except Exception:
+        cols_keep = [c for c in cols if c != "retry_after"]
+        cols_csv = ", ".join((f'"{c}"' for c in cols_keep))
+        cx.execute(f"CREATE TABLE history_recreate_tmp AS SELECT {cols_csv} FROM history WHERE 0")
+        cx.execute(f"INSERT INTO history_recreate_tmp ({cols_csv}) SELECT {cols_csv} FROM history")
+        cx.execute("DROP TABLE history")
+        cx.execute("ALTER TABLE history_recreate_tmp RENAME TO history")
 
 @migration(version=3, name="create_library_table")
 def _m3(cx):
-    """Create the library table. Idempotent — CREATE IF NOT EXISTS."""
     cx.execute("""CREATE TABLE IF NOT EXISTS library(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         history_id INTEGER,
@@ -732,29 +898,35 @@ def _m3(cx):
         added_at REAL NOT NULL DEFAULT 0,
         FOREIGN KEY(history_id) REFERENCES history(id) ON DELETE SET NULL
     )""")
-    # Indexes — every column we filter or sort by deserves one because
-    # the library tab supports browse-by-anything.
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lib_site     ON library(site_id)")
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lib_watched  ON library(watched)")
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lib_studio   ON library(studio)")
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lib_performer ON library(performer)")
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lib_year     ON library(year)")
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lib_added_at ON library(added_at DESC)")
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lib_rating   ON library(rating)")
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_lib_exists   ON library(file_exists)")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_lib_site     ON library(site_id)")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_lib_watched  ON library(watched)")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_lib_studio   ON library(studio)")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_lib_performer ON library(performer)")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_lib_year     ON library(year)")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_lib_added_at ON library(added_at DESC)")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_lib_rating   ON library(rating)")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_lib_exists   ON library(file_exists)")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_library_archive" in tables:
+        lib_cols = [r[1] for r in cx.execute("PRAGMA table_info(library)").fetchall()]
+        arch_cols = [r[1] for r in cx.execute("PRAGMA table_info(_downgrade_library_archive)").fetchall()]
+        common = [c for c in lib_cols if c in arch_cols]
+        if common:
+            cols_csv = ", ".join((f'"{c}"' for c in common))
+            cx.execute(f"INSERT OR IGNORE INTO library ({cols_csv}) SELECT {cols_csv} FROM _downgrade_library_archive")
 
+@downgrade(version=3)
+def _down_m3(cx):
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "library" not in tables:
+        return
+    cx.execute("CREATE TABLE IF NOT EXISTS _downgrade_library_archive AS SELECT * FROM library")
+    for idx in ["idx_lib_site", "idx_lib_watched", "idx_lib_studio", "idx_lib_performer", "idx_lib_year", "idx_lib_added_at", "idx_lib_rating", "idx_lib_exists", "idx_lib_history_id"]:
+        cx.execute(f"DROP INDEX IF EXISTS {idx}")
+    cx.execute("DROP TABLE IF EXISTS library")
 
 @migration(version=4, name="create_tags_tables")
 def _m4(cx):
-    """Operator-defined tags + the library↔tags junction."""
     cx.execute("""CREATE TABLE IF NOT EXISTS tags(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
@@ -770,135 +942,343 @@ def _m4(cx):
         FOREIGN KEY (library_id) REFERENCES library(id) ON DELETE CASCADE,
         FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
     )""")
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_libtag_tag ON library_tags(tag_id)")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_libtag_tag ON library_tags(tag_id)")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_tags_archive" in tables:
+        cx.execute("INSERT OR IGNORE INTO tags SELECT * FROM _downgrade_tags_archive")
+    if "_downgrade_library_tags_archive" in tables:
+        cx.execute("INSERT OR IGNORE INTO library_tags SELECT * FROM _downgrade_library_tags_archive")
 
+@downgrade(version=4)
+def _down_m4(cx):
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "tags" in tables:
+        cx.execute("CREATE TABLE IF NOT EXISTS _downgrade_tags_archive AS SELECT * FROM tags")
+    if "library_tags" in tables:
+        cx.execute("CREATE TABLE IF NOT EXISTS _downgrade_library_tags_archive AS SELECT * FROM library_tags")
+    cx.execute("DROP INDEX IF EXISTS idx_libtag_tag")
+    cx.execute("DROP TABLE IF EXISTS library_tags")
+    cx.execute("DROP TABLE IF EXISTS tags")
 
 @migration(version=5, name="add_history_library_back_ref")
 def _m5(cx):
-    """Add a library_id column to history so we can navigate from a
-    history row to its library entry in one hop.
-
-    Soft-add: existing history rows get NULL until the scanner backfills.
-    The runner forward-path populates this column on new completions."""
-    cols = {r[1] for r in cx.execute(
-        "PRAGMA table_info(history)").fetchall()}
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
     if "library_id" not in cols:
-        cx.execute(
-            "ALTER TABLE history ADD COLUMN library_id INTEGER DEFAULT NULL")
-    # staging-integrity F6: outside the column guard -- a run killed between the
-    # ALTER and the index would otherwise skip the index on every later run.
-    cx.execute(
-        "CREATE INDEX IF NOT EXISTS idx_history_lib "
+        cx.execute("ALTER TABLE history ADD COLUMN library_id INTEGER DEFAULT NULL")
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_history_lib "
         "ON history(library_id)")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_history_library_id_archive" in tables:
+        cx.execute("""
+            UPDATE history
+            SET library_id = (
+                SELECT library_id FROM _downgrade_history_library_id_archive
+                WHERE _downgrade_history_library_id_archive.id = history.id
+            )
+            WHERE id IN (SELECT id FROM _downgrade_history_library_id_archive)
+        """)
 
+@downgrade(version=5)
+def _down_m5(cx):
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
+    if "library_id" not in cols:
+        return
+    cx.execute("""
+        CREATE TABLE IF NOT EXISTS _downgrade_history_library_id_archive (
+            id INTEGER PRIMARY KEY,
+            library_id INTEGER,
+            archived_at REAL DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    cx.execute("""
+        INSERT OR REPLACE INTO _downgrade_history_library_id_archive (id, library_id)
+        SELECT id, library_id FROM history WHERE library_id IS NOT NULL
+    """)
+    cx.execute("DROP INDEX IF EXISTS idx_history_lib")
+    try:
+        cx.execute("ALTER TABLE history DROP COLUMN library_id")
+    except Exception:
+        cols_keep = [c for c in cols if c != "library_id"]
+        cols_csv = ", ".join((f'"{c}"' for c in cols_keep))
+        cx.execute(f"CREATE TABLE history_recreate_tmp AS SELECT {cols_csv} FROM history WHERE 0")
+        cx.execute(f"INSERT INTO history_recreate_tmp ({cols_csv}) SELECT {cols_csv} FROM history")
+        cx.execute("DROP TABLE history")
+        cx.execute("ALTER TABLE history_recreate_tmp RENAME TO history")
 
 @migration(version=6, name="add_history_removed_at")
 def _m6(cx):
-    """Soft-delete support for history. Setting removed_at hides the row
-    from most queries (db_search filters on removed_at IS NULL by default
-    after this) without losing the audit trail."""
-    cols = {r[1] for r in cx.execute(
-        "PRAGMA table_info(history)").fetchall()}
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
     if "removed_at" not in cols:
-        cx.execute(
-            "ALTER TABLE history ADD COLUMN removed_at REAL DEFAULT NULL")
+        cx.execute("ALTER TABLE history ADD COLUMN removed_at REAL DEFAULT NULL")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_history_removed_at_archive" in tables:
+        cx.execute("""
+            UPDATE history
+            SET removed_at = (
+                SELECT removed_at FROM _downgrade_history_removed_at_archive
+                WHERE _downgrade_history_removed_at_archive.id = history.id
+            )
+            WHERE id IN (SELECT id FROM _downgrade_history_removed_at_archive)
+        """)
 
+@downgrade(version=6)
+def _down_m6(cx):
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
+    if "removed_at" not in cols:
+        return
+    cx.execute("""
+        CREATE TABLE IF NOT EXISTS _downgrade_history_removed_at_archive (
+            id INTEGER PRIMARY KEY,
+            removed_at REAL,
+            archived_at REAL DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    cx.execute("""
+        INSERT OR REPLACE INTO _downgrade_history_removed_at_archive (id, removed_at)
+        SELECT id, removed_at FROM history WHERE removed_at IS NOT NULL
+    """)
+    try:
+        cx.execute("ALTER TABLE history DROP COLUMN removed_at")
+    except Exception:
+        cols_keep = [c for c in cols if c != "removed_at"]
+        cols_csv = ", ".join((f'"{c}"' for c in cols_keep))
+        cx.execute(f"CREATE TABLE history_recreate_tmp AS SELECT {cols_csv} FROM history WHERE 0")
+        cx.execute(f"INSERT INTO history_recreate_tmp ({cols_csv}) SELECT {cols_csv} FROM history")
+        cx.execute("DROP TABLE history")
+        cx.execute("ALTER TABLE history_recreate_tmp RENAME TO history")
 
 @migration(version=7, name="add_history_honeypot_score")
 def _m7(cx):
-    """P5-2b: persist the resolve-time honeypot score on the history row.
-
-    Soft-add: existing rows get NULL. The per-site threshold learner
-    (honeypot_threshold.py) quantile-fits the non-NULL scores on confirmed
-    traps; a fully-NULL column simply yields no samples → default
-    threshold, so this migration is behaviourally inert until db_log
-    starts stamping scores."""
-    cols = {r[1] for r in cx.execute(
-        "PRAGMA table_info(history)").fetchall()}
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
     if "honeypot_score" not in cols:
-        cx.execute(
-            "ALTER TABLE history ADD COLUMN honeypot_score REAL DEFAULT NULL")
+        cx.execute("ALTER TABLE history ADD COLUMN honeypot_score REAL DEFAULT NULL")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_history_honeypot_archive" in tables:
+        cx.execute("""
+            UPDATE history
+            SET honeypot_score = (
+                SELECT honeypot_score FROM _downgrade_history_honeypot_archive
+                WHERE _downgrade_history_honeypot_archive.id = history.id
+            )
+            WHERE id IN (SELECT id FROM _downgrade_history_honeypot_archive)
+        """)
 
+@downgrade(version=7)
+def _down_m7(cx):
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
+    if "honeypot_score" not in cols:
+        return
+    cx.execute("""
+        CREATE TABLE IF NOT EXISTS _downgrade_history_honeypot_archive (
+            id INTEGER PRIMARY KEY,
+            honeypot_score REAL,
+            archived_at REAL DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    cx.execute("""
+        INSERT OR REPLACE INTO _downgrade_history_honeypot_archive (id, honeypot_score)
+        SELECT id, honeypot_score FROM history WHERE honeypot_score IS NOT NULL
+    """)
+    try:
+        cx.execute("ALTER TABLE history DROP COLUMN honeypot_score")
+    except Exception:
+        cols_keep = [c for c in cols if c != "honeypot_score"]
+        cols_csv = ", ".join((f'"{c}"' for c in cols_keep))
+        cx.execute(f"CREATE TABLE history_recreate_tmp AS SELECT {cols_csv} FROM history WHERE 0")
+        cx.execute(f"INSERT INTO history_recreate_tmp ({cols_csv}) SELECT {cols_csv} FROM history")
+        cx.execute("DROP TABLE history")
+        cx.execute("ALTER TABLE history_recreate_tmp RENAME TO history")
 
 @migration(version=8, name="add_history_bytes_fetched")
 def _m8(cx):
-    """v3.66.819: record how many bytes BD actually transferred for a job.
-
-    No existing column could answer "did this download anything". file_size is
-    an on-disk stat, so a job that skipped because the file was already present
-    recorded the size of the file that was already there; message is prose that
-    varies by path, and one no-fetch path positively asserts a download that
-    did not happen. Fifteen call sites write status='done' and at least five of
-    them transfer nothing.
-
-    Soft-add: existing rows get NULL, which means "this path does not record
-    it" -- UNKNOWN, and never proof of a download. Consumers must not read NULL
-    as a transfer, or the migration window reopens the hole for the whole
-    existing history.
-
-    #63 originally added this as a bespoke loop in db.db_init(), outside this
-    framework, so the schema_migrations ledger had no record of it. This is that
-    correction; the column is idempotent either way.
-    """
-    cols = {r[1] for r in cx.execute(
-        "PRAGMA table_info(history)").fetchall()}
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
     if "bytes_fetched" not in cols:
-        cx.execute(
-            "ALTER TABLE history ADD COLUMN bytes_fetched INTEGER DEFAULT NULL")
+        cx.execute("ALTER TABLE history ADD COLUMN bytes_fetched INTEGER DEFAULT NULL")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_history_bytes_archive" in tables:
+        cx.execute("""
+            UPDATE history
+            SET bytes_fetched = (
+                SELECT bytes_fetched FROM _downgrade_history_bytes_archive
+                WHERE _downgrade_history_bytes_archive.id = history.id
+            )
+            WHERE id IN (SELECT id FROM _downgrade_history_bytes_archive)
+        """)
 
+@downgrade(version=8)
+def _down_m8(cx):
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
+    if "bytes_fetched" not in cols:
+        return
+    cx.execute("""
+        CREATE TABLE IF NOT EXISTS _downgrade_history_bytes_archive (
+            id INTEGER PRIMARY KEY,
+            bytes_fetched INTEGER,
+            archived_at REAL DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    cx.execute("""
+        INSERT OR REPLACE INTO _downgrade_history_bytes_archive (id, bytes_fetched)
+        SELECT id, bytes_fetched FROM history WHERE bytes_fetched IS NOT NULL
+    """)
+    try:
+        cx.execute("ALTER TABLE history DROP COLUMN bytes_fetched")
+    except Exception:
+        cols_keep = [c for c in cols if c != "bytes_fetched"]
+        cols_csv = ", ".join((f'"{c}"' for c in cols_keep))
+        cx.execute(f"CREATE TABLE history_recreate_tmp AS SELECT {cols_csv} FROM history WHERE 0")
+        cx.execute(f"INSERT INTO history_recreate_tmp ({cols_csv}) SELECT {cols_csv} FROM history")
+        cx.execute("DROP TABLE history")
+        cx.execute("ALTER TABLE history_recreate_tmp RENAME TO history")
 
 @migration(version=9, name="add_history_transfer_mode")
 def _m9(cx):
-    """Record WHICH transport moved the bytes: 'segmented' | 'http' | 'browser'.
-
-    No existing column could answer "did a segmented download complete". The
-    live check that asks (L12) inferred it from `url LIKE '%.m3u8%'` and
-    `message LIKE '%hls%'`, and both are structurally unable to see it: db_log
-    is passed the PAGE url, so the manifest string never reaches the table, and
-    the done-path message is the empty string. Measured on the deploy host
-    2026-07-30 -- a segmented download completed and L12 reported "none
-    segmented ... no stream was queued".
-
-    Soft-add: existing rows get NULL, which means "this path does not record
-    it". NULL is a lower bound and never a negative -- runner_extractors.
-    _try_plugin_extractor performs a real segmented transfer and logs no row at
-    all, so a consumer may read >0 as proof the path works but must not read 0
-    as proof it does not.
-
-    NO BACKFILL, DELIBERATELY. The obvious one -- set 'segmented' where the url
-    looks like a manifest -- would write this cut's own defect into the table as
-    though it were a recorded fact, which is strictly worse than a NULL that
-    says "unknown". tests/test_l12_sees_the_transfer_that_happened.py pins that.
-    """
-    cols = {r[1] for r in cx.execute(
-        "PRAGMA table_info(history)").fetchall()}
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
     if "transfer_mode" not in cols:
-        cx.execute(
-            "ALTER TABLE history ADD COLUMN transfer_mode TEXT DEFAULT NULL")
+        cx.execute("ALTER TABLE history ADD COLUMN transfer_mode TEXT DEFAULT NULL")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_history_transfer_mode_archive" in tables:
+        cx.execute("""
+            UPDATE history
+            SET transfer_mode = (
+                SELECT transfer_mode FROM _downgrade_history_transfer_mode_archive
+                WHERE _downgrade_history_transfer_mode_archive.id = history.id
+            )
+            WHERE id IN (SELECT id FROM _downgrade_history_transfer_mode_archive)
+        """)
 
+@downgrade(version=9)
+def _down_m9(cx):
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
+    if "transfer_mode" not in cols:
+        return
+    cx.execute("""
+        CREATE TABLE IF NOT EXISTS _downgrade_history_transfer_mode_archive (
+            id INTEGER PRIMARY KEY,
+            transfer_mode TEXT,
+            archived_at REAL DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    cx.execute("""
+        INSERT OR REPLACE INTO _downgrade_history_transfer_mode_archive (id, transfer_mode)
+        SELECT id, transfer_mode FROM history WHERE transfer_mode IS NOT NULL
+    """)
+    try:
+        cx.execute("ALTER TABLE history DROP COLUMN transfer_mode")
+    except Exception:
+        cols_keep = [c for c in cols if c != "transfer_mode"]
+        cols_csv = ", ".join((f'"{c}"' for c in cols_keep))
+        cx.execute(f"CREATE TABLE history_recreate_tmp AS SELECT {cols_csv} FROM history WHERE 0")
+        cx.execute(f"INSERT INTO history_recreate_tmp ({cols_csv}) SELECT {cols_csv} FROM history")
+        cx.execute("DROP TABLE history")
+        cx.execute("ALTER TABLE history_recreate_tmp RENAME TO history")
 
 @migration(version=10, name="add_library_title_source")
 def _m10(cx):
-    """Record which page surface supplied ``library.title``.
-
-    Existing rows stay empty deliberately: guessing provenance for an old blank
-    title would erase the distinction between unharvested and harvested data.
-    """
-    cols = {r[1] for r in cx.execute(
-        "PRAGMA table_info(library)").fetchall()}
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(library)").fetchall()}
     if "title_source" not in cols:
-        cx.execute(
-            "ALTER TABLE library ADD COLUMN title_source TEXT DEFAULT ''")
+        cx.execute("ALTER TABLE library ADD COLUMN title_source TEXT DEFAULT ''")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_library_title_source_archive" in tables:
+        cx.execute("""
+            UPDATE library
+            SET title_source = (
+                SELECT title_source FROM _downgrade_library_title_source_archive
+                WHERE _downgrade_library_title_source_archive.id = library.id
+            )
+            WHERE id IN (SELECT id FROM _downgrade_library_title_source_archive)
+        """)
 
+@downgrade(version=10)
+def _down_m10(cx):
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "library" not in tables:
+        return
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(library)").fetchall()}
+    if "title_source" not in cols:
+        return
+    cx.execute("""
+        CREATE TABLE IF NOT EXISTS _downgrade_library_title_source_archive (
+            id INTEGER PRIMARY KEY,
+            title_source TEXT,
+            archived_at REAL DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    cx.execute("""
+        INSERT OR REPLACE INTO _downgrade_library_title_source_archive (id, title_source)
+        SELECT id, title_source FROM library WHERE title_source != ''
+    """)
+    try:
+        cx.execute("ALTER TABLE library DROP COLUMN title_source")
+    except Exception:
+        cols_keep = [c for c in cols if c != "title_source"]
+        cols_csv = ", ".join((f'"{c}"' for c in cols_keep))
+        cx.execute(f"CREATE TABLE library_recreate_tmp AS SELECT {cols_csv} FROM library WHERE 0")
+        cx.execute(f"INSERT INTO library_recreate_tmp ({cols_csv}) SELECT {cols_csv} FROM library")
+        cx.execute("DROP TABLE library")
+        cx.execute("ALTER TABLE library_recreate_tmp RENAME TO library")
 
 @migration(version=11, name="add_history_egress_ip")
 def _m11(cx):
-    """Row 773: every history row names the egress it left through.
-
-    Rows written before the column existed were never measured, so they
-    take the same honest stamp a live unmeasured write takes: "UNKNOWN".
-    """
     cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
     if "egress_ip" not in cols:
         cx.execute("ALTER TABLE history ADD COLUMN egress_ip TEXT NOT NULL DEFAULT 'UNKNOWN'")
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "_downgrade_history_egress_ip_archive" in tables:
+        cx.execute("""
+            UPDATE history
+            SET egress_ip = (
+                SELECT egress_ip FROM _downgrade_history_egress_ip_archive
+                WHERE _downgrade_history_egress_ip_archive.id = history.id
+            )
+            WHERE id IN (SELECT id FROM _downgrade_history_egress_ip_archive)
+        """)
+
+@downgrade(version=11)
+def _down_m11(cx):
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
+    if "egress_ip" not in cols:
+        return
+    cx.execute("""
+        CREATE TABLE IF NOT EXISTS _downgrade_history_egress_ip_archive (
+            id INTEGER PRIMARY KEY,
+            egress_ip TEXT,
+            archived_at REAL DEFAULT (strftime('%s', 'now'))
+        )
+    """)
+    cx.execute("""
+        INSERT OR REPLACE INTO _downgrade_history_egress_ip_archive (id, egress_ip)
+        SELECT id, egress_ip FROM history WHERE egress_ip != 'UNKNOWN'
+    """)
+    try:
+        cx.execute("ALTER TABLE history DROP COLUMN egress_ip")
+    except Exception:
+        cols_keep = [c for c in cols if c != "egress_ip"]
+        cols_csv = ", ".join((f'"{c}"' for c in cols_keep))
+        cx.execute(f"CREATE TABLE history_recreate_tmp AS SELECT {cols_csv} FROM history WHERE 0")
+        cx.execute(f"INSERT INTO history_recreate_tmp ({cols_csv}) SELECT {cols_csv} FROM history")
+        cx.execute("DROP TABLE history")
+        cx.execute("ALTER TABLE history_recreate_tmp RENAME TO history")
+
+@migration(version=12, name="add_covering_indexes")
+def _m12(cx):
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "library" in tables:
+        cx.execute("CREATE INDEX IF NOT EXISTS idx_lib_history_id ON library(history_id)")
+    if "history" in tables:
+        cx.execute("CREATE INDEX IF NOT EXISTS idx_hist_url_status ON history(url, status)")
+        cx.execute("CREATE INDEX IF NOT EXISTS idx_hist_active_site_ts ON history(site_id, ts DESC) WHERE removed_at IS NULL")
+        cx.execute("CREATE INDEX IF NOT EXISTS idx_hist_library_id ON history(library_id) WHERE library_id IS NOT NULL")
+    if "queue" in tables:
+        cx.execute("CREATE INDEX IF NOT EXISTS idx_q_site_status_ord ON queue(site_id, status, ord)")
+    if "tags" in tables:
+        cx.execute("CREATE INDEX IF NOT EXISTS idx_tags_created_at ON tags(created_at)")
+
+@downgrade(version=12)
+def _down_m12(cx):
+    cx.execute("DROP INDEX IF EXISTS idx_lib_history_id")
+    cx.execute("DROP INDEX IF EXISTS idx_hist_url_status")
+    cx.execute("DROP INDEX IF EXISTS idx_hist_active_site_ts")
+    cx.execute("DROP INDEX IF EXISTS idx_hist_library_id")
+    cx.execute("DROP INDEX IF EXISTS idx_q_site_status_ord")
+    cx.execute("DROP INDEX IF EXISTS idx_tags_created_at")
