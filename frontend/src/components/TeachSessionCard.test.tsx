@@ -69,7 +69,7 @@ describe("TeachSessionCard", () => {
     fireEvent.click(button("Confirm"));
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
-    expect(apiPost).toHaveBeenCalledWith("/api/sites/site%201/take_over_done", {});
+    expect(apiPost).toHaveBeenCalledWith("/api/sites/site%201/take_over_done");
     const learned = await screen.findByLabelText("Learned selectors");
     const terms = within(learned).getAllByRole("term").map((t) => t.textContent);
     expect(terms).toEqual(["row_selector", "dismiss_selectors"]);
@@ -98,7 +98,7 @@ describe("TeachSessionCard", () => {
     fireEvent.click(button("Cancel teach"));
     fireEvent.click(button("Yes, cancel teach"));
     await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1));
-    expect(apiPost).toHaveBeenCalledWith("/api/sites/site%201/take_over_cancel", {});
+    expect(apiPost).toHaveBeenCalledWith("/api/sites/site%201/take_over_cancel");
     expect(await screen.findByRole("status")).toHaveTextContent("Manual download cancelled");
     expect(screen.queryByLabelText("Learned selectors")).not.toBeInTheDocument();
     expect(screen.queryByText("No selectors were learned.")).not.toBeInTheDocument();

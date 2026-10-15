@@ -67,9 +67,9 @@ export function TeachSessionCard({
         return apiPost<TeachResult>(`/api/sites/${sid}/take_over_url`, { url: target });
       }
       if (step === "done") {
-        return apiPost<TeachResult>(`/api/sites/${sid}/take_over_done`, {});
+        return apiPost<TeachResult>(`/api/sites/${sid}/take_over_done`);
       }
-      return apiPost<TeachResult>(`/api/sites/${sid}/take_over_cancel`, {});
+      return apiPost<TeachResult>(`/api/sites/${sid}/take_over_cancel`);
     },
     onSuccess: (res, step) => {
       const reason = res.error || (typeof res.message === "string" ? res.message : "");
