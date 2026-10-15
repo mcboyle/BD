@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6522,
+  "edge_count": 6528,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2770,6 +2770,11 @@
       "bulk_downloader/app.py",
       "tools/cockpit_console.py"
     ],
+    "tests/test_bcf_main_latent_take_over_contract.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/template_manager.py",
+      "tools/body_contract_fixtures.py"
+    ],
     "tests/test_bd_aikey_1_blank_key_keeps_stored.py": [
       "bulk_downloader/aiassist.py",
       "bulk_downloader/app.py",
@@ -3220,6 +3225,11 @@
     ],
     "tests/test_cockpit_navigation_contract.py": [
       "bulk_downloader/app_cockpit_home.py"
+    ],
+    "tests/test_cockpit_relogin_col.py": [
+      "bulk_downloader/cookie_relogin.py",
+      "bulk_downloader/db.py",
+      "tools/cockpit_templates.py"
     ],
     "tests/test_cockpit_route_contract.py": [
       "bulk_downloader/app_cockpit_home.py"
