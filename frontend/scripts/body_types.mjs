@@ -118,6 +118,9 @@ for (const sf of program.getSourceFiles()) {
           let unknownType = false;
           if (!bodyArg) {
             body = {};
+          } else if (ts.isObjectLiteralExpression(bodyArg) && bodyArg.properties.length === 0) {
+            // Syntax proves this body is empty; a propertyless open type does not.
+            body = {};
           } else {
             const t = checker.getTypeAtLocation(bodyArg);
             const props = t.getProperties();
