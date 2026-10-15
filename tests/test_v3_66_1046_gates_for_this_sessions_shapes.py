@@ -24,14 +24,15 @@ import ast
 import importlib.machinery
 import importlib.util
 import json
-import math
 import os
 import pathlib
 import re
+import resource
 import subprocess
 import sys
 import tempfile
 import time
+import warnings
 
 import pytest
 
@@ -443,12 +444,45 @@ _TOOL_STATE_SHARDS = {
         "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py",
 }
 
-# The stretch a suite may suffer from sibling workers before its budget fires.
-# NOT a guess dressed as a constant: the 2026-08-24 wedge needed only 221 -> 240,
-# a factor of 1.09, so anything at or below ~1.1 reproduces the defect. 2.0 is
-# the smallest round factor that leaves the worst suite (168s) unable to fire on
-# healthy work while still bounding a genuine hang in minutes rather than hours.
-_CONTENTION_FACTOR = 2.0
+# THE BUDGET IS CPU TIME, NOT WALL TIME (row gate-model-cpu-budget, PM-B
+# 2026-10-14 09:12Z; harness-work/O1789/main-red/stale-gate-dbb2a1a/fix-r1). The
+# wall model it replaces -- elapsed <= baseline x 2.0 x (1 + load1/cores) --
+# failed correct work: S64-D's loaded battery stretched 1040 3.7x (45 -> 167 s)
+# at a measured load factor of 1.36, other nodes 2.9-3.4x in the same rep, and
+# splitting the suite cannot help because the part size cancels out of that
+# inequality. load1 is a lagging one-minute average of the whole host's run
+# queue; the CPU seconds the inner suite itself burns are a property of the suite.
+#
+# Measured 2026-10-14 on spare6 (10.0.70.186, 24 cores, load1 1.3-2.6) with
+# this runner's own argv and env: children user+sys seconds from
+# resource.getrusage(RUSAGE_CHILDREN) around subprocess.run, three idle runs per
+# suite, math.ceil of the largest (1043: 216.6/221.6/205.9 s). A different host
+# from the wall table above, which is why 1043's CPU exceeds its wall 196.
+_SUITE_CPU_BASELINE_S = {
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py": 222,
+    "tests/test_v3_66_1040_remote_job_registry.py": 32,
+    "tests/test_v3_66_1044_run_context_and_chains.py": 2,
+    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py": 3,
+}
+
+# How far a suite's CPU seconds may exceed its idle measurement before the gate
+# calls it a regression -- the file's existing 2.0, now applied to the quantity
+# that load does not stretch. NOT a guess dressed as a constant: under one busy
+# loop per core the measured CPU inflation was at most
+# _LOADED_CPU_INFLATION_MEASURED, and 2.0 still refuses extra work of 1.5x the
+# baseline (2.5x in total).
+_CPU_HEADROOM = 2.0
+# Same host, 24 busy loops, 2 reps of 1040/1044/1054: loaded CPU over the
+# smallest idle CPU, worst 1044 (2.53/1.84 s); 1040 1.28, 1054 1.22.
+_LOADED_CPU_INFLATION_MEASURED = 1.38
+
+# WALL TIME IS ONLY A HANG CEILING. A suite still running after _HANG_MULTIPLE
+# times its idle wall baseline is hung, not slow, and the refusal says so. 8 is
+# the old saturated bound exactly (contention 2.0 x load-factor cap 4.0), so no
+# item bound moved; it is 2.2x above the worst stretch measured on correct work
+# (3.7x). The 2026-08-24 wedge needed only a 1.09 stretch (221 -> 240 s), so
+# anything at or below ~1.1 reproduces that defect.
+_HANG_MULTIPLE = 8
 
 # Room for this item's own setup, teardown and reporting ON TOP of the inner
 # budget, because the item bound covers all three and the inner one does not.
@@ -458,93 +492,48 @@ _ITEM_RESERVE_S = 30
 _MIN_INNER_BUDGET_S = 60
 
 
-_MAX_LOAD_FACTOR = 4.0
+def _inner_budget_s(suite):
+    """The HANG ceiling: the inner run's subprocess timeout, in wall seconds.
 
-
-def _measured_load_factor():
-    try:
-        load = os.getloadavg()[0]
-        cpus = os.cpu_count()
-    except (AttributeError, OSError) as exc:
-        raise AssertionError("tool-state host load UNKNOWN") from exc
-    assert math.isfinite(load) and load >= 0 and cpus and cpus > 0, (
-        "tool-state host load UNKNOWN: load=%r cpus=%r" % (load, cpus))
-    return min(_MAX_LOAD_FACTOR, 1.0 + load / cpus)
-
-
-def _inner_budget_s(suite, load_factor=None):
-    if load_factor is None:
-        load_factor = _measured_load_factor()
+    Fixed per suite. It does not read load, so the item bound derived from it
+    is the same at collection and at execution.
+    """
     return max(_MIN_INNER_BUDGET_S,
-               int(_SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR * load_factor))
+               int(_SUITE_BASELINE_S[suite] * _HANG_MULTIPLE))
 
 
-def test_h664_budget_scales_with_measured_load_and_stays_bounded(monkeypatch):
-    suite = "tests/test_v3_66_1040_remote_job_registry.py"
-    monkeypatch.setattr(os, "cpu_count", lambda: 4)
-    monkeypatch.setattr(os, "getloadavg", lambda: (0.0, 0.0, 0.0))
-    quiet = _inner_budget_s(suite)
-    monkeypatch.setattr(os, "getloadavg", lambda: (8.0, 0.0, 0.0))
-    busy = _inner_budget_s(suite)
-    assert busy > quiet, "H664: measured contention does not affect the inner budget"
-    monkeypatch.setattr(os, "getloadavg", lambda: (10000.0, 0.0, 0.0))
-    saturated = _inner_budget_s(suite)
-    assert quiet <= busy <= saturated <= _item_timeout_s(suite) - _ITEM_RESERVE_S
-    assert saturated <= quiet * 4, "H664: load can remove the finite hang bound"
+def _cpu_budget_s(suite):
+    return _SUITE_CPU_BASELINE_S[suite] * _CPU_HEADROOM
 
 
-@pytest.mark.parametrize("load,share,passes", [
-    (0.0, 0.5, True), (8.0, 0.5, True),
-    (0.0, 1.25, False), (8.0, 1.25, False),
-])
-def test_h664_elapsed_check_uses_the_same_measured_load(
-        monkeypatch, tmp_path, load, share, passes):
-    # elapsed is a share of the bound at this load (4 cpus), so the cases follow
-    # the recorded baseline instead of pinning the one it had when they were written
-    suite = "tests/test_v3_66_1040_remote_job_registry.py"
-    elapsed = share * _SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR * (1.0 + load / 4)
-    module = sys.modules[__name__]
-    jobs, runctx = tmp_path / "jobs", tmp_path / "runctx"
-    jobs.mkdir()
-    runctx.mkdir()
-    monkeypatch.setattr(module, "_REAL_STATE", (str(jobs),))
-    monkeypatch.setattr(module, "_PER_RUN_STATE", str(runctx))
-    monkeypatch.setattr(os, "cpu_count", lambda: 4)
-    samples = []
+def _children_cpu_s():
+    """User+sys seconds of every reaped child of this process so far.
 
-    def measured_load():
-        samples.append(load)
-        return (load, 0.0, 0.0)
-
-    monkeypatch.setattr(os, "getloadavg", measured_load)
-    clock = iter((0.0, elapsed))
-    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
-    calls = []
-
-    def completed(argv, **kwargs):
-        calls.append(kwargs["timeout"])
-        mine = runctx / "inner"
-        mine.mkdir()
-        return subprocess.CompletedProcess(
-            argv, 0, stdout=f"1 passed\n1 worker chain(s): {mine}\n", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", completed)
-    if passes:
-        _run_tool_state_suite(suite)
-    else:
-        with pytest.raises(AssertionError, match="recorded baseline"):
-            _run_tool_state_suite(suite)
-    assert len(calls) == 1
-    assert samples == [load], "H664: one load sample must govern timeout and elapsed check"
-    if passes:
-        assert calls[0] >= elapsed
+    Only REAPED descendants count: a grandchild the inner suite detaches and
+    never waits for is not in it. That under-counts; it cannot inflate.
+    """
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return usage.ru_utime + usage.ru_stime
 
 
-@pytest.mark.parametrize("load", [-1.0, float("nan"), float("inf")])
-def test_h664_unknown_load_is_not_a_quiet_host(monkeypatch, load):
-    monkeypatch.setattr(os, "getloadavg", lambda: (load, 0.0, 0.0))
-    with pytest.raises(AssertionError, match="load UNKNOWN"):
-        _inner_budget_s(_A_SUITE)
+def _report_inner_timing(suite, outcome, elapsed, cpu):
+    """Say elapsed and CPU on EVERY run, pass or fail, so drift is visible.
+
+    A warning, not only a print: the band runs `-q` without `-rA`, which hides
+    a passing test's stdout but still prints the warnings summary.
+    """
+    try:
+        load1 = "%.2f" % os.getloadavg()[0]
+    except (AttributeError, OSError):
+        load1 = "unreadable"
+    line = ("TOOL-STATE-TIMING %s %s: elapsed %.1fs (hang ceiling %ds), cpu "
+            "%.1fs (budget %.1fs = %ds idle x %.1f), load1 %s"
+            % (suite, outcome, elapsed, _inner_budget_s(suite), cpu,
+               _cpu_budget_s(suite), _SUITE_CPU_BASELINE_S[suite],
+               _CPU_HEADROOM, load1))
+    print(line)
+    warnings.warn(line, UserWarning, stacklevel=2)
+    return line
 
 
 def _item_timeout_s(suite):
@@ -557,10 +546,7 @@ def _item_timeout_s(suite):
     inner budget can never fire has an unreachable error path and kills its
     worker instead of failing; that is the defect this replaces.
     """
-    # The marker is evaluated at collection; load is sampled at execution.
-    # Reserve the finite ceiling so a later load increase cannot kill pytest
-    # before the subprocess timeout reports its own failure.
-    return _inner_budget_s(suite, _MAX_LOAD_FACTOR) + _ITEM_RESERVE_S
+    return _inner_budget_s(suite) + _ITEM_RESERVE_S
 
 
 # The suite the monkeypatched controls below drive. They fake subprocess.run,
@@ -749,13 +735,17 @@ def test_no_suite_budget_can_fire_on_healthy_work():
 
     Comparing a derived budget to its own stored baseline cannot detect drift.
     Collect the real items instead. Equal-count runtime regressions remain
-    subject to the existing timeout and elapsed-time checks in the runner.
+    subject to the runner's hang ceiling and CPU budget.
     """
     for suite in _SUITE_BASELINE_S:
         _check_tool_state_population(suite)
-    assert _CONTENTION_FACTOR > 1.1, (
+    assert _HANG_MULTIPLE > 1.1, (
         "the 2026-08-24 wedge needed only a 1.09x stretch (221s against a 240s "
-        "bound), so a contention factor at or below that reproduces it")
+        "bound), so a hang multiple at or below that reproduces it")
+    assert _CPU_HEADROOM > _LOADED_CPU_INFLATION_MEASURED, (
+        "a CPU headroom of %.2f does not clear the %.2fx CPU inflation measured "
+        "under one busy loop per core, so a loaded host fires it on correct work"
+        % (_CPU_HEADROOM, _LOADED_CPU_INFLATION_MEASURED))
 
 
 def test_the_baselines_are_measurements_not_placeholders():
@@ -770,6 +760,13 @@ def test_the_baselines_are_measurements_not_placeholders():
         "the baselines are nearly all the same value (%r), which is what a "
         "placeholder looks like; measure the suites one at a time"
         % (_SUITE_BASELINE_S,))
+    assert set(_SUITE_CPU_BASELINE_S) == set(_SUITE_BASELINE_S), (
+        "every suite needs both an idle wall and an idle CPU measurement")
+    cpu = list(_SUITE_CPU_BASELINE_S.values())
+    assert all(v > 0 for v in cpu), _SUITE_CPU_BASELINE_S
+    assert len(set(cpu)) >= 3, (
+        "the CPU baselines are nearly all the same value (%r); measure them"
+        % (_SUITE_CPU_BASELINE_S,))
     assert max(values) < 240, (
         "a suite baseline of %ds already meets the sanctioned per-item bound "
         "on an IDLE host, so splitting further -- not a bigger budget -- is "
@@ -881,11 +878,21 @@ def test_budget_soundness_control_itself_refuses_a_changed_population(tmp_path, 
         test_no_suite_budget_can_fire_on_healthy_work()
 
 
+def _fake_children_cpu(monkeypatch, *samples):
+    """resource.getrusage(RUSAGE_CHILDREN) reporting these cumulative seconds."""
+    ticks = iter(samples)
+
+    def getrusage(who):
+        assert who == resource.RUSAGE_CHILDREN, who
+        return type("Usage", (), {"ru_utime": next(ticks), "ru_stime": 0.0})()
+
+    monkeypatch.setattr(resource, "getrusage", getrusage)
+
+
 def test_floor_governed_runtime_baseline_still_refuses_a_slow_run(tmp_path, monkeypatch):
-    """A 60s subprocess floor must not hide a stale 7s runtime baseline."""
-    # H664 scales the elapsed limit by measured host load; this control is about the baseline, so it
-    # pins a quiet host (load 0) -- unpinned, any busy host lifts 14s above the 15s run and it cannot fire.
-    monkeypatch.setattr(os, "getloadavg", lambda: (0.0, 0.0, 0.0))
+    """A 60s subprocess floor must not hide a stale 7s CPU baseline."""
+    _fake_children_cpu(monkeypatch, 100.0, 115.0)
+    monkeypatch.setattr(sys.modules[__name__], "_SUITE_CPU_BASELINE_S", {_A_SUITE: 7})
     monkeypatch.setattr(sys.modules[__name__], "_REAL_STATE", (tmp_path / "state",))
     monkeypatch.setattr(sys.modules[__name__], "_PER_RUN_STATE", tmp_path / "runs")
     monkeypatch.setattr(sys.modules[__name__], "_REPO", pathlib.Path(__file__).resolve().parents[1])
@@ -899,13 +906,16 @@ def test_floor_governed_runtime_baseline_still_refuses_a_slow_run(tmp_path, monk
     monkeypatch.setattr(subprocess, "run", complete)
     ticks = iter((100.0, 115.0))
     monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
-    with pytest.raises(AssertionError, match="took 15.0s against a recorded baseline of 7s"):
+    with pytest.raises(AssertionError,
+                       match="CPU-REGRESSION: .* used 15.0s CPU .*recorded CPU baseline of 7s"):
         _run_tool_state_suite(_A_SUITE)
     assert calls[0]["timeout"] == 60
 
 
 def test_floor_governed_runtime_baseline_allows_an_honest_run(tmp_path, monkeypatch):
-    """A successful 13s run reaches the normal downstream success path."""
+    """A successful run using 13s CPU reaches the normal downstream success path."""
+    _fake_children_cpu(monkeypatch, 100.0, 113.0)
+    monkeypatch.setattr(sys.modules[__name__], "_SUITE_CPU_BASELINE_S", {_A_SUITE: 7})
     monkeypatch.setattr(sys.modules[__name__], "_REAL_STATE", (tmp_path / "state",))
     monkeypatch.setattr(sys.modules[__name__], "_PER_RUN_STATE", tmp_path / "runs")
     monkeypatch.setattr(sys.modules[__name__], "_REPO", pathlib.Path(__file__).resolve().parents[1])
@@ -1041,33 +1051,51 @@ def _run_tool_state_suite(suite):
                BD_RUN_BANNERS="1",
                BD_NESTED_PYTEST="1", BD_JOBS_RUN_MARKER=run_marker)
     env.pop("FORCE_COLOR", None)
-    load_factor = _measured_load_factor()
-    budget = _inner_budget_s(suite, load_factor)
+    budget = _inner_budget_s(suite)
+    cpu_before = _children_cpu_s()
     started = time.monotonic()
-    r = subprocess.run([sys.executable, "-m", "pytest", suite, "-q",
-                        "-p", "no:randomly"],
-                       capture_output=True, text=True,
-                       timeout=budget,
-                       cwd=str(_REPO), env=env)
+    try:
+        r = subprocess.run([sys.executable, "-m", "pytest", suite, "-q",
+                            "-p", "no:randomly"],
+                           capture_output=True, text=True,
+                           timeout=budget,
+                           cwd=str(_REPO), env=env)
+    except subprocess.TimeoutExpired as exc:
+        # subprocess.run has killed AND reaped the child here, so its CPU is in.
+        elapsed = time.monotonic() - started
+        cpu = _children_cpu_s() - cpu_before
+        _report_inner_timing(suite, "HANG", elapsed, cpu)
+        partial = "\n".join(
+            (x.decode("utf-8", "replace") if isinstance(x, bytes) else x or "")
+            for x in (exc.stdout, exc.stderr))
+        raise AssertionError(
+            "HANG: %s was still running after %.1fs, past its hang ceiling of "
+            "%ds (%dx its %ds idle wall baseline), using %.1fs CPU. Wall time "
+            "past this ceiling is a hang, not contention: load does not stretch a "
+            "suite %dx. If the suite genuinely needs longer even on an idle host, "
+            "re-measure _SUITE_BASELINE_S. Full partial log: %s"
+            % (suite, elapsed, budget, _HANG_MULTIPLE,
+               _SUITE_BASELINE_S[suite], cpu, _HANG_MULTIPLE,
+               _persist_inner_log(suite, partial))) from exc
     elapsed = time.monotonic() - started
+    cpu = _children_cpu_s() - cpu_before
     after = snapshot()
+    _report_inner_timing(
+        suite, "rc=%d" % r.returncode, elapsed, cpu)
 
     # THE BASELINE POLICES ITSELF, because nothing else can police it. The fast
     # gates above compare the baselines to EACH OTHER, which a mutation battery
     # showed is not a constraint: restating 1043's 168s as 7s left them all
-    # green while shrinking its budget to the 60s floor -- an over-sensitive
-    # bound that would fail a correct suite, which CLAUDE.md A5 counts as a
-    # soundness bug. Only the run itself knows how long the run takes, so it
-    # says so here. This also catches the slow drift that created the defect in
-    # the first place: the gate reached 221s against a 240s bound one suite at
-    # a time, and nothing ever announced it.
-    assert elapsed <= _SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR * load_factor, (
-        "%s took %.1fs against a recorded baseline of %ds (load factor %.2f). Either the recorded "
-        "baseline is wrong -- in which case its budget is wrong too and this "
-        "gate is one contended run from firing on correct work -- or the suite "
-        "genuinely grew. Re-measure it on an idle host and update "
-        "_SUITE_BASELINE_S; do not simply widen _CONTENTION_FACTOR."
-        % (suite, elapsed, _SUITE_BASELINE_S[suite], load_factor))
+    # green. Only the run itself knows what the run costs, so it says so here,
+    # and this also catches the slow drift that created the defect in the first
+    # place. What it measures is the suite's own CPU seconds, which host load
+    # does not stretch, so a contended host cannot fire it on correct work.
+    assert cpu <= _cpu_budget_s(suite), (
+        "CPU-REGRESSION: %s used %.1fs CPU (%.1fs wall) against a recorded CPU "
+        "baseline of %ds x %.1f headroom. Either the recorded baseline is wrong "
+        "or the suite genuinely grew. Re-measure it on an idle host and update "
+        "_SUITE_CPU_BASELINE_S; do not simply widen _CPU_HEADROOM."
+        % (suite, cpu, elapsed, _SUITE_CPU_BASELINE_S[suite], _CPU_HEADROOM))
 
     # THE DELTA IS COMPUTED BEFORE THE REFUSAL, not after it. Both snapshots
     # already exist at this point; computing them below the returncode
