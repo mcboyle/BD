@@ -234,8 +234,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/captures/scan",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/CaptureBrowser.tsx",
@@ -254,24 +254,24 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/pause_all",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/CommandPalette.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/resume_all",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/DiscoRunPanel.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/discovery/disco/run",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/DriftRepairPanel.tsx",
@@ -340,16 +340,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/login_manual_${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/ProfileCard.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/profile/seed",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/ProvenanceLedgerPanel.tsx",
@@ -398,32 +398,32 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/clear",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/SiteTemplateCard.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/session/reuse_onboarding",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/SiteTemplateCard.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/template_capture_cancel",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/SiteTemplateCard.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/template_capture_finish",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/SiteTemplateCard.tsx",
@@ -490,16 +490,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/take_over_cancel",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/TeachSessionCard.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/take_over_done",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/components/TeachSessionCard.tsx",
@@ -598,8 +598,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/alerts/evaluate",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useAlertRules.ts",
@@ -636,8 +636,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/alerts/rules/${}/remove",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useApproval.ts",
@@ -848,8 +848,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/synthetic_tests/run_all",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useGlobalByteBudget.ts",
@@ -876,8 +876,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/rights/remove/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useGovernance.ts",
@@ -904,16 +904,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/scheduled_exports/remove/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useGovernance.ts",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/scheduled_exports/run_now",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useHistoryData.ts",
@@ -936,16 +936,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/history/vacuum",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useHistoryData.ts",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/logs/clear",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useHistoryData.ts",
@@ -970,8 +970,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/saved_searches/${}/run",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useHistoryData.ts",
@@ -1027,24 +1027,24 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/marketplace/export/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useIntegrations.ts",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/subtitles/fetch/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useIntegrations.ts",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/thumbnail_sheets/contact_sheet/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useIntegrations.ts",
@@ -1063,8 +1063,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/tpdb/lookup/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useKnowledgeNotes.ts",
@@ -1499,16 +1499,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/runners/pause_all",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useOpsControls.ts",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/runners/resume_all",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useOpsControls.ts",
@@ -1543,8 +1543,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/push/test",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/usePush.ts",
@@ -1591,8 +1591,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/queue_templates/${}/apply/${}?mode=${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useQueueTemplates.ts",
@@ -1637,16 +1637,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/schedules/${}/remove",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useSchedules.ts",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/schedules/${}/run_now",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useSchedules.ts",
@@ -1667,8 +1667,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/semantic/reindex",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useSemanticSearch.ts",
@@ -1813,8 +1813,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/webhooks/drain",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/hooks/useWidgetSelection.ts",
@@ -1868,8 +1868,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/auth/logout",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/lib/auth.ts",
@@ -1996,8 +1996,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/ai/models",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/AiTeach.tsx",
@@ -2112,16 +2112,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/replication/start",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Backup.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/replication/stop",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/BatchOps.tsx",
@@ -2460,8 +2460,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/dedup/scan/cancel",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/DomAnalyzer.tsx",
@@ -2664,8 +2664,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/library/scan/cancel",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Library.tsx",
@@ -2686,8 +2686,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/stream/rotate_secret",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Library.tsx",
@@ -2714,32 +2714,32 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/auth_health/check/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Maintenance.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/auth_health/check_all",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Maintenance.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/daily_budget/reset/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Maintenance.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/dedup/scan/cancel",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Maintenance.tsx",
@@ -2826,8 +2826,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/plugins/reload",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Maintenance.tsx",
@@ -2848,8 +2848,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/selector_drift/reset/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/MoreActions.tsx",
@@ -2864,8 +2864,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/import/cancel/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/MoreActions.tsx",
@@ -2924,24 +2924,24 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/macros/delete/${}/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/PoolsMacros.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/account_pool/reset/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Queue.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/pause_all",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Queue.tsx",
@@ -2979,16 +2979,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/resume_all",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Queue.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Queue.tsx",
@@ -3113,8 +3113,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/start_all",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Secrets.tsx",
@@ -3159,8 +3159,8 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/secrets/extension/pair_issue",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Secrets.tsx",
@@ -3214,16 +3214,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/secrets/lock",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Secrets.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/secrets/migrate",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Secrets.tsx",
@@ -3512,16 +3512,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/SiteActions.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/sites/${}/storage_tier/run_now",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/SiteDetail.tsx",
@@ -3748,16 +3748,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/vpn/auto_blacklist",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Vpn.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/vpn/kill_switch/${}/clear",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Vpn.tsx",
@@ -3812,16 +3812,16 @@
   "fn": "apiPost",
   "keys": [],
   "path": "/api/vpn/tunnels/${}/${}",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Vpn.tsx",
   "fn": "apiPost",
   "keys": [],
   "path": "/api/vpn/tunnels/${}/leak_test/run",
-  "sample": null,
-  "unknownType": true
+  "sample": {},
+  "unknownType": false
  },
  {
   "file": "src/routes/Vpn.tsx",
