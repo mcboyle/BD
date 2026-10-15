@@ -33,9 +33,9 @@ genuinely-new phases were built.
 - **Phase 38 (change impact)** → `trust_intelligence.py simulate` (Phase 17). Previews the
   impact of a proposed change on maturity/confidence/queues without applying it.
 - **Phase 39 (evidence coverage)** → `meta_intelligence.py blindspots` (Phase 24 cross-cut)
-  for under-/over-studied and heavily-assumed areas, plus `ops_intelligence.py family` (Phase
+  for under-/over-studied and heavily-assumed areas, plus `trust_intelligence.py family` (Phase
   12) for family coverage gaps.
-- **Phase 40 (sustainability)** → `operator_layer.py sustainability` (Phase 30 cross-cut) for
+- **Phase 40 (sustainability)** → `meta_intelligence.py sustainability` (Phase 30 cross-cut) for
   workload/queue/capture/maintenance burden and scaling constraints.
 
 ## Proposed dashboards — already covered
@@ -44,7 +44,7 @@ genuinely-new phases were built.
   risk/readiness signals; the new Phase 37 `release` scorecard is the readiness one-pager.
 - **Evidence dashboard** → the Phase 35 `acquire` plan + existing capture-priority (Phase 9)
   and debt/freshness views already constitute this.
-- **Sustainability dashboard** → the Phase 30 `sustainability` + `bottlenecks` cross-cuts.
+- **Sustainability dashboard** → `meta_intelligence.py sustainability` + `operator_layer.py bottlenecks` cross-cuts.
 
 If a literal single-file dashboard combining these is wanted later, it should be a thin
 read-only view that *reads* these existing artifacts — not a reimplementation of their logic.

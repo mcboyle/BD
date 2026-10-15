@@ -42,10 +42,11 @@ python3 tools/semantic_diff.py \
   --before-tree /path/to/old \
   --after-tree /path/to/new \
   --out /path/to/SEMANTIC_DIFF.json \
+  --gate \
   --json
 ```
 
-Tree and snapshot inputs are mutually exclusive per side. `--cst-adapter libcst` is optional and cannot change the standard-library policy verdict. Standard-library execution works without `libcst`.
+Tree and snapshot inputs are mutually exclusive per side. `--before-snapshot` and `--after-snapshot` provide frozen snapshot alternatives to tree directories. `--check` verifies deterministic output against a baseline artifact. `--cst-adapter libcst` is optional and cannot change the standard-library policy verdict. Standard-library execution works without `libcst`.
 
 ## reachability.py
 
@@ -58,11 +59,13 @@ python3 tools/reachability.py \
   --security-surface /path/to/SECURITY_SURFACE.json \
   --call-graph /path/to/CALL_GRAPH.json \
   --deferrals /path/to/REACHABILITY_DEFERRALS.json \
+  --timeout 15.0 \
   --out /path/to/REACHABILITY.json \
+  --gate \
   --json
 ```
 
-Authenticated probing requires an explicit `--authenticated-fixture module:function`. Operator wiring, navigation, auth probes, graph paths, and deferrals remain separate evidence fields.
+Authenticated probing requires an explicit `--authenticated-fixture module:function`. Operator wiring, navigation, auth probes, graph paths, and deferrals remain separate evidence fields. `--timeout` sets the execution budget in seconds (default 15.0). `--check` validates against expected baseline artifacts, and `--gate` exits 1 on blocking reachability violations.
 
 ## differential_oracle.py
 
@@ -76,7 +79,10 @@ python3 tools/differential_oracle.py \
   --adapter url-classifier-truth \
   --corpus /path/to/oracle-corpus \
   --seed 17 \
+  --timeout 30.0 \
+  --max-cases 1000 \
   --out /path/to/DIFFERENTIAL_ORACLE.json \
+  --gate \
   --json
 ```
 
@@ -94,8 +100,10 @@ python3 tools/fuzz_harness.py \
   --adapter path-guard \
   --seed 42 \
   --timeout 10 \
+  --max-cases 1000 \
   --reproducer-dir /path/to/reproducers \
   --out /path/to/FUZZ_RESULTS.json \
+  --gate \
   --json
 ```
 

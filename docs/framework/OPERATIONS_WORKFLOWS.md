@@ -8,8 +8,8 @@ except through the explicit debt-retirement procedure. Recognition-only posture 
 unchanged: nothing here drives a browser, replays, reconstructs signed URLs, reuses tokens,
 or takes an automatic action.
 
-The tools referenced live in `tools/`; their per-tool usage is in `docs/framework/*_USAGE.md`
-and the phase deliverable docs in the same directory.
+The tools referenced live in `tools/`; each tool provides detailed CLI help via
+`--help` and adheres to standard exit contracts (0 pass, 1 failure, 2 usage error).
 
 ---
 
@@ -22,13 +22,13 @@ Goal: collect authorized-session captures that are good enough to feed analysis.
    light up across a same-title series.
 2. Run the capture launcher:
    `python tools/capture_batch.py --pairs --job <site> <url> --profile-root <dir>`
-   (see `docs/framework/PARALLEL_CAPTURE_USAGE.md` / `PLAN_C_USAGE.md` for profile,
-   autofill, and URL-memory options). Capture is human-driven: you log in through the
+   (`capture_batch.py` natively supports `--seed-profile`, `--autofill`, and
+   `--url-memory-file`). Capture is human-driven: you log in through the
    site's own UI and press ENTER to stop; the tool passively records and redacts.
 3. Confirm the capture carries a usable DOM log if you want selector analysis (capture
    quality, step 4 below, will tell you).
 4. Score capture quality before feeding anything downstream:
-   `python tools/validation_harness.py capquality --capture <capture> --out-dir <dir>`
+   `python tools/trust_intelligence.py capquality --capture <capture> --out-dir <dir>`
    Discard / Weak captures should be re-collected, not analyzed — they pollute confidence.
 
 Hard line: the operator collects evidence by operating the site normally. The framework
@@ -47,7 +47,7 @@ Goal: turn raw captures into a structured, analyzed artifact set, without writin
 2. If DOM is present, run selector learning:
    `python tools/selector_learning.py --captures <c1> <c2> --site <site> --out-dir <dir>`
 3. Accumulate history and policy:
-   `python tools/closed_loop_learning.py ...` then `python tools/evidence_policy.py ...`
+   `python tools/closed_loop_learning.py --site <site> --site-profile <path>` then `python tools/evidence_policy.py --site <site>`
 4. The analyst's output is the artifact set, not a corpus change. The draft corpus entry
    is a proposal for the reviewer (section 5), never an automatic write.
 
@@ -63,7 +63,7 @@ corpus or a release.
 - Decision consistency / threshold edges: `tools/validation_harness.py consistency ...`
 - Benchmark stability vs. baseline: `tools/validation_harness.py benchmark --baseline ...`
 - Forecast & freshness: `tools/trust_intelligence.py forecast ... | freshness ...`
-- Self-audit (defensibility, assumptions, risk): `tools/meta_intelligence.py audit | assumptions | risk`
+- Self-audit (defensibility, assumptions, risk): `tools/meta_intelligence.py audit | assumptions | risk | sustainability`
 
 The analyst compiles these into the review packet for the reviewer. No score, profile,
 selector, or corpus entry is changed by the analyst.

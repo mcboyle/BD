@@ -11,6 +11,8 @@ Validate any plugin before deploying it:
 ```
 python3 tools/plugin_lint.py docs/plugin_examples/media_server_refresh.py
 python3 tools/plugin_lint.py docs/plugin_examples/      # lint the whole dir
+python3 tools/plugin_lint.py --smoke docs/plugin_examples/     # fire synthetic events
+python3 tools/plugin_lint.py --full-access docs/plugin_examples/ # validate under full-access gate
 ```
 
 ## The five extension kinds
