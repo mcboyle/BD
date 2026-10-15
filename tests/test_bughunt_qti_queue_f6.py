@@ -28,7 +28,7 @@ U1 = "https://a.test/1"
 U2 = "https://a.test/2"
 HDRS = {"Referer": "https://a.test/page?x=1", "Cookie": "s=abc; t=1"}
 TAB1 = U1 + "\tReferer=https://a.test/page?x=1\tCookie=s=abc; t=1"
-OLD_KEYS = ["force_download", "message", "priority", "status", "url"]
+OLD_KEYS = ["force_download", "message", "priority", "row_id", "status", "url"]
 
 # The queue table as every build before this cut created it.
 OLD_QUEUE_DDL = """CREATE TABLE queue(

@@ -675,19 +675,23 @@ def api_export(sid):
     if refused: return refused
     if fmt=="csv":
         import csv, io
-        from .exports import csv_cells
-        # one row past the cap tells a full export from a cut one
-        rows=db_search(site_id=sid,status=status,limit=_HISTORY_EXPORT_MAX_ROWS+1)
-        truncated=len(rows)>_HISTORY_EXPORT_MAX_ROWS
-        rows=rows[:_HISTORY_EXPORT_MAX_ROWS]
-        buf=io.StringIO()
-        w=csv.writer(buf,quoting=csv.QUOTE_MINIMAL,lineterminator="\n")
+        from .exports import _CSV_FORMULA_LEADS, csv_cells
+        rows = db_search(site_id=sid, status=status, limit=_HISTORY_EXPORT_MAX_ROWS + 1)
+        truncated = len(rows) > _HISTORY_EXPORT_MAX_ROWS
+        rows = rows[:_HISTORY_EXPORT_MAX_ROWS]
+        buf = io.StringIO()
+        w = csv.writer(buf, quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
         w.writerow(_HISTORY_EXPORT_COLS)
         for r in rows:
-            if not raw:  # sec2-job-url-token r1
-                r = {**r, "url": queue_display_url(r.get("url")),
-                     "message": withhold_text(r.get("message"))}
-            w.writerow(csv_cells(r.get(c) for c in _HISTORY_EXPORT_COLS))
+            if not raw:
+                u = r.get("url")
+                m = r.get("message")
+                if isinstance(u, str) and u and (u[0] not in _CSV_FORMULA_LEADS):
+                    u = queue_display_url(u)
+                if isinstance(m, str) and m and (m[0] not in _CSV_FORMULA_LEADS):
+                    m = withhold_text(m)
+                r = {**r, "url": u, "message": m}
+            w.writerow(csv_cells((r.get(c) for c in _HISTORY_EXPORT_COLS)))
         return Response(buf.getvalue(),mimetype="text/csv",headers={
             "Content-Disposition":f"attachment;filename={sid}_history.csv",
             "X-BD-Export-Rows":str(len(rows)),
