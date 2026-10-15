@@ -43,16 +43,23 @@ class Fleet:
         self.panes = tmp / "panes"
         self.panes.mkdir()
         self.say_log = tmp / "say.log"
+        # The target is the word after -t wherever it sits: H749 put `-J -ep` before it, and a fake reading a fixed
+        # $4 then cat'ed "$P/-t" -- every pane empty, every lens busy (FF-G band-23, NO-FREE-LENS free=0).
         self.tmux = _exe(tmp / "tmux", f"""\
             #!/usr/bin/env bash
             P={self.panes}
+            s=; prev=
+            for a in "$@"; do [ "$prev" = -t ] && s=$a; prev=$a; done
+            s=${{s#=}}; s=${{s%:}}
             case "$1" in
               ls) ls "$P" ;;
-              has-session) s=${{3#=}}; [ -f "$P/$s" ] ;;
-              capture-pane) s=${{4#=}}; s=${{s%:}}; cat "$P/$s" ;;
+              has-session) [ -n "$s" ] && [ -f "$P/$s" ] ;;
+              capture-pane) [ -n "$s" ] && cat "$P/$s" ;;
               *) exit 1 ;;
             esac
             """)
+        # TEST-ONLY hermetic halt check: the router consults the live FLEET-HALT marker before anything else.
+        self.halt = _exe(tmp / "halt-check", "#!/usr/bin/env bash\nexit 0\n")
         self.say = _exe(tmp / "say", f"""\
             #!/usr/bin/env bash
             printf '%s\\t%s\\n' "$1" "$2" >>{self.say_log}
@@ -80,7 +87,8 @@ class Fleet:
         return [tuple(l.split("\t", 1)) for l in self.say_log.read_text().splitlines()]
 
     def run(self, **env: str) -> subprocess.CompletedProcess:
-        e = dict(os.environ, BD_LR_FIX=str(self.fix), BD_LR_TMUX=str(self.tmux), BD_LR_SAY=str(self.say))
+        e = dict(os.environ, BD_LR_FIX=str(self.fix), BD_LR_TMUX=str(self.tmux), BD_LR_SAY=str(self.say),
+                 BD_HALT_CHECK=str(self.halt), BD_PM_SEAT="bd-pm-fixture")
         e.update(env)
         return subprocess.run([CANDIDATE], env=e, capture_output=True, text=True, timeout=30)
 
