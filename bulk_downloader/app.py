@@ -4232,8 +4232,8 @@ def _request_actor_class() -> str:
     X-BD-Token), "session" (a live bd_session cookie) or "none". Never carries
     the credential itself. (r2: no "same_origin" class -- BASE dropped the
     Referer admission and _request_is_same_origin with it.)"""
-    ra = (request.remote_addr or "")
-    if ra in ("127.0.0.1", "::1", "localhost"):
+    from . import request_peer as _rp  # proxied loopback is remote (pair-admission-proxy)
+    if _rp.client_is_loopback(request, _rp.trusted_proxies()):
         return "loopback"
     if _request_has_master_token():
         return "master_token"
