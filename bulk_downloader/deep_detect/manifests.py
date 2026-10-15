@@ -4,6 +4,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import ipaddress
 import re
 import socket
+import unicodedata
 from urllib.parse import urlsplit
 
 from .resolution import (classify_resolution)
@@ -134,12 +135,28 @@ _INET_ATON_RE = re.compile(
     r"(?:0x[0-9a-f]+|0[0-7]*|[1-9][0-9]*)(?:\.(?:0x[0-9a-f]+|0[0-7]*|[1-9][0-9]*)){0,3}")
 
 
+def _normalised_host(host: str) -> str:
+    """``host`` as a resolver will see it: NFKC-folded, IDNA (nameprep)
+    encoded, lower-cased, trailing dot dropped.  Fullwidth digits
+    ("\uff11\uff12\uff17.0.0.1") or letters ("\uff4c\uff4f\uff43alhost")
+    reach the loopback through any IDNA-encoding fetcher, so they are judged
+    as 127.0.0.1 / localhost (manifest-url-filter-gaps F3).  A host IDNA
+    cannot encode (empty or over-long label) is judged as the text it is."""
+    text = unicodedata.normalize("NFKC", host or "").strip().rstrip(".")
+    try:
+        text = text.encode("idna").decode("ascii")
+    except UnicodeError:
+        pass
+    return text.lower().rstrip(".")
+
+
 def _local_host(host: str) -> bool:
     """``localhost`` or an IP literal that is not a public unicast address
     (loopback, private, link-local, ...).  No DNS: a name is judged as text.
     The legacy inet_aton spellings a resolver accepts (2130706433, 0x7f.1,
-    127.1, 0177.0.0.1, 0) are normalised to their IPv4 address first."""
-    host = (host or "").rstrip(".").lower()
+    127.1, 0177.0.0.1, 0) are normalised to their IPv4 address first, after
+    the NFKC/IDNA fold a resolver applies (_normalised_host)."""
+    host = _normalised_host(host)
     if host == "localhost" or host.endswith(".localhost"):
         return True
     try:
