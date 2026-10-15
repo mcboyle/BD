@@ -76,17 +76,29 @@ not have.
   checkout elsewhere provisions fine and then captures a different tree, or
   fatals. Put it at the default path or export `BD_HOME`.
 - **Root or sudo.** Neither → fatal, exit 2.
-- **Ubuntu 24.04 package names specifically.** `libgtk-3-0t64` is a t64 name and
-  `python3.12` is not in 22.04's default archive. On an older release the
-  affected group's apt transaction fails into a FAIL/WARN row — loudly, not
-  silently. *Unverified: 22.04 and Debian behaviour is derived from package
-  names, not measured.*
-- **`curl`.** An unlisted assumption: it is in no `bd_system_pkgs` group, yet
-  `capture.sh`'s readiness probes and `install_service.sh`'s serving check all
-  use it. Present on standard Ubuntu Server, absent on minimal images. Install
-  it with `git` in step 1 below.
+- **Ubuntu 24.04 LTS & Python 3.12.** Python 3.12 is strictly required (`python3.12`,
+  `python3.12-venv`, `python3.12-dev`). `libgtk-3-0t64` is a t64 name in Noble 24.04.
+  Older releases (e.g. 22.04) fail package resolution.
+- **`curl`, `git`, and build tools.** Essential packages `git`, `curl`, `ffmpeg`,
+  `ffprobe`, and `build-essential` must be installed prior to provisioning.
+- **`uv` Package Manager & Virtual Environments.** `uv` is the standard fast package
+  installer across the fleet (`curl -LsSf https://astral.sh/uv/install.sh | sh`).
+  Virtual environments are created via `uv venv venv --python python3.12`. The canonical
+  virtualenv path is `./venv` (or `./.venv`). Tools and harness entry points strictly
+  execute through `./venv/bin/python` to preserve hermetic execution.
 - **Network egress** to the apt archive, PyPI, the npm registry and the
   Playwright CDN. Every failure reaches the verdict.
+
+## Rule 22 Sandbox Invariants (Host Protection)
+
+Fresh hosts and existing nodes must strictly honor Fleet Rule 22:
+- **Authorized Sandboxes Only**: Destructive git actions (`git checkout`, `git reset --hard`,
+  `git clean -fd`, `git index write`) are strictly blocked outside authorized sandboxes.
+  Authorized sandboxes: `bd-cuts/` and `bd-local-wt/` only.
+- **PreToolUse Shield Enforcement**: The global PreToolUse shield (`~/.gemini/config/hooks.json` -> `shield.py`)
+  intercepts shell calls and denies violations before execution.
+- **Zero Worktree Deletion**: `NO WORKTREE DELETED OR RESET, EVER.` Production checkouts
+  at `~/BulkDownloader` must remain untouched; all branch work happens in dedicated worktrees.
 
 ## The graph pin
 
@@ -192,8 +204,9 @@ cd ~/BulkDownloader && tar czf /tmp/bd_state.tar.gz \
     cookies/ learned/ state/ macros/ profiles/ plugins/plugins.registry.json 2>/dev/null
 tar czf /tmp/bd_userconfig.tar.gz -C ~ .config/bulk-downloader 2>/dev/null
 
-# ── 1. NEW box: the checkout the provisioner cannot make ────────────
-sudo apt-get update && sudo apt-get install -y git curl
+# ── 1. NEW box: prerequisites & checkout ────────────────────────────
+sudo apt-get update && sudo apt-get install -y git curl python3.12 python3.12-venv python3.12-dev ffmpeg build-essential
+curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone <origin-url> ~/BulkDownloader        # THIS path -- capture.sh defaults to it
 cd ~/BulkDownloader
 

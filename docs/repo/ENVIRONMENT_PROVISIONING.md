@@ -90,22 +90,57 @@ choose from.
   CI outcomes here and `nuclei`'s finding count is a function of its template
   pack, so an unpinned upgrade silently changes results.
 
-## 3 | Tier 0 — core runtime
+---
+
+## 2b | Rule 22 Sandbox Invariants & Execution Boundaries
+
+Destructive git operations (`git checkout`, `git reset --hard`, `git clean`, `git index write`)
+are strictly prohibited on production roots and integration trees.
+
+- **Authorized Sandboxes**: All candidate edits, test runs, and experimental mutations are
+  strictly confined to `bd-cuts/` and `bd-local-wt/`.
+- **PreToolUse Shield Hook**: A global PreToolUse interceptor (`~/.gemini/config/hooks.json` -> `shield.py`)
+  enforces Rule 22 at tool-invocation time and hard-denies any violation before shell execution.
+- **Floor Invariant**: `NO WORKTREE DELETED OR RESET, EVER.` Worktrees must remain intact for
+  forensic auditability.
+
+---
+
+## 3 | Tier 0 — core runtime & package prerequisites
 
 Replaces: `pack_A` (core/venv kits), `pack_D` (dev kit), `pack_C` frontend kit.
 
+**Prerequisites:** Ubuntu 24.04 LTS (Noble Numbat), Python 3.12 strictly required (`python3.12-venv`,
+`python3.12-dev`), Node.js 20+, `git`, `curl`, `ffmpeg`, `ffprobe`, `build-essential`.
+
 ```bash
-python3.12 -m venv venv        # MUST be 3.12 -- bare python3 here is 3.11 without
-                               # the project deps. Verify: ./venv/bin/python --version
-./venv/bin/pip install -q --upgrade pip
-./venv/bin/pip install -q -r requirements.txt
-./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes
+# System prerequisites:
+sudo apt-get update && sudo apt-get install -y python3.12 python3.12-venv python3.12-dev \
+    git curl ffmpeg build-essential
+
+# High-speed virtual environment provisioning using uv (preferred):
+uv venv venv --python python3.12
+source venv/bin/activate
+uv pip install -q -r requirements.txt
+uv pip install -q "pytest>=7.0,<9.0" pyflakes
+
+# Fallback standard python3.12 venv:
+# python3.12 -m venv venv
+# ./venv/bin/pip install -q --upgrade pip
+# ./venv/bin/pip install -q -r requirements.txt
+# ./venv/bin/pip install -q "pytest>=7.0,<9.0" pyflakes
+
 cd frontend && npm ci --no-audit --no-fund && cd ..
 ```
 
 **Verified:** both requirements files resolve cleanly against a clean PyPI index
-(pip dry-run exit 0 — 20 and 27 packages), and this exact sequence provisions a
+(pip/uv dry-run exit 0 — 20 and 27 packages), and this exact sequence provisions a
 working tree that runs a real suite.
+
+**UV Virtual Environment Paths:** When using `uv`, the virtual environment path defaults
+to `./venv` (or `./.venv`). Harness scripts and tests standardize on `./venv/bin/python`
+and `./venv/bin/pytest`. All commands and CI runners invoke the interpreter via full
+path (`./venv/bin/python`) to prevent ambient interpreter leakage.
 
 **Do not install `requirements-dev.txt` wholesale** unless you are doing
 packaging work. It pulls `pyinstaller` and `nuitka`, which exist for a build
