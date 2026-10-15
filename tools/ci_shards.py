@@ -17,9 +17,9 @@ Two kinds of shard, resolved in order, first match wins:
   PINNED -- explicit membership: capability shards (node, Chromium), the H686
             quarantine, the long-pole isolation runner and the contexts O1264(d)
             keeps required. A pinned file must be in the population.
-  GLOBS  -- name globs over the remaining population, runtime-balanced from the
-            job durations of run 35763678888 (train/60, 2026-09-22): each shard
-            <= ~6 min serial pytest. A glob shard with no member is an error --
+  GLOBS  -- name globs over the remaining population, runtime-balanced (ci-gate-rebalance
+            r1, O1789) from per-file pytest seconds of main runs 38660363441, 38658090299,
+            38653864828: each shard <= ~5.5 min serial pytest, ~7 min job. A glob shard with no member is an error --
             `pytest` with no paths would run the whole tree.
 
 CLI (stdlib only; runs before any pip install):
@@ -123,28 +123,32 @@ PINNED: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tests/test_v3_66_285_cloak_parity.py",
         "tests/test_row667_keeper_browser_log_names_persistence.py",
         "tests/test_v3_66_795_mod3_seam.py",
-    )),
-    ("mutation-tools", (
-        # O1264(d) required context: mutation tools + verifiers (was mutation-tools + mutation-verifiers).
-        "tests/test_row810_spec_collection_slice_0.py",
-        "tests/test_row705_published_denominators.py",
-        "tests/test_row788_transform_control_is_separate.py",
-        "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
-        "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",
-        "tests/test_cut_quality_permits.py",
-        "tests/test_row357_mutant_anchors_are_not_fragile.py",
-        "tests/test_row470_corpus_tools_fail_closed.py",
-        "tests/test_row355_mutate_timing_is_schedule_stable.py",
-        "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+        # ci-gate-rebalance r1 (O1789): the non-mutation gates that rode in mutation-tools stay BLOCKING here
+        # when the mutation shards leave the required set (dispatch ANSWER 05:38Z, 6/8 split).
         "tests/test_rowssrf_loopback_reason_is_structured.py",
+        "tests/test_row470_corpus_tools_fail_closed.py",
+        "tests/test_cut_quality_permits.py",
+        "tests/test_row531_denominators_are_derived_not_pinned.py",
+        "tests/test_row705_published_denominators.py",
         "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py",
         "tests/test_row804_browser_redirect_bypasses_metadata_guard.py",
-        "tests/test_row531_denominators_are_derived_not_pinned.py",
+    )),
+    # MUTATION shards (mutation files ONLY): run and report on every PR but are NOT required --
+    # ci.yml sets continue-on-error for exactly these names (tests/test_ci_gate_rebalance.py pins both).
+    ("mutation-tools", (
+        "tests/test_row810_spec_collection_slice_0.py",
+        "tests/test_row788_transform_control_is_separate.py",
+        "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",
     )),
     ("mutation-tools-b", (
-        # Spec-collection slices 1+2 (~200 s each, serial): kept off mutation-tools so that context stays <= 6 min.
+        # Spec-collection slices run ~210-260 s each serially, so one slice per shard.
         "tests/test_row810_spec_collection_slice_1.py",
+    )),
+    ("mutation-tools-c", (
         "tests/test_row810_spec_collection_slice_2.py",
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+        "tests/test_row355_mutate_timing_is_schedule_stable.py",
+        "tests/test_row357_mutant_anchors_are_not_fragile.py",
     )),
     ("artifacts-pins", (
         # Regenerated-artifact pins; tests/test_row387_ast_version_pin_guard.py asserts it runs exactly once here.
@@ -235,24 +239,29 @@ PINNED: tuple[tuple[str, tuple[str, ...]], ...] = (
         "tests/test_rowinstalldir_service_installer.py",
     )),
     ("parity-graph", (
-        # NODE shard: the only shard gate-suites provisions node for (setup-node/npm ci condition names it; tests/test_v3_66_1218_* re-derives the delegating population). Was parity-graph + parity-vitest-b.
-        "tests/test_t7_notifications_wired.py",
-        "tests/test_t3_t4_wired.py",
-        "tests/test_t5_t6_wired.py",
+        # NODE shards: parity-graph and parity-graph-b are the only shards gate-suites provisions node for
+        # (setup-node/npm ci condition names both; tests/test_v3_66_1218_* re-derives the delegating population).
+        # Split in ci-gate-rebalance r1: 390 s serial plus npm ci overran ~7 min in one job.
         "tests/test_v3_66_1240_supervisor_settings_seeded.py",
-        "tests/test_t8_cluster_wired.py",
-        "tests/test_t11_approval_wired.py",
-        "tests/test_t10_devtools_wired.py",
         "tests/test_secret_display_never.py",
         "tests/test_frontend_dependency_security_floor.py",
-        "tests/test_t2_history_wired.py",
-        "tests/test_t1_dashboard_wired.py",
         "tests/test_csrf_tool_contracts.py",
         "tests/test_csrf_contract_reachability.py",
         "tests/test_v3_66_1255_frontend_build_is_isolated.py",
+        "tests/test_spa_root_routing_contract.py",
+    )),
+    ("parity-graph-b", (
+        # The T-series wired-feature gates (Vitest delegators), node like parity-graph.
+        "tests/test_t7_notifications_wired.py",
+        "tests/test_t3_t4_wired.py",
+        "tests/test_t5_t6_wired.py",
+        "tests/test_t8_cluster_wired.py",
+        "tests/test_t11_approval_wired.py",
+        "tests/test_t10_devtools_wired.py",
+        "tests/test_t2_history_wired.py",
+        "tests/test_t1_dashboard_wired.py",
         "tests/test_t9a_live_stream_wired.py",
         "tests/test_t9b_push_wired.py",
-        "tests/test_spa_root_routing_contract.py",
     )),
     ("download-chain", (
         # CHROMIUM shard: the only shard with `playwright install` (tests/test_row386_* asserts the pairing). Was download-chain + template-selectors.
@@ -293,10 +302,11 @@ PINNED: tuple[tuple[str, tuple[str, ...]], ...] = (
 # (pinned: mutation-tools-b 433, parity-graph 412, mutation-tools 388).
 GLOBS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("gates-rows-a", ("tests/test_row[0-5]*.py", "tests/test_row[89]*.py")),
-    ("gates-rows-b", ("tests/test_row[67]*.py",)),
-    ("gates-v3-a", ("tests/test_v3_66_1[01]*.py",)),
+    ("gates-rows-b", ("tests/test_row[67]*.py", "tests/test_v3_66_94*.py")),
+    ("gates-v3-a", ("tests/test_v3_66_10*.py", "tests/test_v3_66_110*.py", "tests/test_v3_66_1157_*.py")),
+    ("gates-v3-c", ("tests/test_v3_66_11*.py", "tests/test_v3_66_9*.py")),
     ("gates-v3-b", ("tests/test_v3_*.py",)),
-    ("gates-named-a", ("tests/test_[a-q]*.py",)),
+    ("gates-named-a", ("tests/test_[a-i]*.py",)),
     ("gates-named-b", ("tests/test_*.py",)),
 )
 

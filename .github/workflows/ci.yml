@@ -446,6 +446,10 @@ jobs:
     # 60, the ceiling test_v3_66_939 allows (an integer): on cut probe #1236 two fleet shards ran 25-28 min
     # of gate step and were cancelled at 30. Hosted shards finish in under 15 min, so 60 costs them nothing.
     timeout-minutes: 60
+    # ci-gate-rebalance r1 (O1789): the MUTATION shards run and report on every PR but never block it --
+    # they are outside branch protection's required set. Exactly these three names; every other gate-suites
+    # shard stays blocking. tests/test_ci_gate_rebalance.py pins this list against tools/ci_shards.py.
+    continue-on-error: ${{ contains(fromJSON('["mutation-tools", "mutation-tools-b", "mutation-tools-c"]'), matrix.name) }}
     strategy:
       # One shard's failure must not cancel the others: a cut usually wants to
       # see every gate that is red, not the first one.
@@ -459,20 +463,23 @@ jobs:
           # line (ci.yml was the one path every stacked train collided on).
           # tests/test_ci_shards.py asserts this list == `ci_shards.py names` and
           # test_v3_66_939 asserts the resolved partition covers every declared gate
-          # exactly once. Node is provisioned for parity-graph only, Chromium for
-          # download-chain only; application-safety is the H686 quarantine.
+          # exactly once. Node is provisioned for parity-graph and parity-graph-b only,
+          # Chromium for download-chain only; application-safety is the H686 quarantine.
           - name: version-at-land
           - name: safety-censuses
           - name: mutation-tools
           - name: mutation-tools-b
+          - name: mutation-tools-c
           - name: artifacts-pins
           - name: application-safety
           - name: isolation
           - name: parity-graph
+          - name: parity-graph-b
           - name: download-chain
           - name: gates-rows-a
           - name: gates-rows-b
           - name: gates-v3-a
+          - name: gates-v3-c
           - name: gates-v3-b
           - name: gates-named-a
           - name: gates-named-b
@@ -565,13 +572,13 @@ jobs:
       # and left it stale), and v3.66.1242 makes it seven. The population is
       # re-derived by that test; a number here only goes quietly wrong.
       - uses: actions/setup-node@v4
-        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && matrix.name == 'parity-graph'
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && (matrix.name == 'parity-graph' || matrix.name == 'parity-graph-b')
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies (shards whose gates need node)
-        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && matrix.name == 'parity-graph'
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && (matrix.name == 'parity-graph' || matrix.name == 'parity-graph-b')
         working-directory: frontend
         run: npm ci
 
@@ -614,6 +621,13 @@ jobs:
         #     reaches a gate that enumerates the tree.
         #   test_toolchain_534 -- carries the four tool selftests, the
         #     prose-only ratchet, and bd-freshcheck --repo-only.
+      # A non-blocking shard that fails must still be SEEN: continue-on-error turns the run green, so the
+      # failure is restated as a warning annotation and in the job summary.
+      - name: Report a failed non-blocking mutation shard
+        if: failure() && contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && contains(fromJSON('["mutation-tools", "mutation-tools-b", "mutation-tools-c"]'), matrix.name)
+        run: |
+          echo "::warning title=non-blocking shard failed::gate-suites (${{ matrix.name }}) FAILED; it is not a required check, so the run stays green"
+          echo "NON-BLOCKING SHARD FAILED: gate-suites (${{ matrix.name }})" >> "$GITHUB_STEP_SUMMARY"
 
   # O934.1 (process-test-shard). REDUNDANCY-REPORT-2026-09-19T23:36:50Z.md and
   # CEREMONY-CENSUS-*.md measured 210 precut runs going red on gates that never
