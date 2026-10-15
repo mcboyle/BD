@@ -970,6 +970,106 @@ _PASSWORD_SCOPED_SUBMIT_JS = r"""(sels) => {
     return null;
 }"""
 
+# dl95-scrolller-3 r2 (scrolller .95 2026-10-14T23:16Z, tester S127-B): the
+# r1 path found 'Log in!' and reported `click 'Log in!' after the password
+# field`, yet no credential POST followed. The pre-submit screenshot shows a
+# "Get Premium 73% Off" promo modal over the whole page: Playwright's normal
+# click cannot hit the control (the cover intercepts pointer events) and the
+# force=True fallback in _try_click clicks at the control's centre -- the
+# cover receives that click, the login never does, and the sweep reports a
+# click that never reached the page's handler.
+#
+# Hit-test the tagged control at its centre before it is clicked. A cover is
+# the hit element's highest ancestor that does not contain the control; it is
+# tagged data-bd-pw-cover so the close search below stays INSIDE it (never
+# the login modal's own X, never the page's first "close" in DOM order).
+_COVERED_SUBMIT_JS = r"""(el) => {
+    for (const n of document.querySelectorAll('[data-bd-pw-cover]')) n.removeAttribute('data-bd-pw-cover');
+    try { el.scrollIntoView({block: 'center', inline: 'center'}); } catch (e) {}
+    const r = el.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) return {state: 'no-box'};
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return {state: 'offscreen'};
+    const hit = document.elementFromPoint(x, y);
+    if (!hit) return {state: 'no-hit'};
+    if (hit === el || el.contains(hit)) return {state: 'clear'};
+    let root = hit;
+    while (root.parentElement && !root.parentElement.contains(el)) root = root.parentElement;
+    const desc = (n) => {
+        const cls = (typeof n.className === 'string') ? n.className.trim().split(/\s+/).filter(Boolean).slice(0, 2) : [];
+        return n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + (cls.length ? '.' + cls.join('.') : '');
+    };
+    root.setAttribute('data-bd-pw-cover', '1');
+    return {state: 'covered', hit: desc(hit), cover: desc(root)};
+}"""
+
+
+def _hit_test_control(page, loc):
+    """Hit-test the locator's first match at its centre: {state: gone|no-box|offscreen|no-hit|clear|covered,
+    [hit, cover]}; a covered control's cover is tagged data-bd-pw-cover=1."""
+    try:
+        if loc.count()==0: return {"state":"gone"}
+        probe=loc.first.evaluate(_COVERED_SUBMIT_JS)
+    except Exception as e: return {"state":"error","error":str(e)[:60]}
+    return probe if isinstance(probe,dict) else {"state":"error","error":"no result"}
+
+
+def _covered_cover(page, loc):
+    """The cover's description when the locator's centre is covered, else None (every other state is left
+    to _try_click as before; only a cover changes the click's fate)."""
+    probe=_hit_test_control(page, loc)
+    return (probe.get("cover") or "?") if probe.get("state")=="covered" else None
+
+_COVER_CLOSE_SELECTORS = (
+    "button[aria-label*='close' i]",
+    "[role='button'][aria-label*='close' i]",
+    "a[aria-label*='close' i]",
+    "button[title*='close' i]",
+    "button[class*='close' i]",
+    "[class*='close' i]",
+    "button:text-is('×')",
+    "button:text-is('✕')",
+    "button:text-is('X')",
+)
+_COVER_SETTLE_S = 0.4
+
+
+def _clear_submit_cover(page, loc, text):
+    """Hit-test the submit control; close one cover standing over it.
+
+    Returns (ok, detail). ok=True means no cover stands over the control's
+    centre (other hit states are left to _try_click as before); detail then
+    names the clearance, if one was made (else ""). ok=False means the
+    control must NOT be clicked (a forced click would land on the cover):
+    detail is the refusal diagnostic, naming the cover."""
+    cover=_covered_cover(page, loc)
+    if cover is None: return True,""
+    try: before=page.url
+    except Exception: before=""
+    for sel in _COVER_CLOSE_SELECTORS:
+        try:
+            x=page.locator("[data-bd-pw-cover='1']").locator(sel).first
+            x.wait_for(state="visible",timeout=300)
+        except Exception: continue
+        try: x.click(timeout=2000)
+        except Exception as e:
+            return False,(f"{text!r} is covered by {cover}; its close control {sel} "
+                          f"could not be clicked: {str(e)[:60]}; not clicked")
+        time.sleep(_COVER_SETTLE_S)
+        try: after=page.url
+        except Exception: after=""
+        if _origin(after)!=_origin(before):
+            return False,(f"closing {cover} via {sel} left the origin "
+                          f"({before[:60]} -> {after[:60]}); {text!r} not clicked")
+        again=_hit_test_control(page, loc)
+        if again.get("state")=="gone":
+            return False,f"{text!r} vanished after closing {cover} via {sel} ({after[:60]}); not clicked"
+        if again.get("state")!="covered": return True,f"closed {cover} covering {text!r} via {sel}"
+        return False,(f"{text!r} still covered after closing {cover} via {sel} "
+                      f"(now {again.get('cover') or '?'}); not clicked")
+    return False,(f"{text!r} is covered by {cover}; no close control inside the cover "
+                  f"({len(_COVER_CLOSE_SELECTORS)} shapes looked for); not clicked")
+
 
 _SWEEP_DECLARED_ORIGINS=set()
 
@@ -1218,8 +1318,22 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
     def _owned_by_login_form(loc):
         try: return bool(loc.evaluate(_SUBMIT_OWNED_BY_LOGIN_FORM_JS, pf_candidates))
         except Exception: return True   # unmeasurable: keep the old click
+    # dl95-scrolller-3 r2: a match whose centre another element covers is
+    # refused, not force-clicked (the cover would take the click and the
+    # sweep would report a click the control never saw). No clearance here:
+    # a configured selector's match can be a header button behind the login
+    # modal's own backdrop, whose "close" is the login modal's X.
+    m1_covered=[]
+    def _clickable_submit(loc):
+        if not _owned_by_login_form(loc): return False
+        cover=_covered_cover(page, loc)
+        if cover is None: return True
+        if cover not in m1_covered:
+            m1_covered.append(cover)
+            sys.stderr.write(f"  {site_tag()}login submit: a submit button match is covered by {cover}; not clicked\n")
+        return False
     def m1():
-        ok,info=_try_click(page,sb_candidates,"submit button",accept=_owned_by_login_form)
+        ok,info=_try_click(page,sb_candidates,"submit button",accept=_clickable_submit)
         return ok,f"click [{info}]"
     methods.append(("click submit selector",m1))
 
@@ -1231,6 +1345,13 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
         try: text=page.evaluate(_PASSWORD_SCOPED_SUBMIT_JS, pf_candidates)
         except Exception as e: return False,f"password-scoped submit error: {str(e)[:60]}"
         if not text: return False,"no submit control follows the password field"
+        # r2: never let _try_click's force=True fallback land on a cover
+        # standing over the control (scrolller's promo modal): hit-test
+        # first, close one cover through its own close control, refuse
+        # with the cover named when it cannot be closed.
+        clear,detail=_clear_submit_cover(page,page.locator("[data-bd-pw-submit='1']"),text)
+        if not clear: return False,detail
+        if detail: sys.stderr.write(f"  {site_tag()}login submit: {detail}\n")
         ok,info=_try_click(page,["[data-bd-pw-submit='1']"],"password-scoped submit")
         return ok,(f"click {text!r} after the password field" if ok else info)
     methods.append(("password-scoped submit",m1b))
