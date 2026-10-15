@@ -1537,8 +1537,52 @@ class ExtractorsMixin:
             sys.stderr.write(f"  spa-api: import failed ({type(e).__name__}); skipped\n")
             return False
         source_cands = _spa.xhamster_source_candidates(url, page)
+        wgcz_proven = None   # dl95-xvideos-2 r3: the proven player's sources, when the gate below took them
         if source_list_only and not source_cands:
-            return False
+            # dl95-xvideos-2 r2: the page's one WGCZ html5player (setVideoHLS/
+            # UrlHigh/UrlLow) is this scene's published source list too.  xvideos
+            # redirects to an id-less /video.<hash>/<slug>, so the DOM scorer
+            # cannot tell a related tile ("1440p /video.<other>/...") from this
+            # video and clicks it; answer from the player first, admitting only
+            # its own sources (scene_own_only), never the related media.
+            # r3 (lens F1): a bare setVideoUrlHigh(...) anywhere in the HTML is
+            # not that player -- an ad widget's call or a commented one would
+            # pre-empt the page's real download.  Off a known WGCZ host only the
+            # calls on the variable the page builds with new HTML5Player(...)
+            # count, read with JS comments dropped and strings masked, so a call
+            # inside either proves nothing.
+            try:
+                html = page.content()
+            except Exception:  # noqa: BLE001 -- an unreadable page proves nothing
+                html = ""
+            from urllib.parse import urlparse as _up
+            if re.search(r"(?:^|\.)(?:xvideos|xnxx)\d*\.[a-z]{2,}(?:\.[a-z]{2})?$",
+                         (_up(page.url or url).hostname or "").lower()):
+                wgcz_own = _spa.wgcz_player_media(html)
+            else:
+                lits = []
+
+                def _mask(m):
+                    if m.group(1):
+                        return " "
+                    lits.append(m.group(2)[1:-1])
+                    return f"\x00{len(lits) - 1}\x00"
+                code = re.sub(
+                    r"""(/\*.*?\*/|//[^\n]*)|('(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`)""",
+                    _mask, "\n".join(m.group(1) for m in re.finditer(
+                        r"<!--.*?-->|<script\b[^>]*>(.*?)</script>", html, re.S | re.I) if m.group(1)), flags=re.S)
+                players = set(re.findall(r"([A-Za-z_$][\w$]*)\s*=\s*new\s+HTML5Player\s*\(", code))
+                wgcz_own = []
+                for recv, i in re.findall(r"(?<![\w$.])([A-Za-z_$][\w$]*)\s*\.\s*setVideo(?:HLS|UrlHigh|UrlLow)"
+                                          r"\s*\(\s*\x00(\d+)\x00\s*\)", code):
+                    u = lits[int(i)]
+                    if recv in players and re.fullmatch(r"https?://[^'\"\s]+", u) and u not in wgcz_own:
+                        wgcz_own.append(u)
+                wgcz_own = wgcz_own[:6]
+            if not wgcz_own:
+                return False
+            scene_own_only = True
+            wgcz_proven = wgcz_own
         capture = getattr(self, "_spa_api_capture", None)
         records = []
         if capture is not None:
@@ -1577,7 +1621,8 @@ class ExtractorsMixin:
         if not feature_only:
             page_media += self._kvs_flashvars_media(page, _spa, forced)  # dl95-kvs-flashvars-1
             try:
-                wgcz_media = _spa.wgcz_player_media(page.content())  # tpl95-xnxx-1
+                wgcz_media = (wgcz_proven if wgcz_proven is not None
+                              else _spa.wgcz_player_media(page.content()))  # tpl95-xnxx-1
             except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
                 sys.stderr.write("  spa-api: page content unreadable; no WGCZ player sources\n")
             try:
