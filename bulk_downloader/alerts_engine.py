@@ -356,13 +356,20 @@ def evaluate(s_cfg: Optional[dict] = None,
     if rules is None:
         # Saved custom rules ride the default pass. A store that cannot be
         # read is reported as UNKNOWN (row 421), never as "no custom rules".
-        rules, store_error = _merged_rules()
+        rules, store_error, skipped = _merged_rules()
         if store_error:
             out["unknown"] += 1
             out["results"].append({"rule_id": "custom_rules", "metric": "",
                                    "value": None, "threshold": None,
                                    "tripping": False, "fired": False,
                                    "error": store_error})
+        # F039: a malformed saved row is not evaluated, and not silent either.
+        for rid, problem in skipped.items():
+            out["unknown"] += 1
+            out["results"].append({"rule_id": rid, "metric": "",
+                                   "value": None, "threshold": None,
+                                   "tripping": False, "fired": False,
+                                   "error": f"malformed rule skipped: {problem}"})
     for rule in rules:
         metric = rule.get("metric", "")
         if not _rule_enabled(rule):
@@ -489,33 +496,127 @@ def active_alerts(*, lookback_hours: int = 24) -> list:
             f"alert_events unreadable: {type(e).__name__}: {e}") from e
 
 
+def _rule_problem(rule) -> Optional[str]:
+    """Why an effective (defaults-merged) rule cannot be listed or
+    evaluated, else None. Checks the fields the /alerts table renders and
+    evaluate() reads, so one bad stored row cannot break either (F039)."""
+    if not isinstance(rule, dict):
+        return "rule_json is not a JSON object"
+    key = _non_finite_key(rule)
+    if key is not None:
+        return f"non-finite number in {key!r}"
+    metric = rule.get("metric")
+    if not isinstance(metric, str) or metric not in _KNOWN_METRICS:
+        return f"unknown metric {metric!r}"
+    # no default: evaluate() reads rule["op"] once a rule trips, so a custom
+    # row without one is malformed (built-ins get theirs from the defaults)
+    op = rule.get("op")
+    if not isinstance(op, str) or op not in _VALID_OPS:
+        return f"invalid op {op!r}"
+    threshold = rule.get("threshold")
+    try:
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float, str)):
+            raise TypeError
+        finite = math.isfinite(float(threshold))
+    except (TypeError, ValueError, OverflowError):
+        finite = False
+    # c5884f8a0 (na-fix F4): a stored NaN / Infinity threshold still lists
+    # (rules_report sends it as null) and evaluate() reports "bad threshold"
+    if not finite and not isinstance(threshold, float):
+        # evaluate()'s own wording for a threshold it cannot use
+        return f"bad threshold: {threshold!r}"
+    if not isinstance(rule.get("name", ""), str):
+        return "name is not a string"
+    # evaluate() int()s these and tests actions with "in" once a rule trips
+    for key in ("duration_minutes", "cooldown_minutes"):
+        if key in rule:
+            try:
+                int(rule[key])
+            except (TypeError, ValueError, OverflowError):
+                return f"bad {key}: {rule[key]!r}"
+    actions = rule.get("actions")
+    if actions and not isinstance(actions, (list, str, dict)):
+        return f"bad actions: {actions!r}"
+    return None
+
+
+def _non_finite_key(rule: dict) -> Optional[str]:
+    """First top-level key (threshold aside) whose value holds a NaN /
+    Infinity float, else None: jsonify writes those as bare tokens the SPA
+    cannot parse, and _json_safe only nulls top-level values."""
+    for key, value in rule.items():
+        if key == "threshold":
+            continue
+        stack = [value]
+        while stack:
+            v = stack.pop()
+            if isinstance(v, float) and not math.isfinite(v):
+                return str(key)
+            if isinstance(v, dict):
+                stack.extend(v.values())
+            elif isinstance(v, list):
+                stack.extend(v)
+    return None
+
+
+def _decode_rule_rows(rows) -> tuple:
+    """({rule_id: stored rule}, {rule_id: problem}) from alert_rules rows.
+
+    Decodes row by row: a malformed row is skipped and reported on stderr
+    instead of dropping every saved rule (F039). A bad override of a
+    built-in is skipped too, so the built-in keeps its default fields."""
+    defaults = {rule["id"]: rule for rule in DEFAULT_RULES}
+    custom, skipped = {}, {}
+    for r in rows:
+        rid = r[0] if not hasattr(r, "keys") else r["rule_id"]
+        try:
+            rule = json.loads(r[1] if not hasattr(r, "keys") else r["rule_json"])
+        except (TypeError, ValueError, RecursionError):
+            rule = None
+        if not isinstance(rid, str) or not rid:
+            problem = "rule_id is not a non-empty string"
+        elif rule is None:
+            problem = "rule_json is not valid JSON"
+        elif isinstance(rule, dict) and rule.get("id", rid) != rid:
+            problem = f"id {rule.get('id')!r} does not match rule_id"
+        else:
+            effective = {**defaults[rid], **rule} if (
+                rid in defaults and isinstance(rule, dict)) else rule
+            problem = _rule_problem(effective)
+        if problem:
+            sys.stderr.write(
+                f"[alerts] skipping malformed alert_rules row {rid!r}: {problem}\n")
+            skipped[str(rid)] = problem
+            continue
+        custom[rid] = rule
+    return custom, skipped
+
+
 def _merged_rules() -> tuple:
-    """(DEFAULT_RULES overlaid with saved rules + custom-only rules, error).
+    """(DEFAULT_RULES overlaid with saved rules + custom-only rules, error,
+    skipped).
 
     ``error`` is None when alert_rules was read, else a string; the defaults
-    are still returned so built-in alerting survives a store outage."""
+    are still returned so built-in alerting survives a store outage.
+    ``skipped`` maps malformed rows to why they were left out (F039)."""
     try:
         _ensure_tables()
         from . import db as _db
         with _db.db_conn() as cx:
             rows = cx.execute(
                 "SELECT rule_id, rule_json, enabled FROM alert_rules").fetchall()
-        custom = {}
-        for r in rows:
-            rule = json.loads(r[1])
-            if not isinstance(rule, dict):
-                raise ValueError(f"rule {r[0]!r} is not an object")
-            if r[2] is not None and not r[2]:
-                rule = {**rule, "enabled": False}   # column says off
-            custom[r[0]] = rule
     except Exception as e:
-        return list(DEFAULT_RULES), f"alert_rules store unavailable: {type(e).__name__}"
+        return list(DEFAULT_RULES), f"alert_rules store unavailable: {type(e).__name__}", {}
+    custom, skipped = _decode_rule_rows(rows)
+    for r in rows:
+        if r[0] in custom and r[2] is not None and not r[2]:
+            custom[r[0]] = {**custom[r[0]], "enabled": False}   # column says off
     out = []
     for rule in DEFAULT_RULES:
         out.append({**rule, **custom[rule["id"]]} if rule["id"] in custom else rule)
     default_ids = {rule["id"] for rule in DEFAULT_RULES}
     out.extend({**rule, "id": rid} for rid, rule in custom.items() if rid not in default_ids)
-    return out, None
+    return out, None, skipped
 
 
 def rules_report(*, s_cfg: Optional[dict] = None) -> tuple:
@@ -523,8 +624,8 @@ def rules_report(*, s_cfg: Optional[dict] = None) -> tuple:
 
     A store that cannot be read yields the built-in rules AND the error, so a
     caller can say "custom rules unknown" instead of showing only defaults as
-    if no custom rule existed."""
-    rules, store_error = _merged_rules()
+    if no custom rule existed. Malformed rows are skipped (F039)."""
+    rules, store_error, _skipped = _merged_rules()
     out = []
     default_by_id = {rule["id"]: rule for rule in DEFAULT_RULES}
     for rule in rules:
