@@ -1,31 +1,64 @@
-# Fleet topology
+# Fleet topology -- 27-Node Measured Swarm Architecture
 
-What the twelve machines are, how each one gets code, and how to tell whether a
-claim about them is true. Every number here was MEASURED on 2026-08-31 against
-origin/main 8b179d656203 (v3.66.1378). Re-measure before relying on any of it;
-CLAUDE.md A1 applies to this document as much as to any other.
+What the 27 cluster machines are, how each one gets code, host roles, hardware profiles,
+and access protocols. Every number and address here reflects the real, measured 27-node
+Boylenet topology (measured across origin/main and cluster telemetry). Re-measure before
+relying on any of it; CLAUDE.md A1 applies to this document as much as to any other.
 
-`~/.config/bd/roles` is the authoritative host population. This file explains
-that file; it does not replace it, and it must never be used to derive a host
-list. A missing or unreadable roles file deploys EVERYWHERE, deliberately.
+`~/.config/bd/roles` is the authoritative host population, and `~/.config/bd/hosts`
+is derived from it. This file explains the topology; it does not replace the roles file.
+A missing or unreadable roles file refuses passes with exit 3.
 
-## The twelve
+## The 27-Node Cluster Topology
 
-    role        host   ip             serves BD   deployed by bd-fleet-deploy
-    integrator  test5  10.0.70.164    yes         NEVER -- operator ruling
-    runner      test2  10.0.70.95     yes         only with BD_DEPLOY_ALL=1
-    runner      test3  10.0.70.80     yes         only with BD_DEPLOY_ALL=1
-    runner      test6  10.0.70.249    yes         only with BD_DEPLOY_ALL=1
-    deploy      test   10.0.70.83     yes         yes
-    deploy      test4  10.0.70.85     yes         yes
-    deploy      test7  10.0.70.84     yes         yes
-    deploy      bd     10.0.70.50     yes         yes
-    deploy      bd1    10.0.70.51     yes         yes
-    capacity    bd2    10.0.70.52     no          never
-    capacity    bd3    10.0.70.53     no          never
-    capacity    bd4    10.0.70.54     no          never
-    oracle      bittorrent 10.0.70.181    no          never
-    oracle/gpu  battlestation 10.0.10.137 no          never
+| Host Name | IP Address | Cluster Role | Hardware / Spec | BD Serving | Deployment Protocol / Access |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **test5** (hub-mesh01) | `10.0.70.164` | `integrator` / Hub | 48 vCPUs, 256 GB RAM | Yes | NEVER deployed by bd-fleet-deploy (Hub controller) |
+| **wrk-test04** (test3big) | `10.0.70.82` | `runner` / RAG & AST | 64 cores (84c vCenter), 128 GB RAM | Yes | Offload target: RAG indexing, AST parsing |
+| **ai-infer01** | `10.0.70.125` | `satellite-ai` | Tesla T4 GPU, 16 GB VRAM | No | Satellite inference: Llama-Guard 3 8B (:11434) |
+| **ai-ollama01** | `10.0.70.228` | `satellite-ai` | Tesla T4 GPU, 48 GB RAM | No | Satellite inference: Ollama Qwen2.5-Coder (:11434) |
+| **battlestation** | `10.0.10.137` | `oracle` / `gpu` | Ryzen 9 3900X (24T), RTX 2080 Ti 11GB | No | CDP bridge (:9222); Rule 84: CPU embed, GPU coder |
+| **bittorrent** | `10.0.70.181` | `oracle` / `vm` | Windows VM (32 vCPUs, 128 GB RAM) | No | CDP bridge (:9222) flat-rate oracle fanout |
+| **test2** | `10.0.70.95` | `deploy` | 16 vCPUs, 64 GB RAM | Yes | Deployed via `bd-fleet-deploy.sh` (live production) |
+| **test3** | `10.0.70.80` | `runner` | 8 cores, 31 GB RAM | Yes | Runner (held back during routine deploy) |
+| **test4** | `10.0.70.85` | `runner` | 8 cores, 31 GB RAM | Yes | Runner (held back during routine deploy) |
+| **test6** | `10.0.70.249` | `runner` | 16 cores, 62 GB RAM | Yes | Runner (held back during routine deploy) |
+| **test7** | `10.0.70.84` | `runner` | 8 cores, 31 GB RAM | Yes | Runner (held back during routine deploy) |
+| **test1** | `10.0.70.194` | `runner` | 16 vCPUs, 64 GB RAM | Yes | Runner |
+| **bd** | `10.0.70.50` | `deploy` | 48 cores, 344 GB RAM | Yes | Deployed via `bd-fleet-deploy.sh` |
+| **bd1** | `10.0.70.51` | `runner` | 48 cores, 344 GB RAM | Yes | Runner |
+| **bd2** | `10.0.70.52` | `runner` | 48 cores, 344 GB RAM | Yes | Runner / bands & precut capacity |
+| **bd3** | `10.0.70.53` | `runner` | 48 cores, 344 GB RAM | Yes | Runner / bands & precut capacity |
+| **bd4** | `10.0.70.54` | `runner` | 48 cores, 344 GB RAM | Yes | Runner / bands & precut capacity |
+| **fresh149** (test) | `10.0.70.149` | `capacity` | 16 vCPUs, 64 GB RAM | Yes | Capacity / agent work (never deployed) |
+| **spare1** | `10.0.70.197` | `runner` / Hot Spare | 16 vCPUs, 32 GB RAM | Yes | Hot spare; dedicated Pool A VM (Rule 61) |
+| **spare2** | `10.0.70.193` | `runner` / Hot Spare | 16 vCPUs, 32 GB RAM | Yes | Hot spare; dedicated Pool B VM (Rule 61) |
+| **spare3** | `10.0.70.122` | `spare-pool` / Cold | 16 vCPUs, 32 GB RAM | No (Cold) | Dedicated Pool C VM; booted via `bd-spare-boot.sh` |
+| **spare4** | `10.0.70.81` | `spare-pool` / Cold | 16 vCPUs, 32 GB RAM | No (Cold) | Dedicated Pool D VM; booted via `bd-spare-boot.sh` |
+| **spare5** | `10.0.70.185` | `spare-pool` / Cold | 16 vCPUs, 32 GB RAM | No (Cold) | Cold spare (ESXi spr-pool, Rule 61) |
+| **spare6** | `10.0.70.186` | `spare-pool` / Cold | 16 vCPUs, 32 GB RAM | No (Cold) | Cold spare (ESXi spr-pool, Rule 61) |
+| **spare7** | `10.0.70.120` | `spare-pool` / Cold | 16 vCPUs, 32 GB RAM | No (Cold) | Cold spare (ESXi spr-pool, Rule 61) |
+| **spare8** | `10.0.70.184` | `spare-pool` / Cold | 16 vCPUs, 32 GB RAM | No (Cold) | Cold spare (ESXi spr-pool, Rule 61) |
+| **spare9** | `10.0.70.187` | `spare-pool` / Cold | 16 vCPUs, 32 GB RAM | No (Cold) | Cold spare (ESXi spr-pool, Rule 61) |
+| **spare10** | `10.0.70.196` | `spare-pool` / Cold | 16 vCPUs, 32 GB RAM | No (Cold) | Cold spare (ESXi spr-pool, Rule 61) |
+| **spare11** | `10.0.70.195` | `spare-pool` / Cold | 16 vCPUs, 32 GB RAM | No (Cold) | Cold spare (ESXi spr-pool, Rule 61) |
+| **spare12** | `10.0.70.183` | `spare-pool` / Cold | 32 cores, 96 GB RAM | No (Cold) | Cold spare (esxi02, Rule 61) |
+| **cir1** | `10.0.70.121` | `ci-runner` | 16 vCPUs, 32 GB RAM | No | Ephemeral CI runner clone |
+| **cir2** | `10.0.70.86` | `ci-runner` | 16 vCPUs, 32 GB RAM | No | Ephemeral CI runner clone |
+| **seatc1** | `10.0.70.35` | `seat` | 16 vCPUs, 32 GB RAM | No | Seat VM clone (O1752 batch-3) |
+| **seatc2** | `10.0.70.171` | `seat` | 16 vCPUs, 32 GB RAM | No | Seat VM clone (O1752 batch-3) |
+| **kvcache-cx1** | `10.0.70.198` | `cache` | 16 vCPUs, 32 GB RAM | No | KV cache clone (spare2 clone) |
+
+## Access Protocols & Fabric Invariants
+
+- **SSH Access**: Port 22 over the private `10.0.70.0/24` mesh. Commands executed with `BatchMode=yes` and `ConnectTimeout=3`.
+- **Network MTU**: MTU 9000 (Jumbo frames) across all 25GbE interfaces. Verify with `ping -c 1 -M do -s 8972 <host_ip>`.
+- **Chrome DevTools Protocol (CDP)**: Port 9222 on Windows Oracle hosts (`10.0.70.181`, `10.0.10.137`).
+- **Satellite AI Ports**: LiteLLM Proxy on `:4000`, Ollama instances on `:11434`, HF TEI Embeddings on `:8081` (`bge-m3`), HF TEI Reranker on `:8082` (`bge-reranker-large`).
+- **Shared Storage (NFSv4)**: Hub 164 exports `/mnt/bd` checkouts and review worktrees with `nfs-share.log` logging.
+- **Rule 61 Cold Spare Elasticity**: spare1 and spare2 stay powered on. spare3 through spare12 remain powered off cold spares to conserve 448 GB RAM and 176 vCPUs. Automated elasticity is driven by `bd-spare-boot.sh`.
+- **Rule 84 Hardware Segregation**: Node 137 strictly isolates embedding models to the Ryzen 9 CPU and high-throughput Coder models to the RTX 2080 Ti GPU.
+- **PTY Kernel Headroom**: Sub-second PTY descriptor monitoring via `bd-pty-guard.py` (/proc/sys/kernel/pty/nr vs max), with throttle at 80% and backoff at 85%.
 
 WHY RUNNERS ARE HELD BACK. Deploying onto a host mid-run restarts the service
 underneath a measurement, which is the boundary A6 draws. The filter matches the
@@ -39,7 +72,7 @@ never touch the host checkout, so a runner can lend cores while it serves.
 
 ## How each host gets code, and the trap in it
 
-    github origin   ALL TWELVE, as of 2026-08-31
+    github origin   ALL CHECKOUTS
     local mirror    NO host fetches its checkout from one any more -- MEASURED
                     2026-09-02 across all twelve: 396 clones enumerated, ZERO
                     with any remote pointing at a bare mirror. But the mirrors

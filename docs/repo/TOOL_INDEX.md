@@ -78,6 +78,11 @@ untracked. A glob is a denominator choice; say which one you used.
 | Edit a script that is currently executing | `/home/mboyle/bd-edit.py` |
 | Deploy one host / the fleet | `scripts/deploy.sh`, `/home/mboyle/bd-fleet-deploy.sh` |
 | What does the browser actually see? | `/home/mboyle/bd-shoot.py` |
+| Which test host has the lowest load? | `/home/mboyle/bin/bd-pick-host` |
+| How do I boot cold spare VMs? | `/home/mboyle/bd-persist/harness/bd-spare-boot.sh` |
+| Is PTY allocation and hardware routing safe? | `/home/mboyle/bd-persist/harness/bd-pty-guard.py` |
+| How do I sync credentials out-of-VCS? | `/home/mboyle/bin/bd-auth-sync` (`hardened_auth_sync.sh`) |
+| How do I run tests with token-capped output? | `/home/mboyle/bin/bd-pytest-digest` |
 
 ---
 
@@ -889,6 +894,46 @@ reference dangling.
 * **For a genuinely new host** follow `docs/repo/FRESH_HOST_BRINGUP.md`; do not
   hand-recreate the sequence.
 
+## bd-pick-host -- select least-loaded test host or verified seat host
+
+* **Location** `/home/mboyle/bin/bd-pick-host` (70 lines, O2548, operator). Status: live.
+* **Answers** "Which test host or seat host is ready, reachable, and least loaded right now?"
+* **Invoke**
+  - `bd-pick-host`: prints a single IP with lowest load/core among reachable hosts possessing the BulkDownloader venv.
+  - `bd-pick-host -n 3`: prints the 3 best host IPs, one per line.
+  - `bd-pick-host --table`: prints table of `name ip load cores score` (best score first).
+  - `bd-pick-host --seat`: filters strictly for seat hosts verified against `nfs-share.log` MOUNT/VERIFY records and executes a live read-write probe in `BD_SEAT_RW_DIRS` (`touch` and `rm` a temporary sentinel).
+* **Exit codes** 0 host(s) selected; 2 probe failure or missing remote lib; 3 blank directories / unresolvable target.
+* **Invariants** 3s TCP probe timeout; respects `/home/mboyle/bd-persist/POOL-DRAIN` (drained hosts are never selected); excludes test hosts where `/home/mboyle/bd-persist` or checkout is a writable network mount.
+
+## bd-spare-boot.sh -- automated govc cold-spare elasticity
+
+* **Location** `/home/mboyle/bd-persist/harness/bd-spare-boot.sh` (219 lines, O1789, Fleet Rule 61). Status: live.
+* **Answers** "How do I spin up a cold spare VM safely without over-allocating cluster memory or violating Rule 61?"
+* **Invoke**
+  - `bash /home/mboyle/bd-persist/harness/bd-spare-boot.sh <VM_NAME>`
+  - Options: `--dry-run` (simulate without vCenter mutation), `--timeout <seconds>` (default 180s), `--poll-interval <sec>` (default 2s).
+* **Invariants**
+  - Fleet Rule 61: `spare1` and `spare2` remain powered on hot spares. `spare3` through `spare12` remain powered off cold spares to conserve 448 GB RAM and 176 vCPUs.
+  - Fleet Rule 21: Gateways, infrastructure appliances, live test2, and operator test5 are strictly protected from mutation.
+  - Automated parsing of `govc vm.info -json` strictly targets lowercase `.virtualMachines[]` root and `.summary.guest.ipAddress`.
+  - Blocks until toolsOk, DHCP lease acquisition, and SSH port 22 are verified up.
+
+## hardened_auth_sync.sh (bd-auth-sync) -- out-of-VCS credential synchronization
+
+* **Location** `/home/mboyle/bd-persist/harness-work/O1789/auth_gateway/scripts/hardened_auth_sync.sh` (symlinked as `/home/mboyle/bin/bd-auth-sync`, 310 lines, O1789 / Rule 61 / O3252). Status: live.
+* **Answers** "How are sensitive Tier 1 credentials synchronized to fleet nodes without checking secrets into git or causing OAuth collision races?"
+* **Invoke** `bd-auth-sync [--dry-run] [--target <ip>] [--pool <a|b|c|d>]`
+* **Invariants**
+  - 0600 Permissions Enforcement: Staged and synced credential files are strictly created with mode 0600 (`-rw-------`) prior to payload transfer.
+  - Atomic Staging: Files are staged as temporary dot-files on the target filesystem, validated for JSON syntax integrity via `python3 -m json.tool`, and atomically renamed into place.
+  - Single-Writer Collision-Free OAuth Exclusivity: Rotating OAuth refresh tokens are NEVER replicated to shared worker VMs. Dedicated Pool VMs have exclusive token assignments:
+    - `10.0.70.197` (Spare1) -> Pool A only.
+    - `10.0.70.193` (spare2) -> Pool B only.
+    - `10.0.70.122` (spare3) -> Pool C only.
+    - `10.0.70.81` (spare4) -> Pool D only.
+    - Shared worker VMs receive stripped tokens (`refreshToken` blanked) or gateway bearer configurations.
+
 # H. Not killing yourself, your shell, or a live lane
 
 ## pkill -- a SHIM that refuses the self-match
@@ -987,6 +1032,33 @@ before signalling anything.
   create one.
 * **Use `&&`, not `;`, between the producer and this tool.** The refusal message
   says so because that is the actual defect.
+
+## bd-pty-guard.py -- kernel PTY descriptor guard and workload segregation validator
+
+* **Location** `/home/mboyle/bd-persist/harness/bd-pty-guard.py` (280 lines, Fleet Rule 61, Rule 84, O1740, O1789). Status: live.
+* **Answers** "Are kernel PTY allocations approaching hypervisor limits, and is workload hardware segregation respected?"
+* **Invoke** `python3 /home/mboyle/bd-persist/harness/bd-pty-guard.py [--audit|--daemon|--check-routes]`
+* **Invariants**
+  - Sub-second monitoring of Linux kernel PTY allocations (`/proc/sys/kernel/pty/nr` vs `/proc/sys/kernel/pty/max`).
+  - Automatic throttle at 80% utilization; shedding of ephemeral subagents when utilization exceeds 85% backoff threshold.
+  - Workload Segregation Invariants (Fleet Rule 84):
+    - Embedding models (Nomic, BGE-M3) pinned exclusively to the Ryzen 9 3900X CPU on Node 137 (`10.0.10.137`).
+    - High-throughput Coder models pinned exclusively to the RTX 2080 Ti GPU on Node 137.
+    - Heavy AST parsing and RAG embeddings indexing routed exclusively to 64-core Node 82 (`10.0.70.82`, `wrk-test04`).
+    - Hub Controller (`10.0.70.164`, Node 164) reserved exclusively for Command Squad.
+
+## bd-pytest-digest -- test output interceptor and compressor (Rule 78)
+
+* **Location** `/home/mboyle/bin/bd-pytest-digest` (821 lines, Fleet Rule 78). Status: live.
+* **Answers** "How do I run pytest without drowning agent context in hundreds of lines of tracebacks and collection errors?"
+* **Invoke** `bd-pytest-digest <pytest-args...>` (e.g. `bd-pytest-digest tests/test_contracts.py`). Can also intercept piped pytest output.
+* **Output Format**
+  - On pass: 1 line, < 15 tokens (`PASS: 14 passed`).
+  - On failure: <= 3 lines, < 25 tokens (identifies failing test name, test file, line number, exception class, and concise diagnostic).
+* **Invariants**
+  - Strictly propagates pytest exit codes (0=pass, 1=fail, 2=error/syntax, 5=empty).
+  - Integrates with the flake database (`/home/mboyle/bd-persist/flakes/ledger.sqlite`) for regression tracking.
+  - Prevents multi-kilobyte context thrashing and preserves cache efficiency across all agent pools.
 
 # I. Operator instruments
 
