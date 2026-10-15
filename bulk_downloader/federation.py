@@ -661,6 +661,10 @@ def receive_template(from_instance: str, bundle: dict) -> dict:
     # If we have a shared token, a signed bundle must verify. An unsigned
     # bundle is allowed only when no token is configured.
     sig = _mk.verify_signature(bundle, secret=token) if token else {"ok": True, "signed": False}
+    # fed-replay r1 amend (R258-B A2): verify_signature reports an unsigned
+    # bundle as ok, so a registered peer's unsigned push was queued.
+    if token and not sig.get("signed"):
+        return {"ok": False, "error": "unsigned bundle refused"}
     if token and not sig.get("ok"):
         return {"ok": False, "error": "signature verification failed"}
     _ensure_pending_table()

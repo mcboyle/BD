@@ -245,3 +245,70 @@ def test_unit_peer_table_bounded(client, monkeypatch):
     body = json.dumps({"instance_id": "p3"}).encode()
     assert fed.verify_signed_request("POST", "/p", body, _hdr(fed.sign_request("tok", "POST", "/p", body)), "tok") == \
         (False, "nonce cache full")
+
+
+# ── amend (R258-B A2, PM 1650Z s6): token set -> the bundle must be signed ──
+def _bundle(site, signed=None):
+    from bulk_downloader import marketplace
+    b = {"schema": marketplace.SCHEMA_VERSION, "site_id": site, "template": {"host": site},
+         "metadata": {"kind": "federated_template", "host": site}}
+    if signed:
+        b["signature"] = marketplace.sign_bundle(b, secret=signed)
+    return b
+
+
+def _pending():
+    from bulk_downloader import federation as fed
+    return [p["from_instance"] for p in fed.list_pending_templates()]
+
+
+@pytest.mark.parametrize("registered", [True, False])
+@pytest.mark.parametrize("kind", ["unsigned", "wrong-key", "garbage"])
+def test_a2_token_set_unsigned_or_bad_bundle_refused(client, fedtok, registered, kind):
+    from bulk_downloader import federation as fed
+    fed._ensure_tables()
+    if registered:
+        assert fed.register_peer("rp1", "http://rp1.test")
+    b = _bundle("a2.test", signed={"unsigned": None, "wrong-key": "not-the-fed-token"}.get(kind))
+    if kind == "garbage":
+        b["signature"] = "0" * 64
+    res = fed.receive_template("rp1", b)
+    assert res.get("ok") is False and not _pending(), \
+        f"A2 UNSIGNED: token set, registered={registered}, {kind} bundle queued: {res}"
+
+
+def test_a2_token_set_unsigned_bundle_names_its_refusal(client, fedtok):
+    from bulk_downloader import federation as fed
+    fed._ensure_tables()
+    assert fed.register_peer("rp1", "http://rp1.test")
+    assert fed.receive_template("rp1", _bundle("a2.test")) == {"ok": False, "error": "unsigned bundle refused"}
+
+
+def test_a2_route_signed_request_unsigned_bundle_400(client, fedtok):
+    from bulk_downloader import federation as fed
+    fed._ensure_tables()
+    assert fed.register_peer("rp1", "http://rp1.test")
+    path = "/api/fed/template_push"
+    body = {"instance_id": "rp1", "bundle": _bundle("a2.test")}
+    raw = json.dumps(body).encode()
+    r = post(client, path, body, headers=signed_headers(path, raw))
+    assert r.status_code == 400 and not _pending(), \
+        f"A2 UNSIGNED: signed template_push carrying an unsigned bundle -> {r.status_code} {r.get_json()}"
+
+
+def test_a2_token_set_signed_bundle_registered_peer_queued_ctl(client, fedtok):
+    from bulk_downloader import federation as fed
+    fed._ensure_tables()
+    assert fed.register_peer("rp1", "http://rp1.test")
+    path = "/api/fed/template_push"
+    body = {"instance_id": "rp1", "bundle": _bundle("a2.test", signed=FEDTOK)}
+    raw = json.dumps(body).encode()
+    r = post(client, path, body, headers=signed_headers(path, raw))
+    assert r.status_code == 200 and _pending() == ["rp1"], r.get_json()
+
+
+def test_a2_no_token_unsigned_bundle_still_queued_ctl(client):
+    from bulk_downloader import federation as fed
+    fed._ensure_tables()
+    assert fed.receive_template("open1", _bundle("a2.test"))["ok"] is True
+    assert _pending() == ["open1"]

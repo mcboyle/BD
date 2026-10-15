@@ -486,6 +486,34 @@
   "unknownType": true
  },
  {
+  "file": "src/components/TeachSessionCard.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/take_over_cancel",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/TeachSessionCard.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/take_over_done",
+  "sample": null,
+  "unknownType": true
+ },
+ {
+  "file": "src/components/TeachSessionCard.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "url"
+  ],
+  "path": "/api/sites/${}/take_over_url",
+  "sample": {
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
   "file": "src/components/sections/TemplateAuthoringSection.tsx",
   "fn": "apiPost",
   "keys": [
@@ -822,6 +850,18 @@
   "path": "/api/synthetic_tests/run_all",
   "sample": null,
   "unknownType": true
+ },
+ {
+  "file": "src/hooks/useGlobalByteBudget.ts",
+  "fn": "apiPost",
+  "keys": [
+   "global_daily_byte_budget"
+  ],
+  "path": "/api/global_config",
+  "sample": {
+   "global_daily_byte_budget": 1
+  },
+  "unknownType": false
  },
  {
   "file": "src/hooks/useGovernance.ts",

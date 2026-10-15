@@ -51,8 +51,14 @@ def fedtok(monkeypatch):
 
 def _signed_post(c, path, obj):
     raw = json.dumps(obj).encode()
-    sig = hmac.new(FEDTOK.encode(), raw, hashlib.sha256).hexdigest()
-    return c.post(path, data=raw, headers={"Content-Type": "application/json", "X-BD-Fed-Sig": sig})
+    # fed-replay r1: the signature binds method, path, timestamp and nonce
+    import secrets
+    import time
+    ts, nonce = str(int(time.time())), secrets.token_hex(16)
+    canon = "\n".join(("POST", path, ts, nonce, hashlib.sha256(raw).hexdigest())).encode()
+    sig = hmac.new(FEDTOK.encode(), canon, hashlib.sha256).hexdigest()
+    return c.post(path, data=raw, headers={"Content-Type": "application/json", "X-BD-Fed-Sig": sig,
+                                           "X-BD-Fed-Ts": ts, "X-BD-Fed-Nonce": nonce})
 
 
 def _peers():
