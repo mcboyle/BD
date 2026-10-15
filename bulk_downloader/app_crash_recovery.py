@@ -56,15 +56,22 @@ def api_crash_recovery_stats():
 
 @crash_recovery_bp.route("/api/crash_recovery/delete", methods=["POST"])
 def api_crash_recovery_delete():
-    """Delete an orphan .part + sidecar. Body: {path}."""
+    """Delete an orphan .part + sidecar. Body: {path}.
+    The path is only a lookup key: it must be a .part inside a download
+    root AND listed by the current scan, else 400 and nothing is touched."""
+    runners = _app_runners()
+    s_cfg = _app_s_cfg()
     _check_csrf()
     body = request.json or {}
     path = (body.get("path") or "").strip()
     if not path:
         return jsonify({"ok": False, "error": "path required"}), 400
+    from . import crash_recovery as _cr
     try:
-        from . import crash_recovery as _cr
-        return jsonify(_cr.delete_orphan(path))
+        return jsonify(_cr.delete_scanned_orphan(
+            path, s_cfg=s_cfg, runners=runners))
+    except _cr.DeleteRefused as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
