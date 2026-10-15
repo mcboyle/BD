@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1885 - train283b: row
+
+T283b-e (train-27, integrator D2-D, lane 2) on main 7a50cb3b (train-26 merged). FIX-FORWARD FF-C (T281z/FIXFWD-band-zB-0020Z.md + FF-C+ scs_fix_alerts_tg in T283a-D/FIXFWD-band-main-0200Z.md). One lens (no security/auth/hook path; O3194 item 3).
+FIX: O1789/landing/sec2-withhold-messages/r1 (BOARD per .review/VERDICT-*)
+
+
 ## v3.66.1882 - train283b: row
 
 T283b-d (train-26, integrator D2-D, lane 2) on main 2c028fed (train-23 merged). Spec paths disjoint from C's train-24/25 (checked vs LANE-STATE-integrator-C + members-train2*-C.tsv).

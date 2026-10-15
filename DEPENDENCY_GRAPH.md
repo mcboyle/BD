@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1901**
+- internal import edges: **1904**
 - tools: 235 · with internal edge: 135 · with tool→package edge: 75
 - blueprints: 163 · config stores: 5
 
@@ -21,9 +21,9 @@ Graph version: 1
 - `bulk_downloader/constants.py`: 35
 - `bulk_downloader/ssrf_transport.py`: 30
 - `bulk_downloader/app.py`: 26
+- `bulk_downloader/egress_withhold.py`: 24
 - `bulk_downloader/plugins.py`: 23
 - `bulk_downloader/cookies.py`: 22
-- `bulk_downloader/egress_withhold.py`: 21
 - `bulk_downloader/secrets_store.py`: 20
 - `bulk_downloader/registrable_domain.py`: 19
 - `bulk_downloader/capture_artifact_redact.py`: 18
@@ -44,7 +44,7 @@ Graph version: 1
 - **accounts** (`app_accounts.py`) — routes 1, providers 1
 - **activity** (`app_activity.py`) — routes 3, providers 1
 - **ai** (`app_ai.py`) — routes 8, providers 3
-- **alerts** (`app_alerts.py`) — routes 4, providers 1
+- **alerts** (`app_alerts.py`) — routes 4, providers 2
 - **analyzer** (`app_analyzer.py`) — routes 5, providers 3
 - **api_tokens** (`app_api_tokens.py`) — routes 2, providers 1
 - **apple** (`app_apple.py`) — routes 1, providers 0
@@ -150,7 +150,7 @@ Graph version: 1
 - **runs** (`app_runs.py`) — routes 2, providers 1
 - **saved_searches** (`app_saved_searches.py`) — routes 4, providers 1
 - **scene_score** (`app_scene_score.py`) — routes 3, providers 1
-- **scheduled_exports** (`app_scheduled_exports.py`) — routes 4, providers 1
+- **scheduled_exports** (`app_scheduled_exports.py`) — routes 4, providers 2
 - **schedules** (`app_schedules.py`) — routes 5, providers 1
 - **scrape_listing** (`app_scrape_listing.py`) — routes 1, providers 3
 - **scrapling** (`app_scrapling.py`) — routes 4, providers 0
@@ -179,7 +179,7 @@ Graph version: 1
 - **supervisor** (`app_supervisor.py`) — routes 2, providers 0
 - **synthetic_tests** (`app_synthetic_tests.py`) — routes 2, providers 1
 - **tags** (`app_tags.py`) — routes 9, providers 1
-- **template** (`app_template.py`) — routes 5, providers 5
+- **template** (`app_template.py`) — routes 5, providers 6
 - **template_manager** (`app_template_manager.py`) — routes 8, providers 6
 - **template_manager_ui** (`app_template_manager_ui.py`) — routes 3, providers 3
 - **templates** (`app_templates.py`) — routes 1, providers 1
