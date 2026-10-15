@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6562,
+  "edge_count": 6569,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1310,6 +1310,7 @@
     "bulk_downloader/diagnostics_bundle.py": [
       "bulk_downloader/account_health.py",
       "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/egress_withhold.py",
@@ -6257,6 +6258,7 @@
       "tools/replay_validator.py"
     ],
     "tests/test_repos_F2_F9.py": [
+      "bulk_downloader/app.py",
       "bulk_downloader/content_rights.py",
       "bulk_downloader/db.py",
       "bulk_downloader/fname.py"
@@ -7761,6 +7763,13 @@
     ],
     "tests/test_search_extractor_bounds.py": [
       "bulk_downloader/search_extractor.py"
+    ],
+    "tests/test_sec2_get_residuals_r1.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/diagnostics_bundle.py",
+      "bulk_downloader/shares.py"
     ],
     "tests/test_sec2_withhold_import_roundtrip.py": [
       "bulk_downloader/app.py",
