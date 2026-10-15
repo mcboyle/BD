@@ -4,21 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1892 - T283b-j: release at merge
+
+T283b-m (lane 2, D2-D; at-merge) train-34 on current main (members yielded to C queue-train36: version-at-land-speed, row634, ff-e-body-contract).
+FIX: O1789/landing/dp13-hls-oserror/r1 (BOARD correctness bd-cx-lens-1; DP-13 follow-up of NOTE-D2-D-dp13-hls-0140Z: runner_extractors HLS master read OSError logged, not swallowed)
+FIX: O1789/landing/try-click-force-class/r1 (BOARD correctness bd-agy-dl-7 + security bd-review-correctness-A2 on tree b56d4df4; cred submit path, O3194 item 3 two legs; carries scrolller-3 r2 parent inside the judged patch)
+
+
 ## v3.66.1891 - T282p-A
 
-(TODO changelog body)
 
 ## v3.66.1890 - T282o-A
 
-(TODO changelog body)
 
 ## v3.66.1889 - T282m-D
 
-(TODO changelog body)
 
 ## v3.66.1888 - T282l-B
 
-(TODO changelog body)
 
 ## v3.66.1887 - T283b-g: release at merge
 
