@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6522,
+  "edge_count": 6532,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2352,7 +2352,10 @@
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/stream_relay.py": [
-      "bulk_downloader/global_config.py"
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/library_final.py",
+      "bulk_downloader/paths.py"
     ],
     "bulk_downloader/stream_verifier.py": [
       "bulk_downloader/ffmpeg_bin.py"
@@ -3220,6 +3223,11 @@
     ],
     "tests/test_cockpit_navigation_contract.py": [
       "bulk_downloader/app_cockpit_home.py"
+    ],
+    "tests/test_cockpit_relogin_col.py": [
+      "bulk_downloader/cookie_relogin.py",
+      "bulk_downloader/db.py",
+      "tools/cockpit_templates.py"
     ],
     "tests/test_cockpit_route_contract.py": [
       "bulk_downloader/app_cockpit_home.py"
@@ -7926,6 +7934,12 @@
       "bulk_downloader/dom_capture.py",
       "bulk_downloader/wacz_export.py",
       "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_stream_relay_bare_filename_1.py": [
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/stream_relay.py"
     ],
     "tests/test_stream_token_r1.py": [
       "bulk_downloader/app_stream.py",

@@ -2458,7 +2458,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1915,
+    "edge_count": 1918,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2729,6 +2729,7 @@
         "bulk_downloader/live_recorder.py",
         "bulk_downloader/paths.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/stream_relay.py",
         "bulk_downloader/tombstone.py"
       ],
       "bulk_downloader/app_status.py": [
@@ -3894,6 +3895,7 @@
         "bulk_downloader/healthcheck.py",
         "bulk_downloader/paths.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/stream_relay.py",
         "tools/census_file_size_drift.py"
       ],
       "bulk_downloader/lifecycle_automation.py": [
@@ -4118,6 +4120,7 @@
       ],
       "bulk_downloader/paths.py": [
         "bulk_downloader/retention.py",
+        "bulk_downloader/stream_relay.py",
         "tools/code_intelligence/snapshot.py"
       ],
       "bulk_downloader/pattern_hygiene.py": [
@@ -7791,7 +7794,10 @@
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/stream_relay.py": [
-        "bulk_downloader/global_config.py"
+        "bulk_downloader/app_state.py",
+        "bulk_downloader/global_config.py",
+        "bulk_downloader/library_final.py",
+        "bulk_downloader/paths.py"
       ],
       "bulk_downloader/stream_verifier.py": [
         "bulk_downloader/ffmpeg_bin.py"
