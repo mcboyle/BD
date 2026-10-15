@@ -209,6 +209,39 @@ def test_type_aware_gate_finds_no_keyless_control():
         + "\n".join(f"  {r['path']}  ({r['file']})  {r['why']}" for r in dead))
 
 
+def _typed_keyless(path):
+    return {"file": "INJECTED.tsx", "fn": "apiDelete" if "draft" in path else "apiPost",
+            "path": path, "keys": [], "shape": "{}", "sample": {}, "unknownType": False}
+
+
+def test_a_placeholder_in_the_query_is_not_a_keyless_dead_control():
+    """FF-E (F017 draft CRUD). apiDelete /api/template_manager/draft?file=${} carries its
+    argument in the QUERY, so its body has no keys by design. The typed probe (no fixtures)
+    fills that query with its "_probe" placeholder, the endpoint rightly answers 400
+    "invalid draft filename" to {} and to the sample alike, and the keyless rule read that
+    as DEAD. A real filename would have saved it -- OUR value was refused, not the control."""
+    from tools import body_contract as bc
+
+    res = bc.probe_typed(ROOT, [_typed_keyless("/api/template_manager/draft?file=${}")])
+    assert len(res) == 1 and res[0]["verdict"] == "UNKNOWN", (
+        "BD-FFE-QUERY-PLACEHOLDER-DEAD: the typed probe judged its own query placeholder "
+        "as a dead control", res)
+    assert res[0]["why"] == "query carries a placeholder value", res
+
+
+def test_the_typed_keyless_rule_still_finds_a_dead_control():
+    """Positive control for the query exemption: a keyless control whose placeholder sits in
+    the PATH (or whose query holds no placeholder) is still judged by the keyless rule, and
+    /api/import/start refuses {} -> DEAD. The exemption is the placeholder in the query only."""
+    from tools import body_contract as bc
+
+    for path in ("/api/import/start/${}", "/api/import/start/${}?folder_scan=1"):
+        res = bc.probe_typed(ROOT, [_typed_keyless(path)])
+        assert len(res) == 1 and res[0]["verdict"] == "DEAD", (
+            "BD-FFE-TYPED-GATE-BLIND: the typed keyless rule no longer sees a dead control",
+            path, res)
+
+
 def test_type_aware_pass_actually_resolves_bodies():
     """A type-aware gate that resolves nothing is the regex gate wearing a hat. Pin that it
     genuinely reads key sets off the checker."""

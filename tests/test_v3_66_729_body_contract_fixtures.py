@@ -136,7 +136,17 @@ def _secrets_store_state_is_test_owned(monkeypatch):
 # exactly this endpoint. Raising it by 1 with that attribution is the sanctioned
 # response; seeding a dead-letter fixture whose url matches the probe's generated
 # body would touch the probe's value-filling internals and is out of scope here.
-UNKNOWN_BASELINE = 139  # T281h (dsq-batch-ops r3): +1, NAMED below
+UNKNOWN_BASELINE = 141  # FF-E (body-contract r1): +2, NAMED below
+# FF-E (body-contract r1, main 7a50cb3b): +2, NAMED -- TeachSessionCard.tsx apiPost
+# /api/sites/${}/take_over_cancel and /api/sites/${}/take_over_done, both added by f035
+# (2a07f04a9). Both send a literal {}, so the probe answers UNKNOWN before replay -- the
+# honest verdict for a keyless control. Their sibling /api/sites/${}/take_over_url was a
+# HARNESS-FAULT on main (the fixture _StubRunner had no start_manual_download, so the
+# handler's tuple unpack raised TypeError); with the stub it replays 200 -> OK, not UNKNOWN.
+# Identified by diffing the UNKNOWN sets keyed by (file, fn, path) between main 88ea4929
+# (unknown-set-hD.txt, 139) and the cut tree (141): these two added, plus the already NAMED
+# F038 /api/schedules/${}/update added and T281h-D /api/batch/retry removed. Main 7a50cb3b
+# measures 141 too (cut probe with start_manual_download removed): same identity set.
 # F038 (APP-FEATURE-QUEUE schedules edit, restacked onto acd7231b): +1 measured, baseline
 # UNCHANGED at 139 -- useSchedules.ts apiPost /api/schedules/${}/update {cadence_hours, label}.
 # The probe's placeholder id names no schedule, so the route answers 404 -- the same honest
