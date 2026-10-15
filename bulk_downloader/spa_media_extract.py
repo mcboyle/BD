@@ -380,6 +380,10 @@ def scene_stream_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str
         parsed = urlparse(u)
         if parsed.scheme not in ("http", "https") or not MEDIA_EXT_RE.search(parsed.path):
             continue
+        # dl95-kellymadisonmedia-2 r2: kmm's tour CDN files the 1080p trailer
+        # under the scene id; a trailer is never the scene's stream.
+        if is_preview_media(u):
+            continue
         segments = [s for s in parsed.path.split("/") if s]
         if alnum:
             named = [s for s in segments if s.split(".", 1)[0] == ids[0]]
