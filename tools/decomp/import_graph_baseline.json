@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6490,
+  "edge_count": 6500,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1178,7 +1178,8 @@
     ],
     "bulk_downloader/deep_http.py": [
       "bulk_downloader/hooks.py",
-      "bulk_downloader/http_client.py"
+      "bulk_downloader/http_client.py",
+      "bulk_downloader/urllib_ssrf.py"
     ],
     "bulk_downloader/deployment_timeline.py": [
       "bulk_downloader/app_health.py",
@@ -2240,6 +2241,7 @@
     ],
     "bulk_downloader/selector_playground.py": [
       "bulk_downloader/cloak.py",
+      "bulk_downloader/deep_http.py",
       "bulk_downloader/selector_check.py"
     ],
     "bulk_downloader/selftest.py": [
@@ -2300,7 +2302,8 @@
       "bulk_downloader/user_templates.py"
     ],
     "bulk_downloader/site_weather.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/deep_http.py"
     ],
     "bulk_downloader/smart_wakeup.py": [
       "bulk_downloader/db.py"
@@ -2522,6 +2525,7 @@
     ],
     "bulk_downloader/webhooks.py": [
       "bulk_downloader/db.py",
+      "bulk_downloader/deep_http.py",
       "bulk_downloader/hooks.py"
     ],
     "bulk_downloader/ytdlp_extractor.py": [
@@ -4101,6 +4105,9 @@
     "tests/test_dl95_xvideos_1_public_site_discovery.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/scene_crawler.py"
+    ],
+    "tests/test_dl95_xvideos_2_r2_related_tile.py": [
+      "bulk_downloader/detect.py"
     ],
     "tests/test_dl95_xvideos_2_related_scene_links.py": [
       "bulk_downloader/cloak.py",
@@ -7852,6 +7859,13 @@
     ],
     "tests/test_ssrf_public_literal.py": [
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_ssrf_rebind_pin.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/deep_http.py",
+      "bulk_downloader/selector_playground.py",
+      "bulk_downloader/site_weather.py",
+      "bulk_downloader/webhooks.py"
     ],
     "tests/test_staging_toctou_f1_no_clobber.py": [
       "bulk_downloader/hls_downloader.py",
