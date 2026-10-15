@@ -9,11 +9,11 @@ authoritative; this file is only a deterministic locality view.
 - `bulk_downloader/dev_suite/introspection.py:231` — `try:                                            # INV-001`
 - `bulk_downloader/runner.py:4485` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner.py:4551` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:423` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:745` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:856` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:1239` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:1301` — `_sk.pause_site_keepers(self.site_id)  # INV-001: the manual profile is ours now`
+- `bulk_downloader/runner_auth.py:439` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:765` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:876` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:1259` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:1321` — `_sk.pause_site_keepers(self.site_id)  # INV-001: the manual profile is ours now`
 - `bulk_downloader/session_keeper.py:1862` — `def pause_site_keepers(site_id: str) -> int:  # INV-001`
 
 ## INV-002 — live source tags
