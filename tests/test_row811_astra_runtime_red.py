@@ -11,6 +11,10 @@ import pytest
 BD_GATE_SCOPE = "module"
 ROOT = Path(__file__).resolve().parents[1]
 SUBJECT = ROOT / "tests/test_v3_66_726_body_contract.py"
+# FF-E (body-contract r1) added two subject cases (the query-placeholder UNKNOWN and its
+# typed keyless positive control): 12 -> 14. The test keeps its row811 name so its node id
+# and every receipt that cites it stay valid.
+_SUBJECT_CASES = 14
 
 
 # Each leg runs the 12 subject cases in a fresh interpreter: 40-48 s idle; in a loaded
@@ -58,8 +62,8 @@ def test_the_twelve_body_contract_cases_agree_under_both_runtimes(tmp_path):
     evidence = {"pytest_cases": pytest_cases, "runner_cases": runner_cases,
                 "runner_failures": runner["failures"], "outputs": outcomes}
     print("ROW811_RUNTIME_EVIDENCE=" + json.dumps(evidence))
-    assert len(raw_pytest_cases) == len(runner["tests"]) == runner["total"] == 12, evidence
-    assert len(pytest_cases) == len(runner_cases) == 12, evidence
+    assert len(raw_pytest_cases) == len(runner["tests"]) == runner["total"] == _SUBJECT_CASES, evidence
+    assert len(pytest_cases) == len(runner_cases) == _SUBJECT_CASES, evidence
     assert set(pytest_cases) == set(runner_cases), evidence
     assert outcomes["pytest"]["rc"] == 0, outcomes["pytest"]
     assert outcomes["runner"]["rc"] == 0, outcomes["runner"]
