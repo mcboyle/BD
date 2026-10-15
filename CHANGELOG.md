@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1888 - T282l-B
+
+(TODO changelog body)
+
 ## v3.66.1887 - T283b-g: release at merge
 
 T283b-g (lane 2, D2-D; at-merge mode per RULING-pm-A4-A-lanes-and-tryclick-0225Z after the T283b-f proof) on current main. Item 1 of ORDER-pm-A4-A-audit-all-actions-0320Z (SPLIT-D2-D-item1-0325Z.md).
