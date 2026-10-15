@@ -123,6 +123,15 @@ class _StubRunner:
         # Mirror the real shape: everything queued, nothing duped or skipped.
         return (len(list(urls)), 0, 0)
 
+    def start_manual_download(self, target_url):
+        # The REAL runner (runner_manual.py start_manual_download) returns
+        # (ok, message); /api/sites/<sid>/take_over_url unpacks it
+        #     ok,msg=runners[sid].start_manual_download(target_url)
+        # The __getattr__ no-op returned 0 -> TypeError -> a 500 the product
+        # never had (mechanism #5; FF-E, f035 TeachSessionCard.tsx). Mirror the
+        # real shape with the real refusal branch: no browser is ever launched.
+        return False, "fixture runner: no browser for a manual download"
+
     def __getattr__(self, name):
         # THE LINE, drawn where the evidence put it:
         #
