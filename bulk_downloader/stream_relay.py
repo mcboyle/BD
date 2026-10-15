@@ -34,7 +34,9 @@ Token scheme:
 Range serving:
   • serve_range(filename, range_header) — yields bytes for a Flask
     Response. Supports the standard "bytes=START-END" syntax. The body
-    never exceeds the Content-Length it announces.
+    never exceeds the Content-Length it announces. A relative filename (the
+    bare basename history records) is resolved against the download roots
+    by resolve_history_file and must stay inside them.
 """
 from __future__ import annotations
 
@@ -212,6 +214,39 @@ def _parse_range_header(header: str, file_size: int) -> Optional[tuple | str]:
     return (start, end)
 
 
+def resolve_history_file(filename: str, roots=None) -> tuple:
+    """(real_path, 200) or (None, 404|403) for a relative history filename.
+
+    history.filename is a bare BASENAME (runner_transport records
+    ``final_path.name``); handed to os.path.isfile as-is it resolved against
+    the process CWD, so /stream/<token> answered 404 for every real download.
+    It is resolved against the configured download roots instead
+    (``paths.download_roots``), with library_final._resolve_recorded's rules:
+    a flat join first, the basename index for a file the filename template
+    put in a subfolder, and 404 -- never a guess -- when the name matches
+    several files. The resolved file must stay inside the roots (realpath, so
+    a ``..`` walk or a symlink pointing out is caught): 403 otherwise.
+    """
+    from . import app_state, library_final, paths
+    if roots is None:
+        try:
+            roots = paths.download_roots(app_state.s_cfg)
+        except Exception:
+            roots = []
+    roots = [os.path.abspath(r) for r in roots]
+    if not filename or not roots:
+        return None, 404
+    path, state = library_final._resolve_recorded(filename, roots, {})
+    if state == "absent" and os.path.basename(filename) == filename:
+        path, state = library_final._resolve_recorded(
+            filename, roots, library_final._basename_index(roots))
+    if state != "resolved":
+        return None, 404
+    if not paths.within_download_roots(str(path), roots):
+        return None, 403
+    return os.path.realpath(path), 200
+
+
 def serve_range(filename: str, range_header: str = "",
                *, chunk_size: int = 64 * 1024):
     """Generator + headers for a Flask Response that serves a file
@@ -223,6 +258,10 @@ def serve_range(filename: str, range_header: str = "",
       • 200 OK for an ignored Range (unknown unit, invalid spec)
       • 416 Range Not Satisfiable for an unsatisfiable Range
     """
+    if not os.path.isabs(filename):
+        filename, status = resolve_history_file(filename)
+        if filename is None:
+            return None, {"Content-Type": "text/plain"}, status
     if not os.path.isfile(filename):
         return None, {"Content-Type": "text/plain"}, 404
     file_size = os.path.getsize(filename)
