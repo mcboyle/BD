@@ -6,9 +6,10 @@ and rescheduling tasks via exponential backoff.
 """
 from __future__ import annotations
 
+import random
 from collections import defaultdict
 from enum import Enum
-from typing import Dict
+from typing import Any
 
 
 class CircuitState(Enum):
@@ -17,10 +18,10 @@ class CircuitState(Enum):
     HALF_OPEN = "half_open"
 
 
-def compute_backoff(
-    *, attempt: int, base: float = 1.0, max_backoff: float = 60.0,
-) -> float:
-    return min(base * (2 ** attempt), max_backoff)
+def compute_backoff(*, attempt: int, base: float=1.0, max_backoff: float=60.0, rng: Any=None) -> float:
+    upper = min(base * 2 ** attempt, max_backoff)
+    rand_fn = rng if rng is not None else random.uniform
+    return rand_fn(base * 0.5, upper)
 
 
 class TaskCircuitBreaker:
@@ -40,7 +41,7 @@ class TaskCircuitBreaker:
         self._max_backoff = max_backoff
         self._state = CircuitState.CLOSED
         self._timeout_count = 0
-        self._task_attempts: Dict[str, int] = defaultdict(int)
+        self._task_attempts: dict[str, int] = defaultdict(int)
 
     @property
     def state(self) -> CircuitState:
@@ -62,11 +63,7 @@ class TaskCircuitBreaker:
             self._state = CircuitState.HALF_OPEN
 
     def should_allow(self, task_id: str) -> bool:
-        if self._state == CircuitState.CLOSED:
-            return True
-        if self._state == CircuitState.HALF_OPEN:
-            return True
-        return False
+        return self._state in (CircuitState.CLOSED, CircuitState.HALF_OPEN)
 
     def requeue(self, task_id: str) -> dict:
         attempt = self._task_attempts.get(task_id, 1)

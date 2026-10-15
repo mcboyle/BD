@@ -199,7 +199,9 @@ def api_hooks_test(sid):
     vars = build_vars(cfg, "completed", job)
     try:
         if kind == "post_cmd":
-            cmd = (body.get("override") or cfg.get("post_download_cmd","")).strip()
+            if body.get("override"):
+                return jsonify({"ok": False, "error": "command override rejected: use configured command"}), 400
+            cmd = (cfg.get("post_download_cmd", "")).strip()
             if not cmd: return jsonify({"ok":False,"message":"No command configured"})
             ok, msg = run_command_hook(cmd, vars, timeout=30)
             return jsonify({"ok":ok,"message":msg[:1000]})

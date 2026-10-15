@@ -41,10 +41,14 @@ def api_eol_export():
     dest = body.get("dest_dir", "")
     if not dest:
         return jsonify({"ok": False, "error": "dest_dir required"}), 400
+    from .scheduled_exports import resolve_destination
+    safe_dest = resolve_destination(dest, pending=False)
+    if not safe_dest:
+        return jsonify({"ok": False, "error": "dest_dir must lie under allowed export roots"}), 400
     try:
         from . import eol_export as _eol
         return jsonify(_eol.full_export(
-            dest,
+            safe_dest,
             s_cfg=s_cfg,
             include_cookies=bool(body.get("include_cookies", False)),
             sign_secret=body.get("sign_secret") or None,

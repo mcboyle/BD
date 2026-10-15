@@ -4,14 +4,14 @@ from __future__ import annotations
 import http.client
 import os
 import threading
-from typing import Any, Optional
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Any
 
 _FAILURE_LIMIT = 3
 _LOCK = threading.Lock()
-_POOLS: dict[str, "_ProxyPool"] = {}
+_POOLS: dict[str, _ProxyPool] = {}
 
 
 class _ProxyPool:
@@ -144,8 +144,17 @@ def proxy_open(request, *, timeout, direct_open):
     return response
 
 
-def unified_request(url: str, method: str = "GET", headers: Optional[dict] = None, timeout: float = 30.0, data: Any = None):
-    """Execute request via the unified egress client."""
+def unified_request(url: str, method: str="GET", headers: dict | None=None, timeout: float=30.0, data: Any=None):
     from .egress_transport import get_unified_egress_client
     client = get_unified_egress_client()
     return client.request(method=method, url=url, headers=headers, data=data, timeout=timeout)
+from .network.http_client import (
+    AsyncHttpClient,
+    BackoffConfig,
+    HttpClient,
+    PoolConfig,
+    TimeoutConfig,
+    compute_full_jitter,
+)
+
+__all__ = ["AsyncHttpClient", "BackoffConfig", "HttpClient", "PoolConfig", "TimeoutConfig", "compute_full_jitter", "proxy_open", "unified_request"]
