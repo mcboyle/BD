@@ -469,6 +469,9 @@ def hls_variant_for(master_text: str, master_url: str,
     FIRST video stream, so a master labelled 1080p landed 240p.  Picks, in
     order: an h264 variant at *want_height*, any variant at it, the tallest
     h264 variant, the tallest variant -- highest bandwidth within a height.
+    dl95-hls-variant-lowest-1 r2 (PM chooser cap): with no variant at a known
+    *want_height*, the tallest at or under it (h264 first); only when none is
+    under it, the LOWEST above it (want 480, have 360/720 -> 360).
     None when the text is not a master or no variant declares a height.
     ``program`` is the variant's index in master order (ffmpeg's program id)
     and ``audio_group`` its EXT-X-MEDIA audio group: such a variant's playlist
@@ -489,10 +492,19 @@ def hls_variant_for(master_text: str, master_url: str,
     if not sized:
         return None
     h264 = [v for v in sized if _H264_CODEC_RE.search(v.codecs or "")]
-    for pool in ([v for v in h264 if v.height == want_height],
-                 [v for v in sized if v.height == want_height], h264, sized):
+    tallest = lambda v: (v.height, v.bandwidth)  # noqa: E731
+    lowest = lambda v: (-v.height, v.bandwidth)  # noqa: E731
+    pools = [([v for v in h264 if v.height == want_height], tallest),
+             ([v for v in sized if v.height == want_height], tallest)]
+    if want_height:
+        pools += [([v for v in h264 if v.height <= want_height], tallest),
+                  ([v for v in sized if v.height <= want_height], tallest),
+                  (h264, lowest), (sized, lowest)]
+    else:
+        pools += [(h264, tallest), (sized, tallest)]
+    for pool, key in pools:
         if pool:
-            best = max(pool, key=lambda v: (v.height, v.bandwidth))
+            best = max(pool, key=key)
             return {"url": best.uri, "height": int(best.height),
                     "codecs": best.codecs or "", "audio_group": best.audio_group or "",
                     "program": best.master_index}
