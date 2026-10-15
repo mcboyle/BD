@@ -57,7 +57,7 @@ def test_candidate_guard_exists():
     assert Path(CANDIDATE).is_file(), f"candidate guard not found: {CANDIDATE}"
 
 
-def test_candidate_guard_never_says_ok_or_unknown_on_a_measurable_stale_base():
+def test_candidate_guard_never_says_ok_or_unknown_on_a_measurable_stale_base(tmp_path):
     """Positive control (ordinary stale base), the row841-class stale-CANON-main case (must
     flip to measuring against the true tip, not silently UNKNOWN, and the OK line's base clause
     must not then falsely claim "current main"), a negative control (healthy current CANON,
@@ -65,12 +65,18 @@ def test_candidate_guard_never_says_ok_or_unknown_on_a_measurable_stale_base():
     conflict against the true trunk must still REFUSE, counted against that true tip) -- run
     inside the shell fixture harness, which builds fully-sandboxed fake git repos and touches
     neither this repo nor BulkDownloader main.
+
+    The guard's O1698 T16 collect check needs a seat; the fixture's DONE.md names `SEAT: bd-test-fixture`.
+    BD_T16_LOG is an empty tmp log so that seat is never looked up in the live tripwire log.
     """
+    t16_log = tmp_path / "tripwire.log"
+    t16_log.write_text("")
     result = subprocess.run(
         ["bash", str(FIXTURE_HARNESS), CANDIDATE],
         capture_output=True,
         text=True,
         timeout=120,
+        env=dict(os.environ, BD_T16_LOG=str(t16_log)),
     )
     out = result.stdout + result.stderr
     assert result.returncode == 0, out
