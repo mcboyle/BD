@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 165,
+    "total": 167,
     "version": 1,
-    "count_dict": 164,
-    "test_files_scanned": 2805,
+    "count_dict": 166,
+    "test_files_scanned": 2811,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -62,6 +62,7 @@
       "tests/test_test2d_1_persistent_profile_cookie_jar.py": 5,
       "tests/test_toolchain_534.py": 1,
       "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py": 4,
+      "tests/test_try_click_force_class.py": 2,
       "tests/test_u49_workers_total_honest.py": 1,
       "tests/test_v3_43_42_storage_tier.py": 2,
       "tests/test_v3_43_62_live_recorder.py": 5,
@@ -906,6 +907,28 @@
         "misses": 1
       },
       "gates_what": "test_a_selector_the_dom_cannot_evaluate_names_nothing — Playwright-only syntax (:has-text) cannot be matched in the DOM: counted as before, never raised."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_try_click_force_class.py",
+      "line": 88,
+      "value": {
+        "covered": 0,
+        "moving": 0,
+        "cover": 1
+      },
+      "gates_what": "test_premise_a_forced_click_on_the_covered_control_lands_on_the_cover — Positive control for every zero below: the normal click on #covered is refused, a forced click at its"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_try_click_force_class.py",
+      "line": 115,
+      "value": {
+        "covered": 0,
+        "moving": 1,
+        "cover": 0
+      },
+      "gates_what": "test_an_uncovered_control_is_still_force_clicked_after_a_covered_one_is_refused — The force fallback still works where it reaches the control: the walk refuses #covered and clicks #moving."
     },
     {
       "form": "count_dict",

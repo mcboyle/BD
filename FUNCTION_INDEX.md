@@ -1036,7 +1036,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/_common.py` (27 entries)
+## `bulk_downloader/login_impl/_common.py` (29 entries)
 
 ```
 - L0007 `log_url` — A URL as it may appear in a diagnostic: scheme/host/path kept, EVERY
@@ -1063,9 +1063,11 @@ Schema version: 2
 - L0560 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
 - L0583 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
 - L0594 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
-- L0650 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
-- L0717 `_css_escape_for_id` `[private]`
-- L0726 `_ms_since` `[private]`
+- L0691 `_forced_click_hit_test` `[private]` — {state: clear|covered|no-box|offscreen|no-hit|error, [hit, cover|error]} for a forced click on loc.
+- L0698 `_forced_click_refusal` `[private]` — One refusal line: a covered control names its cover; any other state says the centre was not hit.
+- L0707 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
+- L0774 `_css_escape_for_id` `[private]`
+- L0783 `_ms_since` `[private]`
 ```
 
 
@@ -1129,7 +1131,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (33 entries)
+## `bulk_downloader/login_impl/submit.py` (36 entries)
 
 ```
 - L0039 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
@@ -1154,17 +1156,20 @@ Schema version: 2
 - L0717 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
 - L0801 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
 - L0817 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L1041 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
-- L1098 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
-- L1565 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L1636 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
-- L1738 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
-- L1758 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
-- L1805 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
-- L1821 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
-- L1842 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L1880 `_login_egress` `[private]` — tpl95-site-ma-brazzers-2 (O1658): the login browser's egress, resolved as the
-- L1934 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L1007 `_hit_test_control` `[private]` — Hit-test the locator's first match at its centre: {state: gone|no-box|offscreen|no-hit|clear|covered,
+- L1017 `_covered_cover` `[private]` — The cover's description when the locator's centre is covered, else None (every other state is left
+- L1037 `_clear_submit_cover` `[private]` — Hit-test the submit control; close one cover standing over it.
+- L1141 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
+- L1198 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
+- L1686 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L1757 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
+- L1859 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
+- L1879 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
+- L1926 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
+- L1942 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
+- L1963 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
+- L2001 `_login_egress` `[private]` — tpl95-site-ma-brazzers-2 (O1658): the login browser's egress, resolved as the
+- L2055 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -1197,4 +1202,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 1021 across 22 files._
+_Total entries: 1026 across 22 files._
