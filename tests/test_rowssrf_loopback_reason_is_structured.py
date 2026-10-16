@@ -155,6 +155,10 @@ _EXPECTED_RUNTIME_CONSUMERS = {
     # (`ok, reason = _is_safe_public_host(host)`; "" if ok); str(reason) is only
     # the text of the BridgeError its two callers raise, never parsed.
     "bulk_downloader/tool_bridge.py": {"_is_safe_public_host": 1},
+    # bd-census-delta: _classify_ip unattributed +5
+    "bulk_downloader/network/url_sanitizer.py": {"_classify_ip": 5},
+    # bd-census-delta: _classify_ip unattributed +1
+    "bulk_downloader/routes/export_import.py": {"_classify_ip": 1},
 }
 
 # This tool has an unrelated local classifier with the same private name. Its
