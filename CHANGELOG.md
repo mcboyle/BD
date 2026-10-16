@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1903 - T282ad-B
+
+- feat(postgres): primary PostgreSQL backend write cutover with fail-open SQLite fallback (mod3-postgres-cutover)
+- feat(security): private subnet SSRF protection, loopback guards, and AWS metadata blocking (sec-network-hardening)
+- fix(tests): legacy test suite remediation across 44 targets in shard-1901 (legacy-test-remediation)
+- docs(cli): full flag documentation truthfulness sync and ghost command elimination (cli-doc-truthfulness-sync)
+- infra(topology): boylenet 27-node cluster topology modernization and elasticity daemon (boylenet-topology-rebalance)
+- feat(migrations): reversible database migrations v1-v12 with downgrade steps (db-migration-reversibility)
+- test(concurrency): dynamic port allocation and test determinism fixtures (test-determinism-concurrency)
+- docs(fleet): complete 27-node fleet hardware mapping and git workflow standards (fleet-git-doc-modernization)
+- feat(frontend): React 18 memory leak elimination and memoized SVG telemetry (frontend-perf-memory-leak)
+- test(mutants): adversarial Unicode/bounds checking and synthetic mutation hardness (adversarial-mutation-probing)
+
 ## v3.66.1901 - T282ab-B
 
 (TODO changelog body)
