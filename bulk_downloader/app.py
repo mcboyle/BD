@@ -1907,6 +1907,24 @@ def _save_sites_config():
     return saved
 
 
+def _is_stored_cells_account_jar(sid, val, was, entry):
+    """True when site cell value val is account N's jar (N < the entry's
+    account count) derived from the stored site cell -- held by that stored
+    value as the cell itself is.  Never a symlink: cookie_jar_path's base
+    rule refuses one too."""
+    accounts = entry.get("accounts")
+    if not (isinstance(val, str) and val and isinstance(accounts, list)):
+        return False
+    from .cookies import cookie_jar_path
+    try:
+        if Path(val).is_symlink():
+            return False
+        return any(str(cookie_jar_path(sid, i, was)) == val
+                   for i in range(1, len(accounts)))
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def _sites_config_path_gate(payload, cookie_dir):
     """{site id: error} for each live entry about to be written with a path
     value the write-route checks refuse: cookie_file (site and accounts[],
@@ -1952,6 +1970,11 @@ def _sites_config_path_gate(payload, cookie_dir):
             # cookie_file there -- and every account cell (accounts reorder)
             if any(same(v, val) for _l, _i, v in _cookie_file_cells(was)
                    if _i is not None or index is None):
+                continue
+            # runner-account-jar r4: SiteRunner now points the site cell at the
+            # active account's jar derived from the stored cell (<stem>__a<N>
+            # beside it, cookie_jar_path), not at that account's cookie_file
+            if index is None and _is_stored_cells_account_jar(sid, val, was, entry):
                 continue
             refused.setdefault(sid, msg)
             if live is None:

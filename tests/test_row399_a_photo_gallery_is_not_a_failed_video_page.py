@@ -680,6 +680,9 @@ def test_resume_after_no_button_pause_starts_a_fresh_streak(monkeypatch):
         _consec_no_btn = 5
         _pause = threading.Event()
 
+        def _window_entry_withdrawn(self):  # window-operator-pause r2: an operator resume, no window entry
+            return False
+
     runner = RunnerStub()
     monkeypatch.setattr(
         runner_module._download_hold, "downloads_allowed",

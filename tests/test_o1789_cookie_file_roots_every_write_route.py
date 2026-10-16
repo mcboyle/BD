@@ -377,15 +377,17 @@ elif mode == "publish":              # r3 (lens R26-C F1): a route that publishe
                     try: getattr(r, nm)(timeout=2.0)
                     except Exception: pass
 
-elif mode == "boot-account":         # r4 (lens R113-D F1): boot copies the active account's stored cookie_file into the site cell
+elif mode == "boot-account":         # r4 (lens R113-D F1): boot points the site cell at the active account's jar
+    # runner-account-jar r4 (f1738717e): that jar is derived from the site cell (cookie_jar_path, <stem>__a<N>
+    # beside it), no longer accounts[N]["cookie_file"]: account 0 cools down, account 1 is active -> a0__a1.json
     import time
     CD = J(home, "c"); NARROW = J(home, "narrow")
     for d in (CD, NARROW): os.makedirs(d, exist_ok=True)
-    A0, A1 = J(CD, "a0.json"), J(CD, "a1.json")
+    A0, A1, JAR = J(CD, "a0.json"), J(CD, "a1.json"), J(CD, "a0__a1.json")
     for pth in (A0, A1):
         with open(pth, "w") as fh: fh.write("[]")
     acct = lambda lbl, cf, cool: {"label": lbl, "username": "u" + lbl, "password": "", "cookie_file": cf, "cooldown_until": cool}
-    r1 = clean("r1"); r1.update(cookie_file=A1, accounts=[acct("0", A0, time.time() - 10), acct("1", A1, 0)])
+    r1 = clean("r1"); r1.update(cookie_file=A0, accounts=[acct("0", A0, time.time() + 3600), acct("1", A1, 0)])
     if arg.get("new_site_path"): r1["cookie_file"] = J(CD, "never-stored.json")   # control: a value no stored cell holds
     o1 = clean("o1")
     A.SITES_FILE.write_text(json.dumps({"r1": r1, "o1": o1}), encoding="utf-8")
@@ -403,7 +405,7 @@ elif mode == "boot-account":         # r4 (lens R113-D F1): boot copies the acti
         out["status"] = r.status_code; out["error"] = str((r.get_json(silent=True) or {}).get("error", ""))[:200]
         f = saved_file()
         out.update(file_other=f["o1"].get("name"), file_site=f["r1"].get("cookie_file"),
-                   live_site=S.s_cfg["r1"].get("cookie_file"), A0=A0, A1=A1)
+                   live_site=S.s_cfg["r1"].get("cookie_file"), A0=A0, A1=A1, JAR=JAR)
     for x in list(S.runners.values()):
         for nm in ("retire_scheduler", "retire_auto_retry", "retire_workers"):
             if hasattr(x, nm):
@@ -606,11 +608,13 @@ def test_fifo_cookie_file_is_refused_before_anything_opens_it(tmp_path, route, f
 
 
 def test_boot_over_a_pre_seeded_bad_row_loads_every_other_site(tmp_path):
-    """A row stored before this cut: boot keeps s28's rule -- the site that cannot load is skipped, listed and kept."""
+    """A row stored before this cut: boot keeps s28's rule -- the site that cannot load is skipped, listed and kept.
+    The site cell: since runner-account-jar r4 (f1738717e) an account cookie_file is never opened, so it no longer
+    fails a load (s28 test_an_account_cell_cookie_file_is_inert_and_listed)."""
     got = _child(
         tmp_path,
         "boot",
-        {"sites": ["keep", "badrow", "c2"], "seed": {"badrow": ["acct", "long"]}},
+        {"sites": ["keep", "badrow", "c2"], "seed": {"badrow": ["top", "long"]}},
     )
     assert (
         got["raised"] == ""
@@ -1053,16 +1057,17 @@ def test_writer_stored_account_cookie_file_holds_the_site_cell(tmp_path):
 
 
 def test_boot_with_a_grandfathered_active_account_still_saves_other_sites(tmp_path):
-    """r4 (lens R113-D F1, probe_boot2): roots narrowed after r1 stored accounts a0/a1; boot makes a0 active and copies
-    a0.json into the site cell. An unrelated site's PUT is stored, and the site cell keeps the active account's file."""
+    """r4 (lens R113-D F1, probe_boot2): roots narrowed after r1 stored accounts a0/a1; boot makes a1 active and points
+    the site cell at its jar a0__a1.json (runner-account-jar r4). An unrelated site's PUT is stored, and the site cell
+    keeps the active account's jar."""
     got = _child(tmp_path, "boot-account", {})
-    assert got["live_site_after_boot"] == got["A0"], f"CFR-FIXTURE-NOT-ARMED boot-account: {got}"
+    assert got["live_site_after_boot"] == got["JAR"], f"CFR-FIXTURE-NOT-ARMED boot-account: {got}"
     assert got["status"] == 200 and got["file_other"] == "other2", (
         f"CFR-GRANDFATHERED-ACCOUNT-BLOCKS-SAVES boot: status={got['status']} error={got['error']!r} "
         f"file_other={got['file_other']!r}"
     )
-    assert got["live_site"] == got["A0"] and got["file_site"] == got["A0"], (
-        f"CFR-GRANDFATHERED-ACCOUNT-REVERTED boot: live={got['live_site']!r} file={got['file_site']!r} want={got['A0']!r}"
+    assert got["live_site"] == got["JAR"] and got["file_site"] == got["JAR"], (
+        f"CFR-GRANDFATHERED-ACCOUNT-REVERTED boot: live={got['live_site']!r} file={got['file_site']!r} want={got['JAR']!r}"
     )
 
 

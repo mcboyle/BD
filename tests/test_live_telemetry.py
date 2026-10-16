@@ -1168,6 +1168,9 @@ def test_retry_before_notification_claim_invalidates_completion(monkeypatch):
     runner = _telemetry_runner(monkeypatch)
     failed_url = "https://example.test/failed.mp4"
     runner._stop = threading.Event()
+    # idle-site-wake r1: _finalize_watch_done reads _url_queue (late puts);
+    # every real SiteRunner has one from __init__, the __new__ stub does not.
+    runner._url_queue = queue.Queue()
     runner._state = "running"
     runner.config = {"name": "Telemetry"}
     runner.jobs = {
