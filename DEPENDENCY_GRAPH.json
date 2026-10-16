@@ -725,7 +725,8 @@
     "eol": {
       "module": "app_eol.py",
       "providers": [
-        "bulk_downloader/eol_export.py"
+        "bulk_downloader/eol_export.py",
+        "bulk_downloader/scheduled_exports.py"
       ],
       "route_count": 2,
       "routes": [
@@ -2462,7 +2463,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1944,
+    "edge_count": 1954,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3259,6 +3260,7 @@
         "bulk_downloader/cost_economics.py",
         "bulk_downloader/crash_recovery.py",
         "bulk_downloader/daily_budget.py",
+        "bulk_downloader/database.py",
         "bulk_downloader/db_maintenance.py",
         "bulk_downloader/db_replication.py",
         "bulk_downloader/deployment_timeline.py",
@@ -3333,8 +3335,10 @@
         "tools/census_file_size_drift.py",
         "tools/cockpit_templates.py",
         "tools/dast_probe.py",
+        "tools/db_cutover_probe.py",
         "tools/p5_2b_accuracy_watch.py",
-        "tools/queue_intelligence.py"
+        "tools/queue_intelligence.py",
+        "tools/test_migration_reversibility.py"
       ],
       "bulk_downloader/db_lifecycle.py": [
         "bulk_downloader/db.py"
@@ -3809,7 +3813,8 @@
       "bulk_downloader/http_client.py": [
         "bulk_downloader/app_settings_center.py",
         "bulk_downloader/deep_http.py",
-        "bulk_downloader/discovery.py"
+        "bulk_downloader/discovery.py",
+        "bulk_downloader/network/__init__.py"
       ],
       "bulk_downloader/human_challenge.py": [
         "bulk_downloader/runner_auth.py"
@@ -4055,7 +4060,8 @@
         "bulk_downloader/app.py",
         "bulk_downloader/dev_suite/db_tools.py",
         "bulk_downloader/library.py",
-        "tools/body_contract.py"
+        "tools/body_contract.py",
+        "tools/test_migration_reversibility.py"
       ],
       "bulk_downloader/mmap_autotuner.py": [
         "bulk_downloader/db.py"
@@ -4168,7 +4174,12 @@
         "bulk_downloader/capture_ingest.py"
       ],
       "bulk_downloader/pg_backend.py": [
-        "bulk_downloader/db.py"
+        "bulk_downloader/database.py",
+        "bulk_downloader/db.py",
+        "bulk_downloader/storage/postgres_backend.py"
+      ],
+      "bulk_downloader/pg_vector.py": [
+        "bulk_downloader/storage/postgres_backend.py"
       ],
       "bulk_downloader/phoenix_catalog.py": [
         "bulk_downloader/app.py",
@@ -4507,6 +4518,7 @@
         "bulk_downloader/app_scene_score.py"
       ],
       "bulk_downloader/scheduled_exports.py": [
+        "bulk_downloader/app_eol.py",
         "bulk_downloader/app_scheduled_exports.py",
         "bulk_downloader/bg_scheduler.py"
       ],
@@ -4972,7 +4984,8 @@
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/doh_resolver.py",
         "bulk_downloader/hooks.py",
-        "bulk_downloader/outbound_guard.py"
+        "bulk_downloader/outbound_guard.py",
+        "bulk_downloader/routes/export_import.py"
       ],
       "bulk_downloader/user_accounts.py": [
         "bulk_downloader/app_auth.py",
@@ -5866,7 +5879,8 @@
         "bulk_downloader/config_dryrun.py"
       ],
       "bulk_downloader/app_eol.py": [
-        "bulk_downloader/eol_export.py"
+        "bulk_downloader/eol_export.py",
+        "bulk_downloader/scheduled_exports.py"
       ],
       "bulk_downloader/app_events_all.py": [
         "bulk_downloader/egress_withhold.py"
@@ -6615,6 +6629,10 @@
         "bulk_downloader/template_manager.py",
         "bulk_downloader/timeline.py"
       ],
+      "bulk_downloader/database.py": [
+        "bulk_downloader/db.py",
+        "bulk_downloader/pg_backend.py"
+      ],
       "bulk_downloader/db.py": [
         "bulk_downloader/connection_pool.py",
         "bulk_downloader/constants.py",
@@ -7230,6 +7248,9 @@
       "bulk_downloader/netlog_classify.py": [
         "bulk_downloader/drm_detect.py"
       ],
+      "bulk_downloader/network/__init__.py": [
+        "bulk_downloader/http_client.py"
+      ],
       "bulk_downloader/network_log_reducer.py": [
         "bulk_downloader/capture_artifact_redact.py",
         "bulk_downloader/capture_redact.py"
@@ -7394,6 +7415,9 @@
       "bulk_downloader/retry_policy.py": [
         "bulk_downloader/backoff_profiles.py",
         "bulk_downloader/tombstone.py"
+      ],
+      "bulk_downloader/routes/export_import.py": [
+        "bulk_downloader/urllib_ssrf.py"
       ],
       "bulk_downloader/run_history.py": [
         "bulk_downloader/db.py"
@@ -7844,6 +7868,10 @@
       ],
       "bulk_downloader/stash_deep.py": [
         "bulk_downloader/deep_http.py"
+      ],
+      "bulk_downloader/storage/postgres_backend.py": [
+        "bulk_downloader/pg_backend.py",
+        "bulk_downloader/pg_vector.py"
       ],
       "bulk_downloader/storage_rebalance.py": [
         "bulk_downloader/db.py",
@@ -8383,6 +8411,9 @@
         "bulk_downloader/cookie_relogin.py",
         "bulk_downloader/db.py"
       ],
+      "tools/db_cutover_probe.py": [
+        "bulk_downloader/db.py"
+      ],
       "tools/decomp/templates_snapshot.py": [
         "bulk_downloader/templates.py"
       ],
@@ -8630,6 +8661,10 @@
       "tools/temporal_benchmark.py": [
         "bulk_downloader/temporal_benchmark.py"
       ],
+      "tools/test_migration_reversibility.py": [
+        "bulk_downloader/db.py",
+        "bulk_downloader/migrations.py"
+      ],
       "tools/test_runtime_report.py": [
         "tools/check_skip_baseline.py",
         "tools/report_core.py",
@@ -8706,6 +8741,7 @@
       "tools/config_surface_inventory.py",
       "tools/ct1_synth.py",
       "tools/dast_probe.py",
+      "tools/db_cutover_probe.py",
       "tools/endpoint_reachability.py",
       "tools/evidence_policy.py",
       "tools/framework_fleet.py",
@@ -8743,6 +8779,7 @@
       "tools/template.py",
       "tools/template_inventory.py",
       "tools/temporal_benchmark.py",
+      "tools/test_migration_reversibility.py",
       "tools/trust_intelligence.py",
       "tools/validate_sites_config.py",
       "tools/validation_corpus.py",
@@ -8752,7 +8789,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 236,
+    "total": 238,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",
@@ -8811,6 +8848,7 @@
       "tools/config_surface_inventory.py",
       "tools/ct1_synth.py",
       "tools/dast_probe.py",
+      "tools/db_cutover_probe.py",
       "tools/dependency_inventory.py",
       "tools/dependency_report.py",
       "tools/document_schemas.py",
@@ -8879,6 +8917,7 @@
       "tools/template_statistics.py",
       "tools/template_warning_catalog.py",
       "tools/temporal_benchmark.py",
+      "tools/test_migration_reversibility.py",
       "tools/test_runtime_report.py",
       "tools/trust_intelligence.py",
       "tools/validate_sites_config.py",
