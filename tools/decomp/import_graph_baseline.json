@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6642,
+  "edge_count": 6644,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1763,6 +1763,9 @@
     ],
     "bulk_downloader/network/__init__.py": [
       "bulk_downloader/http_client.py"
+    ],
+    "bulk_downloader/network/http_client.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/network_log_reducer.py": [
       "bulk_downloader/capture_artifact_redact.py",
@@ -5146,6 +5149,9 @@
     ],
     "tests/test_main_content_isolator.py": [
       "bulk_downloader/main_content.py"
+    ],
+    "tests/test_mainred1903_async_guard_streams.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "tests/test_mass_import_jobs_bounded.py": [
       "bulk_downloader/mass_import.py"

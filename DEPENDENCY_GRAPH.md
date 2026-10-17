@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1954**
+- internal import edges: **1955**
 - tools: 238 · with internal edge: 137 · with tool→package edge: 77
 - blueprints: 163 · config stores: 5
 
@@ -19,7 +19,7 @@ Graph version: 1
 - `bulk_downloader/db.py`: 129
 - `bulk_downloader/global_config.py`: 62
 - `bulk_downloader/constants.py`: 35
-- `bulk_downloader/ssrf_transport.py`: 32
+- `bulk_downloader/ssrf_transport.py`: 33
 - `bulk_downloader/app.py`: 26
 - `bulk_downloader/egress_withhold.py`: 26
 - `bulk_downloader/plugins.py`: 23
