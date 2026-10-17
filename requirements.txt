@@ -422,3 +422,12 @@ opencv-python>=5.0,<6.0
 # without it create_async_engine raises at URL parse time.
 sqlalchemy>=2.0,<3.0
 aiosqlite>=0.20,<1.0
+
+# api-contract-schema-sync r2 (O3299: operator approved fastapi + pydantic as BD
+# deps): bulk_downloader/routes/api.py imports both directly. Exact pins: pydantic
+# is the version already in the service venv; fastapi is the release the band's
+# per-cut venv resolved and tested. starlette comes in transitively via fastapi;
+# the live server path (downloader_ui._serve_asgi -> get_asgi_app) does not read
+# STARLETTE_AVAILABLE, so its presence does not change how the app is served.
+fastapi==0.143.3
+pydantic==2.14.1
