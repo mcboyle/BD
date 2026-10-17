@@ -284,7 +284,7 @@ def create_backup(out_path: str | Path, base_dir: str | Path = ".",
             manifest = {
                 "format_version": 1,
                 "created_at": time.time(),
-                "created_at_iso": dt.datetime.utcnow().isoformat() + "Z",
+                "created_at_iso": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
                 "bd_version": "3.43.25",
                 "base_dir": str(base.resolve()),
                 "includes_db": include_db,
@@ -353,7 +353,7 @@ def create_backup(out_path: str | Path, base_dir: str | Path = ".",
                                     _out.write(_chunk)
                             checksums[arcname] = _digest.hexdigest()
                             files_written += 1
-                    except (OSError, PermissionError) as e:
+                    except OSError as e:
                         skipped.append(f"{arcname}: {type(e).__name__}")
             # CAP-4: manifest last, now carrying the integrity map. Restore reads
             # entries by name, so writing _manifest.json last is fine.

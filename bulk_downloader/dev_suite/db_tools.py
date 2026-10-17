@@ -1043,16 +1043,13 @@ def _history_day_series(cx, days=14, site_id=None):
     filled in so the series has no gaps."""
     import datetime as _dt
     where = "WHERE ts >= ?"
-    params: list = [
-        (_dt.datetime.utcnow()
-         - _dt.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")]
+    params: list = [(_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")]
     if site_id:
         where += " AND site_id = ?"
         params.append(site_id)
-    raw = {r["day"]: r["n"] for r in cx.execute(
-        f"SELECT strftime('%Y-%m-%d', ts) AS day, COUNT(*) AS n "
+    raw = {r["day"]: r["n"] for r in cx.execute(f"SELECT strftime('%Y-%m-%d', ts) AS day, COUNT(*) AS n "
         f"FROM history {where} GROUP BY day", params).fetchall()}
-    today = _dt.datetime.utcnow().date()
+    today = _dt.datetime.now(_dt.timezone.utc).date()
     series = []
     for i in range(days, -1, -1):
         d = (today - _dt.timedelta(days=i)).isoformat()
@@ -1164,9 +1161,7 @@ def queue_throughput(hours=24, bucket="hour", site_id=None):
            "site_filter": site_id or None}
     try:
         with _db.db_conn() as cx:
-            cutoff = (_dt.datetime.utcnow()
-                      - _dt.timedelta(hours=hours)).strftime(
-                          "%Y-%m-%dT%H:%M:%S")
+            cutoff = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S")
             where = "WHERE ts >= ?"
             params: list = [cutoff]
             if site_id:

@@ -144,7 +144,7 @@ def _render_icon(state: dict):
     # Try to use a real font; fall back to default
     try:
         font = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
-    except (OSError, IOError):
+    except OSError:
         try:
             font = ImageFont.load_default()
         except Exception:

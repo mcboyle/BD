@@ -43,9 +43,8 @@ Public API:
 """
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import List
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -207,24 +206,7 @@ def _is_rem_line(stripped: str) -> bool:
     return stripped[3] in " \t/:"
 
 
-def _is_label_line(stripped: str) -> Optional[str]:
-    """If this line is a `:label` declaration, return the label.
-    Returns None for non-labels. `::comment` returns the empty string
-    by convention (caller treats specially)."""
-    if not stripped.startswith(":"):
-        return None
-    if stripped.startswith("::"):
-        return ""        # special: comment form
-    # Real label: :name (alphanumerics + underscore)
-    m = re.match(r":([A-Za-z_][\w]*)\s*$", stripped)
-    if m:
-        return m.group(1)
-    # Something like ":foo bar" — cmd treats trailing junk as the
-    # label's "comment", but it's still a label.
-    m = re.match(r":([A-Za-z_][\w]*)", stripped)
-    if m:
-        return m.group(1)
-    return None
+
 
 
 # ──────────────────────────────────────────────────────────────────────

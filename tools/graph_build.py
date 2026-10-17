@@ -87,7 +87,7 @@ def _foundation_functions() -> tuple[Callable, Callable, Callable, Callable]:
         from tools.code_intelligence.schemas import is_safe_config_key as safe_key
         from tools.code_intelligence.schemas import make_envelope as envelope
         from tools.code_intelligence.schemas import validate_projection as validate
-    except (ImportError, ModuleNotFoundError) as error:
+    except ImportError as error:
         raise RuntimeError(
             "shared code-intelligence artifact foundation is required"
         ) from error
@@ -125,7 +125,7 @@ def _compare_artifact_dirs(left, right):
         sys.path.insert(0, str(repository_root))
     try:
         from tools.code_intelligence.artifacts import compare_artifact_dirs
-    except (ImportError, ModuleNotFoundError) as error:
+    except ImportError as error:
         raise RuntimeError(
             "shared code-intelligence artifact foundation is required"
         ) from error

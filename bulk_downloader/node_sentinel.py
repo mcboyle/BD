@@ -71,7 +71,7 @@ class NodeSentinel:
                 return resp.status == 200
             finally:
                 conn.close()
-        except (OSError, TimeoutError, http.client.HTTPException):
+        except (OSError, http.client.HTTPException):
             return False
 
     def check_nodes(self, current_time: Optional[float] = None) -> None:

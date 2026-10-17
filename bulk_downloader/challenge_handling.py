@@ -43,11 +43,7 @@ OPERATOR_HANDOFF_COMPLETE = "operator_handoff_complete" # operator signalled + d
 CHALLENGE_CLEARED_OBSERVED = "challenge_cleared_observed"  # detector saw it gone -> resumable
 CHALLENGE_TIMEOUT = "challenge_timeout"                 # passive wait elapsed, still present
 
-STATUS_LABELS = (
-    CHALLENGE_PRESENT, PASSIVE_WAITING, MANUAL_HANDOFF_REQUIRED,
-    OPERATOR_ACTION_REQUIRED, OPERATOR_HANDOFF_COMPLETE,
-    CHALLENGE_CLEARED_OBSERVED, CHALLENGE_TIMEOUT,
-)
+
 
 # The only states from which a paused run may resume. Both are reachable ONLY
 # after the detector confirms the challenge is gone (see observe / operator_complete).

@@ -31,7 +31,7 @@ import json
 import re
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -74,7 +74,7 @@ def _age_hours(ts_updated, now=None):
         t = datetime.strptime(str(ts_updated)[:19], "%Y-%m-%dT%H:%M:%S")
     except (ValueError, TypeError):
         return None
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
     return round((now - t).total_seconds() / 3600.0, 2)
 
 

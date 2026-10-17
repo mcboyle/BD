@@ -18,9 +18,6 @@ from enum import Enum
 
 IPPROTO_MPTCP = getattr(socket, "IPPROTO_MPTCP", 284)
 SOL_MPTCP = getattr(socket, "SOL_MPTCP", 284)
-MPTCP_INFO = 1
-MPTCP_TCPINFO = 2
-MPTCP_SUBFLOW_ADDRS = 3
 
 
 class MptcpCapabilityState(str, Enum):

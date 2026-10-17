@@ -6,7 +6,7 @@ import json, os, re, sys, time, uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, g, has_request_context, request, jsonify, Response, send_file, stream_with_context
+from flask import Flask, g, has_request_context, request, jsonify, Response, send_file, stream_with_context, redirect
 
 from .constants import SCREENSHOTS_DIR
 
@@ -1514,25 +1514,11 @@ def _bootstrap_session(response):
 @app.route("/m/")
 @app.route("/m")
 def serve_mobile_view():
-    # Phase 1 root flip (v3.66.203): the SPA now lives at `/`, so the
-    # mobile shim redirects there. Chain history: /m served a template
-    # pre-D4, then 302 -> /m2/ (v3.65.1), now 302 -> / . Old bookmarks
-    # keep working — they just resolve to the SPA at root.
-    from flask import redirect
     return redirect("/", code=302)
 
-
-# PT8 — mobile OPS page. Retired in D4 (v3.65.1) per D3_OPT_IN.md's
-# v3.65.0 retirement schedule. The companion /m/ops admin page is now
-# an unconditional 302 to /m2/ — the SPA covers per-site stop via its
-# API (POST /api/sites/<id>/stop with CSRF). The m_ops.html template
-# stays on disk until v3.66.0 alongside mobile.html for the same
-# emergency-rollback reason.
 @app.route("/m/ops/")
 @app.route("/m/ops")
 def serve_mobile_ops_view():
-    from flask import redirect
-    # Phase 1 root flip (v3.66.203): SPA is at / now.
     return redirect("/", code=302)
 
 
@@ -1591,62 +1577,13 @@ def _m2_503_node_missing() -> Response:
     return resp
 
 
-# ── D3 U9: ?ui=v2 opt-in cookie ─────────────────────────────────────────
+# ── D3 U9: ?ui=v2 opt-in cookie (removed) ───────────────────────────────
 #
-# The D3 SPA at /m2 ships behind an explicit opt-in. Until v3.65.0
-# (one release after this), both the legacy /m and the new /m2 are
-# available; the operator chooses which one /m serves them via a
-# cookie. The cookie is set by visiting either URL with ?ui=v2 or
-# ?ui=v1 in the query string.
-#
-# Lookup order:
-#   1. Query string `?ui=v2` / `?ui=v1` — explicit choice, sets cookie
-#   2. Cookie `bd_ui=v2` / `bd_ui=v1` — persisted preference
-#   3. Default — serve the legacy /m (no preference yet)
-#
-# The cookie name is `bd_ui`, NOT `bd_session` — these are independent.
-# `bd_session` is the CSRF-bound auth session; `bd_ui` is a pure UI
-# preference with no security implications.
-#
-# At v3.65.0 (next release after D3 ships), this whole mechanism gets
-# removed: /m redirects unconditionally to /m2 and the legacy template
-# is dropped. See OPEN_THREADS for the retirement schedule.
-
-_M2_COOKIE_NAME = "bd_ui"
-_M2_COOKIE_TTL = 365 * 24 * 3600  # 1 year — survives sensible browser caches
-
-
-def _m2_opt_state(req) -> str:
-    """Return one of 'v2', 'v1', or 'default' based on query + cookie.
-
-    Query takes precedence over cookie. Unknown values fall through to
-    cookie / default — invalid input is silently the same as no input,
-    rather than 400ing on a UI preference URL.
-    """
-    qs_val = (req.args.get("ui") or "").strip().lower()
-    if qs_val in ("v2", "v1"):
-        return qs_val
-    cookie_val = (req.cookies.get(_M2_COOKIE_NAME) or "").strip().lower()
-    if cookie_val in ("v2", "v1"):
-        return cookie_val
-    return "default"
-
-
-def _m2_apply_opt_cookie(resp, req) -> None:
-    """If the request had `?ui=v2` or `?ui=v1`, persist that as the
-    cookie on the response. No-op for other requests."""
-    qs_val = (req.args.get("ui") or "").strip().lower()
-    if qs_val not in ("v2", "v1"):
-        return
-    secure = req.scheme == "https"
-    resp.set_cookie(
-        _M2_COOKIE_NAME, qs_val,
-        max_age=_M2_COOKIE_TTL,
-        httponly=False,    # frontend may want to read this for "you are on v2" UX
-        secure=secure,
-        samesite="Lax",
-    )
-
+# The D3 SPA at /m2 originally shipped behind a `?ui=v2` / `bd_ui` cookie
+# opt-in. /m became an unconditional redirect in v3.65.1 and the SPA moved
+# to `/` in the v3.66.203 root flip, so nothing consumed the cookie; its
+# helpers were later deleted as dead code. /m and /m2 both redirect
+# unconditionally; no `bd_ui` cookie is read or set.
 
 @app.route("/m2/")
 @app.route("/m2")

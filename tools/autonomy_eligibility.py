@@ -135,9 +135,8 @@ def evaluate_site(site: str, *, kind: str = "live_site_config",
         evidence_ts = _evidence_ts_for(site)
     age = _evidence_age_days(evidence_ts, now_dt)
     fresh = age is not None and age <= EVIDENCE_FRESH_DAYS
-
     candidate_action = (candidate or {}).get("action")
-    candidate_blocked = bool(candidate_action in PERMANENTLY_INELIGIBLE) if candidate_action else False
+    candidate_blocked = candidate_action in PERMANENTLY_INELIGIBLE if candidate_action else False
 
     # G2 wire: a change is eligible only if it can be ROLLED BACK. If the candidate names
     # a target_kind with no registered reverser, the change would be irreversible.

@@ -196,12 +196,6 @@ def translate(text: str, *, lang: str = "en") -> str:
     return text
 
 
-def report_misses() -> dict:
-    """Return strings that have been looked up but had no translation.
-    UI for translators to focus on what's needed."""
-    return {lang: sorted(strings) for lang, strings in _MISSES.items()}
-
-
 # ─── POT-style template export ────────────────────────────────────────
 
 def dump_template(template_files: list) -> dict:
@@ -220,7 +214,7 @@ def dump_template(template_files: list) -> dict:
     catalog = extract_from_files(template_files)
     return {
         "version": "1.0",
-        "generated_at": datetime.datetime.utcnow().strftime(
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"),
         "entry_count": len(catalog),
         "entries": [

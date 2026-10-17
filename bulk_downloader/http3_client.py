@@ -198,8 +198,8 @@ def _h3_protocol_class(base_cls: type, h3_connection_cls: type,
                     raise Http3TransportError("H3 DATA frame before HEADERS")
 
         async def _empty(self) -> AsyncIterator[bytes]:
-            return
-            yield b""  # pragma: no cover
+            if False:
+                yield b""
 
         async def _body(self, stream_id: int) -> AsyncIterator[bytes]:
             while True:

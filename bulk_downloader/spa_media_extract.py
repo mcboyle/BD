@@ -1356,17 +1356,6 @@ def frame_player_configured_media(page, frame_url: str) -> Dict[str, Any]:
         if found:
             return found
     return {}
-    if own is not None:
-        urls, ua = _frame_configured_media(own)
-        if urls:
-            return urls, ua
-    for frame in _child_frames(page):
-        if frame is own:
-            continue
-        urls, ua = _frame_configured_media(frame)
-        if urls:
-            return urls, ua
-    return [], ""
 
 
 # dl95-porndoe-1 (test2 2026-09-29, re-measured live on the hub): a tube scene

@@ -349,8 +349,7 @@ def _db_init_once():
 # consumers (Cut 1.2); db_captures_prune_missing lets a reconcile drop rows for
 # captures deleted on disk. All value-free metadata only — never an absolute path.
 
-_CAPTURE_COLS = ("rel_path", "name", "dir", "host",
-                 "captured_at", "size", "kind", "redacted")
+
 
 
 def _ensure_captures_table(cx):

@@ -38,12 +38,6 @@ class DisallowedVMError(ValueError):
 
 
 class VMCloneError(RuntimeError):
-    """Raised when VM clone creation fails."""
-    pass
-
-
-class VMTeardownError(RuntimeError):
-    """Raised when VM teardown fails."""
     pass
 
 

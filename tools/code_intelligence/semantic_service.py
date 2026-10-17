@@ -2584,7 +2584,6 @@ def run_semantic_diff(
         RecursionError,
         ValueError,
         OSError,
-        UnicodeError,
         SyntaxError,
     ) as exc:
         return _result(ResultState.ERROR, "before snapshot invalid" if str(exc) == "before_snapshot" else "before tree invalid", {"stage": "before_snapshot" if str(exc) == "before_snapshot" else "before_tree"})
@@ -2613,7 +2612,6 @@ def run_semantic_diff(
         RecursionError,
         ValueError,
         OSError,
-        UnicodeError,
         SyntaxError,
     ) as exc:
         return _result(ResultState.ERROR, "after snapshot invalid" if str(exc) == "after_snapshot" else "after tree invalid", {"stage": "after_snapshot" if str(exc) == "after_snapshot" else "after_tree"})
@@ -2670,7 +2668,7 @@ def run_semantic_diff(
     if check_path is not None:
         try:
             checked, check_identity = _load_check(check_path)
-        except (ValueError, OSError, UnicodeError):
+        except (ValueError, OSError):
             return _result(ResultState.ERROR, "semantic check invalid", {"stage": "check"})
         if _diff_artifact_identity(checked) != _diff_artifact_identity(artifact):
             return _result(ResultState.FAIL, "semantic artifact drift")

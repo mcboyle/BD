@@ -37,16 +37,6 @@ QUALITY_LADDER = (
 
 DB_PATH = "downloader_history.db"
 SCREENSHOTS_DIR = Path("screenshots")
-# v3.66.11: was `SCREENSHOTS_DIR.mkdir(exist_ok=True)` at module load.
-# That side-effected a `screenshots/` directory into whatever cwd
-# happened to be active at `import bulk_downloader` time — including
-# `/screenshots` if a tool imported the package from `/`. Callers that
-# actually need the dir (runner.py, the screenshot-serving Flask
-# route) now call _ensure_screenshots_dir() on first use.
-def _ensure_screenshots_dir():
-    """Idempotent: create SCREENSHOTS_DIR if absent. Safe to call
-    repeatedly; cheap (one stat) on the hot path."""
-    SCREENSHOTS_DIR.mkdir(exist_ok=True)
 
 # Words/extensions that hint a clickable element triggers a download. Matched
 # anywhere in element text or attribute values.
@@ -118,10 +108,7 @@ RETRY_DELAYS = [600, 3600]  # 10m, then 1h
 # a navigation, indicate either a captcha/block (long cooldown) or an
 # auth-redirect (re-login needed). Split because the response is different.
 BLOCK_HINTS = ["/captcha", "/blocked", "/verify"]
-AUTH_HINTS = ["/login", "/signin", "/sign-in", "/auth", "/log-in",
-              "/account/login", "/members/login", "/session/new",
-              "/users/sign_in", "/accounts/login"]
-LOGIN_HINTS = BLOCK_HINTS + AUTH_HINTS
+AUTH_HINTS = ["/login", "/signin", "/sign-in", "/auth", "/log-in", "/account/login", "/members/login", "/session/new", "/users/sign_in", "/accounts/login"]
 
 # In-place login walls don't change the URL — detect them by body text.
 # Conservative: needs a clear login-form signal, not just the word

@@ -85,61 +85,58 @@ def get_process_rss_mb(pid: int) -> float:
     return read_proc_rss_bytes(pid) / (1024.0 * 1024.0)
 
 
-def get_child_pids(pid: int, recursive: bool = True) -> list[int]:
-    """Find all child process IDs spawned by the given parent PID.
-
-    Reads /proc on Linux or walks process trees. Returns list of integer PIDs.
-    """
-    if pid <= 0:
-        return []
-
-    children: list[int] = []
-
-    # Method 1: /proc/{pid}/task/{tid}/children for EVERY thread (Linux kernel 3.5+). ab-fix F4 (bughunt
-    # adapters-browser): a child belongs to the THREAD that forked it -- Chromium starts its network service
-    # from a non-main thread, so the main thread's list alone missed it (~120 MB) and, being non-empty, also
-    # skipped the PPid scan below.
+def _get_children_from_tasks(pid: int) -> list[int]:
     try:
         tids = [e.name for e in Path(f"/proc/{pid}/task").iterdir() if e.name.isdigit()]
     except OSError:
-        tids = []
+        return []
+    children: list[int] = []
     for tid in tids:
         try:
             with open(f"/proc/{pid}/task/{tid}/children", "r", encoding="utf-8", errors="replace") as f:
-                children.extend(int(p) for p in f.read().split() if p.isdigit())
+                children.extend((int(p) for p in f.read().split() if p.isdigit()))
         except OSError:
             continue
+    return children
 
-    # Method 2: Scan /proc/*/status PPid if Method 1 found nothing or was unavailable
+def _get_children_from_proc_status(pid: int) -> list[int]:
+    proc_root = Path("/proc")
+    if not proc_root.is_dir():
+        return []
+    children: list[int] = []
+    try:
+        entries = list(proc_root.iterdir())
+    except (PermissionError, FileNotFoundError):
+        return []
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        child_pid = int(entry.name)
+        if child_pid == pid:
+            continue
+        status_file = entry / "status"
+        try:
+            with open(status_file, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if line.startswith("PPid:"):
+                        if int(line.split()[1]) == pid:
+                            children.append(child_pid)
+                        break
+        except (ProcessLookupError, FileNotFoundError, PermissionError, ValueError):
+            continue
+    return children
+
+def get_child_pids(pid: int, recursive: bool=True) -> list[int]:
+    if pid <= 0:
+        return []
+    children = _get_children_from_tasks(pid)
     if not children:
-        proc_root = Path("/proc")
-        if proc_root.is_dir():
-            try:
-                for entry in proc_root.iterdir():
-                    if entry.name.isdigit():
-                        child_pid = int(entry.name)
-                        if child_pid == pid:
-                            continue
-                        status_file = entry / "status"
-                        try:
-                            with open(status_file, "r", encoding="utf-8", errors="replace") as f:
-                                for line in f:
-                                    if line.startswith("PPid:"):
-                                        ppid = int(line.split()[1])
-                                        if ppid == pid:
-                                            children.append(child_pid)
-                                        break
-                        except (ProcessLookupError, FileNotFoundError, PermissionError, ValueError):
-                            continue
-            except (PermissionError, FileNotFoundError):
-                pass
-
+        children = _get_children_from_proc_status(pid)
     if recursive and children:
         all_descendants = list(children)
         for child in children:
             all_descendants.extend(get_child_pids(child, recursive=True))
         return sorted(list(set(all_descendants)))
-
     return sorted(list(set(children)))
 
 
