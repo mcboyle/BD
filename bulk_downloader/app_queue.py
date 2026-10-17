@@ -404,6 +404,10 @@ def api_queue_v2():
                                 "status": s,
                                 "message": j.get("message", ""),
                                 "ts_iso": j.get("ts_iso", ""),
+                                # appfeat-F013: a "stopped" job is either
+                                # user-paused (Resume) or cancelled (Retry);
+                                # the SPA picks the control from this flag.
+                                "paused": bool(j.get("_paused_by_user")),
                             })
                             if s == "done":
                                 ts = j.get("ts_iso", "") or ""
@@ -575,6 +579,145 @@ def api_queue_v2_cancel():
         }), 400
     runner._update_job(url, "stopped", "Cancelled by user")
     return jsonify({"ok": True, "previous_status": current_status})
+
+
+# ── appfeat-F013: per-JOB pause / resume / retry ─────────────────────
+# The per-site bulk_* endpoints answer 200 with a zero count on every
+# refusal, so the SPA could not tell "paused" from "ignored", and the row
+# Pause button paused the whole site. These three single-job routes mirror
+# /api/queue/v2/cancel: {site_id, url} in, a state guard answers 409 WITH
+# the reason, a repeat of an already-applied transition answers 200 noop
+# (double click), and nothing here ever touches another job or the site.
+
+_F013_RETRYABLE = frozenset({"stopped", "failed", "error", "cancelled",
+                             "needs_review", "dead_letter"})
+
+
+def _f013_resolve(body):
+    """Shared argument guard (same shape as cancel). Returns
+    (runner, url, job_status, paused, error_response)."""
+    runners = _app_runners()
+    sid = (body.get("site_id") or "").strip()
+    url = (body.get("url") or "").strip()
+    if not sid or sid not in runners:
+        return None, None, None, None, (jsonify({"ok": False, "error": "unknown site_id"}), 400)
+    if not url:
+        return None, None, None, None, (jsonify({"ok": False, "error": "missing url"}), 400)
+    runner = runners[sid]
+    url = _v2_job_key(runner, url)
+    with runner._lock:
+        job = runner.jobs.get(url)
+        if not job:
+            return None, None, None, None, (jsonify({"ok": False, "error": "url not in queue"}), 404)
+        status = job.get("status") or ""
+        paused = bool(job.get("_paused_by_user"))
+    return runner, url, status, paused, None
+
+
+def _f013_refuse(verb, status, hint):
+    return jsonify({
+        "ok": False,
+        "status": status,
+        "error": f"can't {verb} a job in status {status!r}: {hint}",
+    }), 409
+
+
+@queue_bp.route("/api/queue/v2/pause", methods=["POST"])
+def api_queue_v2_pause():
+    """Pause ONE pending job (not its site). Body: {site_id, url}.
+    pending -> stopped with _paused_by_user via runner.bulk_pause, which
+    keeps the job's slot in runner.urls so resume restores its position."""
+    runner, url, status, paused, err = _f013_resolve(request.get_json(silent=True) or {})
+    if err:
+        return err
+    if status == "stopped" and paused:
+        return jsonify({"ok": True, "noop": True, "paused": True, "previous_status": status})
+    if status != "pending":
+        hint = "it is running" if status == "running" else "only a pending job can be paused"
+        return _f013_refuse("pause", status, hint)
+    if not runner.bulk_pause([url]):
+        # r4 (cx67 F3): the runner won the job between the snapshot and
+        # bulk_pause's own locked check; report what the job IS now.
+        with runner._lock:
+            job = runner.jobs.get(url) or {}
+            status = job.get("status") or ""
+            paused = bool(job.get("_paused_by_user"))
+        if status == "stopped" and paused:
+            return jsonify({"ok": True, "noop": True, "paused": True, "previous_status": status})
+        hint = "it is running" if status == "running" else "only a pending job can be paused"
+        return _f013_refuse("pause", status, hint)
+    return jsonify({"ok": True, "paused": True, "previous_status": status})
+
+
+@queue_bp.route("/api/queue/v2/resume", methods=["POST"])
+def api_queue_v2_resume():
+    """Resume ONE user-paused job. Body: {site_id, url}. stopped(+paused)
+    -> pending in its prior queue slot via runner.bulk_resume. A cancelled
+    job is not paused: refused with a pointer to retry."""
+    runner, url, status, paused, err = _f013_resolve(request.get_json(silent=True) or {})
+    if err:
+        return err
+    if status == "pending":
+        return jsonify({"ok": True, "noop": True, "resumed": True, "previous_status": status})
+    if not (status == "stopped" and paused):
+        hint = ("it was cancelled, not paused: use retry" if status == "stopped"
+                else "only a paused job can be resumed")
+        return _f013_refuse("resume", status, hint)
+    runner.bulk_resume([url])
+    return jsonify({"ok": True, "resumed": True, "previous_status": status})
+
+
+@queue_bp.route("/api/queue/v2/retry", methods=["POST"])
+def api_queue_v2_retry():
+    """Re-queue ONE cancelled/failed job. Body: {site_id, url}. Only that
+    job goes back to pending (retries reset); running/done are refused
+    with the reason; a paused job is pointed at resume; a second click on
+    an already re-queued job is a noop. bulk_retry is not reused because
+    it excludes "stopped" (the cancelled case this row exists for)."""
+    runner, url, status, paused, err = _f013_resolve(request.get_json(silent=True) or {})
+    if err:
+        return err
+    if status == "pending":
+        return jsonify({"ok": True, "noop": True, "retried": True, "previous_status": status})
+    if status == "stopped" and paused:
+        return _f013_refuse("retry", status, "it is paused: use resume")
+    if status not in _F013_RETRYABLE:
+        hint = "it is running" if status == "running" else "it finished"
+        return _f013_refuse("retry", status, hint)
+    # r4 (cx67 F1): the snapshot above can be stale -- another retry plus a
+    # runner claim may have made the job running since. Re-check and flip
+    # under the same job-status writer _claim_worker_item uses. Keep the
+    # lifecycle guard through publication so a newer claim or Pause cannot
+    # persist first, then be overwritten by this pending update. Release
+    # the jobs lock before _update_job, which acquires that lock itself.
+    import importlib
+    _ts = getattr(importlib.import_module("bulk_downloader.runner_util"), "_ts")
+    with runner._run_lifecycle_lock:
+        with runner._job_status_writer() as mark_status_changed:
+            job = runner.jobs.get(url) or {}
+            status = job.get("status") or ""
+            paused = bool(job.get("_paused_by_user"))
+            if status not in _F013_RETRYABLE or (status == "stopped" and paused):
+                refused = True
+            else:
+                refused = False
+                job.update({"status": "pending", "message": "Retry requested",
+                            "ts": _ts(), "retries": 0, "retry_after": 0,
+                            "_paused_by_user": False})
+                if url not in runner.urls:
+                    runner.urls.append(url)
+                mark_status_changed()
+        if not refused:
+            runner._update_job(url, "pending", "Retry requested", retries=0, retry_after=0,
+                               _transition_prev_status=status, _memory_already_updated=True)
+    if refused:
+        if status == "pending":
+            return jsonify({"ok": True, "noop": True, "retried": True, "previous_status": status})
+        if status == "stopped" and paused:
+            return _f013_refuse("retry", status, "it is paused: use resume")
+        hint = "it is running" if status == "running" else "it finished"
+        return _f013_refuse("retry", status, hint)
+    return jsonify({"ok": True, "retried": True, "previous_status": status})
 @queue_bp.route("/api/queue/v2/job_log")
 def api_queue_v2_job_log():
     """Last N events for one URL. Query: site_id, url, limit (default

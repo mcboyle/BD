@@ -224,6 +224,12 @@ class QueueMixin:
                 # "recovered" pill on these rows for a few minutes after
                 # boot so the operator can identify them at a glance
                 "_recovered_from_crash": was_running,
+                # appfeat-F013 r4: bulk_pause's "Paused by user" marker is the
+                # persisted pause identity (cf. "Stopped" in
+                # _repend_jobs_parked_by_stop); without it a paused job
+                # reloads as cancelled and per-job Resume refuses it.
+                "_paused_by_user": (status == "stopped"
+                                    and message == "Paused by user"),
             }
             if r.get("force_download"):
                 self.jobs[url]["force_download"] = True
