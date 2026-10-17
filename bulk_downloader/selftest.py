@@ -188,9 +188,11 @@ def check_database(db_path: str) -> dict:
         return _result(OK, "database",
                        "not created yet (WAL is set on first init)",
                        db_path=db_path)
+    # r6 (D159-D S1): opened through the history guard, so a network-mount or non-owner file is refused here.
+    from .db import HistoryDBWriteRefused, guarded_connect
     try:
         # Short timeout — startup test, don't hang for 10s
-        cx = sqlite3.connect(db_path, timeout=2.0)
+        cx = guarded_connect(db_path, timeout=2.0)
         try:
             # WAL mode check
             mode = cx.execute("PRAGMA journal_mode").fetchone()[0]
@@ -231,6 +233,9 @@ def check_database(db_path: str) -> dict:
                 db_path=db_path, tables=sorted(present))
         finally:
             cx.close()
+    except HistoryDBWriteRefused as e:  # before DatabaseError: a refused open is not a corrupt file
+        return _result(FAIL, "database", str(e), db_path=db_path,
+            hint="Run on the host that owns the history DB on local disk (BD_DB_OWNER_HOST names it).")
     except sqlite3.DatabaseError as e:
         return _result(FAIL, "database",
             f"SQLite error: {type(e).__name__}: {e}",
@@ -628,8 +633,13 @@ def _classify_db(db_path: str) -> tuple[str, str]:
     only a POSITIVE corruption signal may move a file aside. An answer we
     could not obtain is not an answer that the database is broken.
     """
+    # r6 (D159-D S1): through the history guard. A refusal is checked first: it is not evidence of corruption,
+    # and _CORRUPT moves the file aside.
+    from .db import HistoryDBWriteRefused, guarded_connect
     try:
-        cx = sqlite3.connect(db_path, timeout=2.0)
+        cx = guarded_connect(db_path, timeout=2.0)
+    except HistoryDBWriteRefused as e:
+        return _UNKNOWN, f"{type(e).__name__}: {e}"
     except sqlite3.Error as e:
         verdict = _CORRUPT if _is_corruption(e) else _UNKNOWN
         return verdict, f"{type(e).__name__}: {e}"

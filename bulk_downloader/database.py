@@ -99,7 +99,7 @@ class DatabaseManager:
         self.backend = PostgresBackend(dsn=dsn)
 
     def get_connection(self) -> PrimaryWriteConnection:
-        cx = sqlite3.connect(self.sqlite_path)
+        cx = _sqlite_db.guarded_connect(self.sqlite_path)  # r6: the history DB; refused on NFS / non-owner hosts
         cx.execute("PRAGMA journal_mode=WAL")
         self._ensure_schema(cx)
         return PrimaryWriteConnection(cx, self.backend)

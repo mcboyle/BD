@@ -10,6 +10,8 @@ Indexes on both keep filtering sub-millisecond at any size."""
 import sqlite3
 from time import monotonic as _monotonic, sleep as _sleep
 import os as _os
+import socket as _socket
+import sys as _sys
 import threading as _threading
 import weakref as _weakref
 from contextlib import contextmanager
@@ -98,7 +100,13 @@ def async_engine(**kwargs):
     module gets to make for its callers.
     """
     from . import orm_engine
-    return orm_engine.create_async_engine_for(_resolve_db_path(), **kwargs)
+    # r3 (cx97 F1): classify the file the engine will open, not the configured name. _sqlite_url resolves the name
+    # against cwd as a plain path, so "file:x?mode=ro" or ":memory:" there is a read-write file in cwd.
+    target = orm_engine._sqlite_url(_resolve_db_path(), read_only=False).database
+    refusal = _pre_open_refusal(target)
+    if refusal:  # r2 (cx90 F2): the same refusal as _open_history_conn; only async_engine_read_only bypasses
+        raise HistoryDBWriteRefused("history DB write refused: " + refusal)
+    return _guard_engine_connections(orm_engine.create_async_engine_for(target, **kwargs))
 
 
 def async_engine_read_only(**kwargs):
@@ -110,8 +118,8 @@ def async_engine_read_only(**kwargs):
     for anything that reports on the database's health.
     """
     from . import orm_engine
-    return orm_engine.create_async_engine_for(
-        _resolve_db_path(), read_only=True, **kwargs)
+    return _guard_engine_connections(orm_engine.create_async_engine_for(
+        _resolve_db_path(), read_only=True, **kwargs))
 
 
 def db_init(_retry_seconds=10.0):
@@ -777,7 +785,293 @@ class _HistoryConnection(sqlite3.Connection):
         self._force_close()
 
 
-def _open_history_conn(path=None, *, check_same_thread=True):
+class HistoryDBWriteRefused(sqlite3.OperationalError):
+    """hub-db-corruption-rootcause r1 (O3292): a write open of the history DB was refused."""
+
+
+# SQLite's locks do not hold across hosts on these filesystems, so a second writer
+# corrupts the file without either side seeing an error.
+_NETWORK_FSTYPES = frozenset({
+    "nfs", "nfs4", "cifs", "smb3", "smbfs", "ncpfs", "afs", "9p", "ceph", "glusterfs",
+    "lustre", "davfs", "fuse.sshfs", "fuse.glusterfs", "fuse.ceph",
+})
+_PROC_MOUNTS = "/proc/self/mounts"
+
+
+def _mount_of(path):
+    """Return (mount_point, fstype, source) of the mount holding ``path``, or None if unknown."""
+    try:
+        with open(_PROC_MOUNTS, encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None  # no /proc (not Linux): nothing to read the mount from
+    real = _os.path.realpath(path)
+    best = None
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        source, target, fstype = (re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), p)
+                                  for p in parts[:3])
+        if real == target or real.startswith(target.rstrip("/") + "/"):
+            if best is None or len(target) >= len(best[0]):
+                best = (target, fstype, source)
+    return best
+
+
+def _history_write_refusal(path):
+    """Return why the history DB at ``path`` must not be opened for write, or None.
+
+    Two refusals. The DB sits on a network filesystem, or BD_DB_OWNER_HOST is set
+    and names a different host. The 10-16 hub corruption came from a VM process
+    (.51) writing the hub's file over the NFS-exported checkout while the hub
+    service wrote it locally (FINDING-r1.md H2). Only ``mode=ro`` opens
+    (``async_engine_read_only``) bypass this. ``db_read_conn``'s pooled readers
+    open read-write here and only set query_only afterwards, so they are refused
+    too, and so are ``db_init`` / ``run_integrity_check`` at boot. Keep the
+    message free of the word "locked": ``db_init`` retries on it.
+
+    r2: the file itself is classified, after every symlink including the last
+    (a missing file resolves to where sqlite would create it). A "file:" name
+    is a URI to this SQLite build (USE_URI) even with uri=False, so its path is
+    parsed out first. BD_DB_OWNER_HOST is compared by lowercased short name, as
+    selftest does, so an FQDN or upper-case spelling of this host is not refused.
+    """
+    path = _os.fsdecode(path) if path else path  # r5 (cx135 F3): sqlite3.connect takes bytes and PathLike names too
+    if not path or path == ":memory:":
+        return None
+    if path.startswith("file:"):
+        path = _sqlite_uri_file_path(path)
+        if path is None:
+            return None
+    return _location_refusal(path)
+
+
+def _location_refusal(path):
+    """Why the file at ``path`` (a plain filesystem path) must not be written from this host, or None."""
+    owner = _os.environ.get("BD_DB_OWNER_HOST", "").strip()
+    if owner:
+        host = _socket.gethostname()
+        if owner.split(".", 1)[0].lower() != host.split(".", 1)[0].lower():
+            return ("BD_DB_OWNER_HOST=%s but this host is %s; refusing write open of %s"
+                    % (owner, host, path))
+    real = _os.path.realpath(path)
+    mount = _mount_of(real)
+    if mount is not None and mount[1] in _NETWORK_FSTYPES:
+        shown = path if real == _os.path.abspath(path) else "%s (resolves to %s)" % (path, real)
+        return ("%s is on network mount %s (%s from %s); SQLite locking does not hold "
+                "across hosts, refusing write open" % (shown, mount[0], mount[1], mount[2]))
+    return None
+
+
+def _sqlite_uri_file_path(uri, any_mode=False):
+    """Return the file a "file:" URI names, or None when it opens no writable file (mode=ro/memory).
+
+    ``any_mode``: return the named file whatever the mode says (None only for no file / ":memory:")."""
+    from urllib.parse import unquote
+    rest = uri[len("file:"):]
+    rest, _, query = rest.partition("#")[0].partition("?")
+    if rest.startswith("//"):
+        rest = "/" + rest[2:].partition("/")[2]  # drop the authority ("" or "localhost")
+    # r3 (D98-D C1): SQLite percent-decodes option names as well as values, matches "mode" case-sensitively, and lets a
+    # later mode override an earlier one (mode=memory&m%6Fde=rwc writes the file), so every mode must be ro/memory.
+    modes = [unquote(v) for k, _, v in (kv.partition("=") for kv in query.split("&") if kv) if unquote(k) == "mode"]
+    if modes and all(m in ("ro", "memory") for m in modes) and not any_mode:
+        return None
+    path = unquote(rest)
+    if not path or path == ":memory:":
+        return None
+    return path
+
+
+def _pre_open_refusal(name):
+    """r4: advisory. Refuse a name before connect can create the file; ``_history_conn_refusal`` is the authority.
+
+    r5 (cx135 F2): only a file that does not exist yet is refused here. An existing file is judged after open, on
+    the connection SQLite really made, so an immutable=1 or read_only engine open of an NFS file is kept.
+    """
+    try:
+        name = _os.fsdecode(name) if name else name
+        plain = _sqlite_uri_file_path(name, any_mode=True) if name and name.startswith("file:") else name
+        if plain and plain != ":memory:" and _os.path.exists(plain):
+            return None
+        return _history_write_refusal(name)
+    except ValueError:  # a NUL in the decoded name: SQLite truncates there; the post-open check sees what it opened
+        return None
+
+
+def history_boot_refusal(path=None):
+    """r5 (PM 05:55Z): why a process must not start as a writer of the history DB at ``path``, or None.
+
+    THE CHOKE POINT. Every entrypoint that can write the history DB (downloader_ui.py main, app.boot_once,
+    bg_scheduler.start) asks this before any other startup step, so no opener it reaches -- seam, engine, or a
+    raw connect nobody has found yet -- runs on a shared file. The .51 second writer would have stopped here.
+    The configured name is classified as a file, and for a "file:" URI so is the file it names whatever its
+    mode: a process that boots runs db_init and writes. Nothing is opened.
+    """
+    name = _os.fsdecode(_os.fspath(path if path is not None else _resolve_db_path()))
+    if not name or name == ":memory:":
+        return None
+    names = [name]
+    if name.startswith("file:"):
+        names.append(_sqlite_uri_file_path(name, any_mode=True))
+    for each in names:
+        if not each or each == ":memory:":
+            continue
+        try:
+            refusal = _location_refusal(each)
+        except ValueError as e:  # a NUL in the name
+            refusal = "history DB name %r cannot be classified (%s)" % (each, e)
+        if refusal:
+            return refusal
+    return None
+
+
+def refuse_history_writer_boot(entrypoint):
+    """r5: raise HistoryDBWriteRefused naming ``entrypoint`` when ``history_boot_refusal()`` refuses."""
+    refusal = history_boot_refusal()
+    if refusal:
+        raise HistoryDBWriteRefused(
+            "%s refused to start: %s. Run the writer on the host that owns the history DB on local disk "
+            "(BD_DB_OWNER_HOST names it)." % (entrypoint, refusal))
+
+
+def guarded_connect(database, *, sqlite3_module=None, **kwargs):
+    """r5 (cx135 F1): ``sqlite3.connect`` for a module outside the seam that opens the history DB raw.
+
+    The same two checks as ``_open_history_conn`` (advisory pre-open, post-open authority) and nothing else: no
+    PRAGMA, no row factory. bulk_downloader/async_wal_flusher.py's scheduled checkpoint opens through here.
+
+    r7: opens through ``_open_history_conn``, db.py's one ``sqlite3.connect`` (the @795/@800 invariant), which
+    returns right after the two checks. ``sqlite3_module`` lets a caller open with its own module's ``sqlite3`` (its
+    patch point); both checks still run.
+    """
+    return _open_history_conn(database, _guarded=(sqlite3_module, kwargs))
+
+
+def _history_conn_refusal(dbapi_cx):
+    """r4 (D110-D S1, PM 04:46Z AMEND): why an OPEN history connection must not be kept, or None.
+
+    No URI is parsed. ``PRAGMA database_list`` names the file SQLite really opened ("" for :memory: and
+    mode=memory), that file is classified like a plain path, and only a connection that can write it is
+    refused -- mode=ro and immutable=1 opens are read-only to SQLite's pager and are kept. r5 (D136-D S1): nothing after
+    database_list reads the file, so a refused connection never runs hot-journal rollback, WAL recovery or a
+    checkpoint on it. Run on a fresh connection, before any other statement.
+    """
+    cur = dbapi_cx.cursor()
+    try:
+        cur.execute("PRAGMA database_list")
+        main = [r[2] for r in cur.fetchall() if r[1] == "main"]
+        if not main or not main[0]:
+            return None
+        refusal = _history_write_refusal(main[0])
+        if refusal is None or not _conn_can_write(cur):
+            return None
+        return "post-open: SQLite opened %s writable; %s" % (main[0], refusal)
+    finally:
+        cur.close()
+
+
+def _sqlite3_of(cur):
+    """The stdlib sqlite3.Connection under a cursor: sqlite3's own, or SQLAlchemy's aiosqlite adapter's; else None."""
+    obj = cur
+    for _hop in range(6):
+        if isinstance(obj, sqlite3.Connection):
+            return obj
+        nxt = None
+        for attr in ("connection", "_connection", "driver_connection", "_conn"):
+            nxt = getattr(obj, attr, None)
+            if nxt is not None and nxt is not obj:
+                break
+        if nxt is None:
+            return None
+        obj = nxt
+    return None
+
+
+def _pager_read_only(cur, main):
+    """sqlite3_db_readonly(db, "main") of the connection under ``cur`` (1/0), or None when it cannot be asked safely.
+
+    The pager's own answer, read from memory with no I/O: 1 for mode=ro, immutable=1 (the file stays O_RDWR there)
+    and the unix VFS fall back to read-only; 0 for every handle that can write, nolock=1 and the r4 NUL-name opens
+    included. The sqlite3* is read from CPython's connection object and trusted only when sqlite3_db_filename on it
+    names the same main file PRAGMA database_list did.
+    """
+    cx = _sqlite3_of(cur)
+    if cx is None or _sys.implementation.name != "cpython":
+        return None
+    try:
+        import ctypes
+        import _sqlite3
+        lib = ctypes.CDLL(_sqlite3.__file__)
+        db_filename, db_readonly = lib.sqlite3_db_filename, lib.sqlite3_db_readonly
+        db_filename.argtypes = db_readonly.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        db_filename.restype, db_readonly.restype = ctypes.c_char_p, ctypes.c_int
+        handle = ctypes.c_void_p.from_address(id(cx) + object.__basicsize__).value
+        if not handle or _os.fsdecode(db_filename(handle, b"main") or b"") != main:
+            return None
+        ro = db_readonly(handle, b"main")
+    except (OSError, AttributeError, ImportError, ValueError):
+        return None
+    return ro if ro in (0, 1) else None
+
+
+def _fds_read_only(main):
+    """True when every descriptor this process holds on ``main`` is O_RDONLY; False on a writable one or none found."""
+    real = _os.path.realpath(main)
+    try:
+        fds = _os.listdir("/proc/self/fd")
+    except OSError:
+        return False
+    seen = False
+    for fd in fds:
+        try:
+            if _os.readlink("/proc/self/fd/" + fd) != real:
+                continue
+            with open("/proc/self/fdinfo/" + fd, encoding="ascii") as f:
+                flags = next(int(line.split()[1], 8) for line in f if line.startswith("flags:"))
+        except (OSError, StopIteration, ValueError, IndexError):  # closed meanwhile (another thread), or unreadable
+            continue
+        seen = True
+        if flags & 0o3:  # O_WRONLY | O_RDWR
+            return False
+    return seen
+
+
+def _conn_can_write(cur):
+    """False only when the connection's main database is known read-only; never reads the file.
+
+    r5 (D136-D S1): runs no statement but ``PRAGMA database_list``. The r4 probe executed SQL, and the first read on a
+    read-write handle runs hot-journal rollback / WAL recovery and its close checkpoints: the connection about to be
+    refused wrote the main file on NFS. The authority is the pager (_pager_read_only); open flags alone were measured
+    insufficient (immutable=1 holds the file O_RDWR) and are the fallback when the pager cannot be asked. Anything
+    unknown counts as writable.
+    """
+    cur.execute("PRAGMA database_list")
+    main = [r[2] for r in cur.fetchall() if r[1] == "main"]
+    if not main or not main[0]:
+        return True
+    ro = _pager_read_only(cur, main[0])
+    if ro is not None:
+        return ro == 0
+    return not _fds_read_only(main[0])
+
+
+def _guard_engine_connections(engine):
+    """r4: run ``_history_conn_refusal`` on every DBAPI connection the engine opens, before any other listener."""
+    from sqlalchemy import event
+
+    def _post_open(dbapi_cx, _record):
+        refusal = _history_conn_refusal(dbapi_cx)
+        if refusal:
+            dbapi_cx.close()
+            raise HistoryDBWriteRefused("history DB write refused: " + refusal)
+
+    event.listen(engine.sync_engine, "connect", _post_open, insert=True)
+    return engine
+
+
+def _open_history_conn(path=None, *, check_same_thread=True, _guarded=None):
     """v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
 
     Every history-DB connection in the app is created here. MOD-3 migrates this
@@ -801,10 +1095,31 @@ def _open_history_conn(path=None, *, check_same_thread=True):
     single connection point the MOD-3 seam depends on -- a second
     sqlite3.connect in this module fails test_v3_66_795_mod3_seam.py, and would
     escape dual-write when the Postgres migration lands.
+
+    r7: ``_guarded=(sqlite3_module, connect_kwargs)`` is guarded_connect's open: the same two checks, the caller's
+    connect arguments, and nothing after them. The post-open check asks SQLite's pager and needs a
+    ``sqlite3.Connection``; a stand-in object put over ``sqlite3.connect`` has no pager to ask, and the pre-open
+    verdict stands for it.
     """
-    cx = sqlite3.connect(
-        path or _resolve_db_path(), timeout=10.0, factory=_HistoryConnection,
-        check_same_thread=check_same_thread)
+    if _guarded is None:
+        target, opener = path or _resolve_db_path(), None
+        kwargs = dict(timeout=10.0, factory=_HistoryConnection, check_same_thread=check_same_thread)
+    else:
+        target, (opener, kwargs) = path, _guarded
+    refusal = _pre_open_refusal(_os.fspath(target))
+    if refusal:
+        raise HistoryDBWriteRefused("history DB write refused: " + refusal)
+    if opener is None:
+        cx = sqlite3.connect(target, **kwargs)
+    else:
+        cx = opener.connect(target, **kwargs)
+    # r4: the authority; runs before the journal_mode PRAGMA below writes
+    refusal = _history_conn_refusal(cx) if isinstance(cx, sqlite3.Connection) else None
+    if refusal:
+        cx.close()
+        raise HistoryDBWriteRefused("history DB write refused: " + refusal)
+    if _guarded is not None:
+        return cx
     cx.row_factory = sqlite3.Row
     # v3.43.13 / v3.47.1: SQLite contention fix.
     #

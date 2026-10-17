@@ -31,7 +31,6 @@ from .runner import (
 # Runs BEFORE db_init() so auto_recover_sqlite() can move aside a
 # corrupt db and let db_init() recreate the schema cleanly.
 from . import selftest as _selftest
-from .constants import DB_PATH as _DB_PATH
 
 import os as _os
 
@@ -176,6 +175,10 @@ def boot_once(*, force: bool = False) -> bool:
         # path self-heals already: the key is only added after every step
         # succeeds, so a raise leaves it absent.)
         _BOOTED_PATHS.discard(key)
+        # r5 hub-db-rootcause (PM 05:55Z): FIRST boot step. A process whose history DB is on a network mount, or
+        # that BD_DB_OWNER_HOST says is not the owner, never runs self-test, db_init, migrations or the scheduler.
+        from .db import refuse_history_writer_boot
+        refuse_history_writer_boot("app.boot_once")
         # O1671 a07: the session key comes before any other boot work. It may
         # raise (OIDC on, no key), which leaves the path un-booted.
         _install_secret_key()
@@ -188,7 +191,8 @@ def boot_once(*, force: bool = False) -> bool:
                 _selftest_sites_inputs(requested_site_runtime_path))
             _STARTUP_SELFTEST = _selftest.run_all(
                 sites_config_path=selftest_sites_path,
-                db_path=_DB_PATH,
+                # r6 (D159-D S1): the file the boot refusal just judged, not constants.DB_PATH (cwd-relative).
+                db_path=_resolve_db_path(),
                 cookies_dir="cookies",
                 download_dirs=selftest_download_dirs,
                 captures_root=str(_dom_analyzer_capture_store_root()),

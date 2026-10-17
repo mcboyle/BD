@@ -291,6 +291,14 @@ def _idle_watcher():
 if __name__ == "__main__":
     debug = _is_debug_mode()
     log_path = _configure_logging(debug)
+    # r5 hub-db-rootcause (PM 05:55Z): refuse to start, before the app is imported, on a host that must not write
+    # the history DB (network mount, or BD_DB_OWNER_HOST names another host). Exit 3, one clear line.
+    from bulk_downloader.db import HistoryDBWriteRefused, refuse_history_writer_boot
+    try:
+        refuse_history_writer_boot("downloader_ui")
+    except HistoryDBWriteRefused as _refused:
+        sys.stderr.write("%s\n" % _refused)
+        sys.exit(3)
     # Import AFTER logging is configured so the import-time stderr writes
     # (watcher thread start, restored sites count, etc.) get teed.
     from bulk_downloader.app import app, boot_once

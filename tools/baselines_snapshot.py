@@ -34,6 +34,7 @@ import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 # Auth-failure event types in session_history that represent a session that
 # lapsed under load — exactly what F1.3 holds before, instead of after.
@@ -172,12 +173,10 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     db_path = args.db or _resolve_live_db()
-    try:
-        cx = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10.0)
-    except sqlite3.Error:
-        # Fall back to a normal (still read-only-by-intent) open if the URI
-        # ro mode isn't supported for some reason.
-        cx = sqlite3.connect(db_path, timeout=10.0)
+    # r6: read-only or not at all. The old fallback re-opened read-write (and created a missing file) whenever the
+    # ro open failed, i.e. on the live DB over NFS from any host.
+    # r7 AMEND (D231 F2): the path is percent-quoted, so a '?' or '#' in it cannot end the path and replace mode=ro.
+    cx = sqlite3.connect(f"file:{quote(db_path, safe='/')}?mode=ro", uri=True, timeout=10.0)
     try:
         snap = compute_baselines(cx, window_days=args.window_days)
     finally:

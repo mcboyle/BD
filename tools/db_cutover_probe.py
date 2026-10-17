@@ -6,6 +6,7 @@ import pathlib
 import sqlite3
 import sys
 from typing import Any
+from urllib.parse import quote
 
 _REPO = pathlib.Path(__file__).resolve().parent.parent
 if str(_REPO) not in sys.path:
@@ -20,8 +21,13 @@ def run_probe(verify_parity: bool=True) -> tuple[int, dict[str, Any]]:
     lag_ms = backend.measure_replication_lag()
     lag_ok = lag_ms < 1.0
     sqlite_cx = None
+    # r6 (cx158 F1): the history DB is read here, never written, so it is opened mode=ro through the guarded
+    # opener; a bare connect opened (or created) the hub's file read-write over NFS from any host.
     try:
-        sqlite_cx = sqlite3.connect(sqlite_db._resolve_db_path())
+        sqlite_cx = sqlite_db.guarded_connect("file:%s?mode=ro" % quote(sqlite_db._resolve_db_path()), uri=True)
+    except sqlite_db.HistoryDBWriteRefused as e:
+        # Before the generic clause, which would eat it: a refused open has counted nothing, so it is not parity.
+        return (1, {"status": "HISTORY_DB_REFUSED", "history_db_refused": str(e)})
     except (sqlite3.Error, OSError):
         sqlite_cx = None
     parity_res = backend.verify_record_parity(sqlite_cx=sqlite_cx)

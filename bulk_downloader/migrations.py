@@ -355,6 +355,18 @@ def apply_pending(
             out["error"] = f"dry-run setup failed: {e}"
         return out
 
+    # hub-db-corruption-rootcause r1: never back up or migrate a damaged DB.
+    # The backup is VACUUM INTO, which rebuilds pages from the logical rows and
+    # drops broken index btrees, so a clean .premigration.bak hid that the 1904
+    # hub DB was already malformed when migration 12 ran on it.
+    refusal = _integrity_refusal()
+    if refusal:
+        out["aborted"] = True
+        out["abort_reason"] = ("pre-migration integrity gate: %s; no backup taken, "
+                               "no migrations were applied" % refusal)
+        sys.stderr.write("[migrations] REFUSED: %s\n" % out["abort_reason"])
+        return out
+
     # ── ROB-2: crash-safe real apply ─────────────────────────────────
     # (1) PREFLIGHT GATE: run the in-memory dry-run first. If ANY pending
     #     migration would fail, abort WITHOUT applying anything, so a bad
@@ -621,6 +633,23 @@ def step_up(target_version: Optional[int] = None) -> dict:
         _MIGRATIONS[:] = saved
 
 
+def _integrity_refusal() -> Optional[str]:
+    """None when PRAGMA integrity_check reads exactly 'ok', else why not.
+
+    quick_check is not enough: it skips index-vs-table content, and the
+    quarantined hub DB passed quick_check with two index roots overwritten
+    by another table's leaf page. A check that cannot run is a refusal too."""
+    try:
+        from . import db as _db
+        with _db.db_conn() as cx:
+            rows = [r[0] for r in cx.execute("PRAGMA integrity_check").fetchall()]
+    except Exception as e:
+        return "integrity_check raised %s: %s" % (type(e).__name__, e)
+    if rows == ["ok"]:
+        return None
+    return "integrity_check: " + "; ".join(str(r) for r in rows[:3])
+
+
 def _backup_db_before_migration(source=None):
     """ROB-2: copy the live DB aside before migrations mutate it, returning
     the backup path (``<db>.premigration.bak``) or None if there is no DB file /
@@ -684,14 +713,14 @@ def _restore_db_from_backup(bak: str) -> bool:
     after the pooled handles that saw the migrated state are closed.
 
     r3 (train-4 eject): the live DB is a db.db_conn() lease; only the .bak is opened
-    directly."""
+    directly. r7: through db.guarded_connect, so a .bak on a network mount is refused (returns False)."""
     try:
         from . import db as _db
         if not (bak and os.path.exists(bak)):
             return False
         _db.close_all_pooled_connections()
         schema = "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
-        source = sqlite3.connect(bak)
+        source = _db.guarded_connect(bak, sqlite3_module=sqlite3)  # r7: the .bak sits beside the live DB; same history guard
         try:
             # backup() retries SQLITE_LOCKED forever, so a source that resolves to the
             # live DB (inmemory_sqlite's shared cache) would hang boot. Only the .bak.
