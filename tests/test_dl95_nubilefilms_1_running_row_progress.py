@@ -50,9 +50,16 @@ def _registered(sid, runner):
     return _cleanup
 
 
-def _running_row(url):
+def _queue_client():
+    """Import the app BEFORE the ticks: the live rate expires 5 s after the
+    last tick, and a cold `bulk_downloader.app` import under suite load sits
+    between the ticks and the read when it is done lazily."""
     from bulk_downloader import app as a
-    body = a.app.test_client().get("/api/queue/v2").get_json()
+    return a.app.test_client()
+
+
+def _running_row(client, url):
+    body = client.get("/api/queue/v2").get_json()
     rows = [r for r in body.get("running", []) if r["url"] == url]
     assert len(rows) == 1, body
     return rows[0]
@@ -69,10 +76,11 @@ def _ticks(runner, total):
 def test_a_running_transfer_shows_its_progress_rate_and_eta(runner_db):
     from bulk_downloader.runner import SiteRunner
     r = SiteRunner("nf1_t1", {"name": "nf1_t1"})
+    client = _queue_client()
     _ticks(r, 400 * MB)
     cleanup = _registered("nf1_t1", r)
     try:
-        row = _running_row(_URL)
+        row = _running_row(client, _URL)
     finally:
         cleanup()
     assert row["progress"] == 11, ("DL95-NUBILEFILMS-1: running row shows %r%% while the "
@@ -85,12 +93,13 @@ def test_a_running_transfer_shows_its_progress_rate_and_eta(runner_db):
 def test_negative_unknown_total_has_bytes_and_rate_but_no_percent(runner_db):
     from bulk_downloader.runner import SiteRunner
     r = SiteRunner("nf1_t2", {"name": "nf1_t2"})
+    client = _queue_client()
     r._update_job(_URL, "running", "Direct • 1 MB", file_size=1 * MB)
     time.sleep(0.2)
     r._update_job(_URL, "running", "Direct • 3 MB", file_size=3 * MB)
     cleanup = _registered("nf1_t2", r)
     try:
-        row = _running_row(_URL)
+        row = _running_row(client, _URL)
     finally:
         cleanup()
     assert row["progress"] == 0 and row["eta_seconds"] is None, row
@@ -100,11 +109,12 @@ def test_negative_unknown_total_has_bytes_and_rate_but_no_percent(runner_db):
 def test_negative_a_stalled_transfer_has_no_rate_or_eta(runner_db, monkeypatch):
     from bulk_downloader.runner import SiteRunner
     r = SiteRunner("nf1_t3", {"name": "nf1_t3"})
+    client = _queue_client()
     _ticks(r, 400 * MB)
     r._job_progress_samples[_URL]["at"] -= 60      # last tick a minute ago
     cleanup = _registered("nf1_t3", r)
     try:
-        row = _running_row(_URL)
+        row = _running_row(client, _URL)
     finally:
         cleanup()
     assert row["progress"] == 11, row
