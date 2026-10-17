@@ -148,13 +148,5 @@ def unified_request(url: str, method: str="GET", headers: dict | None=None, time
     from .egress_transport import get_unified_egress_client
     client = get_unified_egress_client()
     return client.request(method=method, url=url, headers=headers, data=data, timeout=timeout)
-from .network.http_client import (
-    AsyncHttpClient,
-    BackoffConfig,
-    HttpClient,
-    PoolConfig,
-    TimeoutConfig,
-    compute_full_jitter,
-)
-
+from .network.http_client import AsyncHttpClient, BackoffConfig, HttpClient, PoolConfig, TimeoutConfig, compute_full_jitter
 __all__ = ["AsyncHttpClient", "BackoffConfig", "HttpClient", "PoolConfig", "TimeoutConfig", "compute_full_jitter", "proxy_open", "unified_request"]

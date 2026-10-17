@@ -11,6 +11,9 @@ import pytest
 from tests.conftest import find_free_port, wait_until
 
 
+BD_GATE_SCOPE = "module"
+
+
 class LifecycleHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:

@@ -8,6 +8,9 @@ import pytest
 SPARE_BOOT_SH = Path("/home/mboyle/bd-persist/harness/bd-spare-boot.sh")
 PTY_GUARD_PY = Path("/home/mboyle/bd-persist/harness/bd-pty-guard.py")
 
+BD_GATE_SCOPE = "module"
+
+
 def test_spare_boot_script_exists_and_executable() -> None:
     assert SPARE_BOOT_SH.exists(), f"Missing script: {SPARE_BOOT_SH}"
     assert os.access(SPARE_BOOT_SH, os.X_OK), f"Not executable: {SPARE_BOOT_SH}"

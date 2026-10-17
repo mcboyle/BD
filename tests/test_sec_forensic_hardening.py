@@ -15,6 +15,9 @@ from bulk_downloader.network.url_sanitizer import (
 from bulk_downloader.routes.export_import import export_import_bp, run_argv_command
 
 
+BD_GATE_SCOPE = "module"
+
+
 @pytest.fixture
 def app() -> Flask:
     app = Flask(__name__)

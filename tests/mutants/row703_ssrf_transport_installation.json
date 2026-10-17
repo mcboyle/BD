@@ -191,6 +191,22 @@
       "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
     },
     {
+      "label": "unpin bulk_downloader/network/http_client.py::AsyncHttpClient.__init__",
+      "file": "bulk_downloader/network/http_client.py",
+      "old_regex": "(?<=timeout_config\\.to_httpx_timeout\\(\\), transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/network/http_client.py::HttpClient.__init__",
+      "file": "bulk_downloader/network/http_client.py",
+      "old_regex": "(?<=follow_redirects=True, transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
       "label": "unpin bulk_downloader/oidc.py::discover",
       "file": "bulk_downloader/oidc.py",
       "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ return\\ _DISCO_CACHE\\[issuer\\]\\\n\\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=10,\\ transport)(?==guarded_transport\\()",

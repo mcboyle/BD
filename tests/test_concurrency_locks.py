@@ -11,6 +11,9 @@ import pytest
 from tests.conftest import find_free_port, wait_until
 
 
+BD_GATE_SCOPE = "module"
+
+
 def _execute_with_retry(conn: sqlite3.Connection, sql: str, params: tuple[object, ...]=(), timeout: float=10.0) -> sqlite3.Cursor:
     deadline = time.monotonic() + timeout
     delay = 0.002

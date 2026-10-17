@@ -50,6 +50,7 @@ so the handlers each call site already has keep catching it.
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import ipaddress
 import socket
@@ -182,6 +183,15 @@ class PinnedTransport(httpx.HTTPTransport):
                 request.extensions.pop("sni_hostname", None)
             else:
                 request.extensions["sni_hostname"] = original_sni
+
+    async def aclose(self) -> None:
+        self.close()
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        import asyncio
+        if not getattr(self, "_allow_private_hosts", False):
+            _refuse_non_public_literal(request.url.host)
+        return await asyncio.to_thread(self.handle_request, request)
 
     def pin(self, request: httpx.Request) -> Optional[str]:
         """Classify and pin ``request`` in place.
@@ -357,10 +367,38 @@ def established_guard_cls() -> type:
     return cls
 
 
+@contextlib.contextmanager
+def _logical_identity(request: httpx.Request):
+    """Restore ``request``'s URL and SNI after a guarded socket call (the
+    async counterpart of ``_RestoresLogicalRequest.handle_request``)."""
+    original_url = request.url
+    original_sni = request.extensions.get("sni_hostname", _ABSENT)
+    try:
+        yield
+    finally:
+        request.url = original_url
+        if original_sni is _ABSENT:
+            request.extensions.pop("sni_hostname", None)
+        else:
+            request.extensions["sni_hostname"] = original_sni
+
+
 def restoring_public_guard_cls() -> type:
     """Established public guard with only post-socket request restoration."""
     class RestoringPublicGuard(_RestoresLogicalRequest, established_guard_cls()):
         policy = PUBLIC_ONLY
+
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            # The async wire is an httpx.AsyncHTTPTransport built from the SAME
+            # transport arguments, on first async request.  The sync pool this
+            # class inherits yields SyncByteStream responses, which
+            # httpx.AsyncClient refuses (assert isinstance(response.stream,
+            # AsyncByteStream)); running handle_request in a thread did not
+            # change the stream type (mainred-1903 r2, cx53 F1).
+            self._async_wire_args = (
+                args, {k: v for k, v in kwargs.items() if k != "allow_private_hosts"})
+            self._async_wire: Optional[httpx.AsyncHTTPTransport] = None
 
         def handle_request(self, request: httpx.Request) -> httpx.Response:
             # The established guard delegates IP-literal hosts unjudged; under
@@ -368,6 +406,39 @@ def restoring_public_guard_cls() -> type:
             if not self._allow_private_hosts:
                 _refuse_non_public_literal(request.url.host)
             return super().handle_request(request)
+
+        def async_wire(self) -> httpx.AsyncHTTPTransport:
+            """The async transport an admitted request crosses; built lazily so
+            sync-only holders never pay for it."""
+            wire = self._async_wire
+            if wire is None:
+                args, kwargs = self._async_wire_args
+                wire = self._async_wire = httpx.AsyncHTTPTransport(*args, **kwargs)
+            return wire
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type=None, exc_value=None, traceback=None) -> None:
+            await self.aclose()
+
+        async def aclose(self) -> None:
+            self.close()
+            wire, self._async_wire = self._async_wire, None
+            if wire is not None:
+                await wire.aclose()
+
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            # Validate exactly as the sync path: the literal classification
+            # above, then the established guard's resolve/classify/pin
+            # (_prepare_request: blocking getaddrinfo, so off the loop).  Only
+            # then does the request cross the ASYNC wire, whose response --
+            # AsyncByteStream, aclose() -- is returned untouched.
+            if not self._allow_private_hosts:
+                _refuse_non_public_literal(request.url.host)
+            with _logical_identity(request):
+                await asyncio.to_thread(self._prepare_request, request)
+                return await self.async_wire().handle_async_request(request)
     return RestoringPublicGuard
 
 

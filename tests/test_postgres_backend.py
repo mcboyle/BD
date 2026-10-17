@@ -8,6 +8,9 @@ from bulk_downloader.database import DatabaseManager
 from bulk_downloader.storage.postgres_backend import PostgresBackend
 
 
+BD_GATE_SCOPE = "module"
+
+
 def test_primary_write_authority_success(tmp_path):
     db_file = str(tmp_path / "test.db")
     mgr = DatabaseManager(sqlite_path=db_file, dsn="postgresql://test:test@127.0.0.1:5432/test")

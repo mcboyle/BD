@@ -167,14 +167,9 @@ def replayed():
     """
     if not TOOL.is_file():
         pytest.fail("bd-docs-only is absent; this gate's subject does not exist")
-    root = Path("/home/mboyle/bd-local-wt/fixture-clone-row530").resolve()
+    root = Path(tempfile.mkdtemp(prefix="bd-row530-")).resolve()
     fixture_clone = root / "fixture-clone"
     checkout = root / "candidate"
-    if root.exists():
-        if fixture_clone.exists():
-            _run(["git", "-C", str(fixture_clone), "worktree", "remove", "--force", str(checkout)])
-        shutil.rmtree(root, ignore_errors=True)
-    root.mkdir(parents=True, exist_ok=True)
     source_head = _git(REPO, "rev-parse", "HEAD").strip()
     cloned = _run(["git", "clone", "--shared", "--no-checkout", str(REPO),
                    str(fixture_clone)], cwd=root, timeout=_GIT_BUDGET_S)
@@ -253,7 +248,7 @@ def replayed():
         _git(checkout, "checkout", "-q", good)
         yield {"repo": checkout, "base": base, "good": good, "heads": heads}
     finally:
-        _run(["git", "-C", str(fixture_clone), "worktree", "remove", "--force", str(checkout)])
+        _run(["git", "-C", str(fixture_clone), "worktree", "remove", "--", str(checkout)])
         shutil.rmtree(root, ignore_errors=True)
 
 

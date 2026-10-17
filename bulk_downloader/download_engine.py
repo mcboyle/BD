@@ -6,10 +6,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
-try:
-    from typing import Self
-except ImportError:
-    from typing_extensions import Self
+from typing import Self
 import httpx
 
 from .network.http_client import (
