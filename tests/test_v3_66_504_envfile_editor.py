@@ -83,7 +83,11 @@ _HOST_MANAGED = {"DISPLAY", "PLAYWRIGHT_BROWSERS_PATH", "APPDATA",
                  "BD_VAULT_KEY", "BD_REDIS_HOST", "BD_REDIS_PORT", "BD_CLUSTER_RATE_MODE",
                  # O1671 a07: BD_SECRET_KEY is the Flask session signing key -- a secret,
                  # host-managed for the BD_VAULT_KEY reason; never a GUI .env control.
-                 "BD_SECRET_KEY"}
+                 "BD_SECRET_KEY",
+                 # hubdb-nfs-guard r1: BD_DB_OWNER_HOST names the host that owns the
+                 # history DB (selftest._quarantine_refusal); per-host deploy topology --
+                 # a GUI write from a non-owning host would defeat the guard.
+                 "BD_DB_OWNER_HOST"}
 
 
 # ── 1. boot loader: parse + setdefault (real env wins) ───────────────────────

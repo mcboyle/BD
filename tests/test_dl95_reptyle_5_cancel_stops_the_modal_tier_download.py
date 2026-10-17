@@ -195,8 +195,9 @@ def _part_sizes(dl_dir):
 
 
 def _queue_buckets(client):
-    body = client.get("/api/queue/v2").get_json()
-    return {k: [j.get("status", k) for j in body.get(k, []) if j.get("url") == JOB]
+    from bulk_downloader.db import queue_row_id  # sec2-job-url-token r1: v2 serves a display URL
+    body = client.get("/api/queue/v2").get_json()  # (?tab=*** -- tab is no plain name) plus the row id
+    return {k: [j.get("status", k) for j in body.get(k, []) if j.get("row_id") == queue_row_id(JOB)]
             for k in ("running", "waiting", "terminal")}
 
 
