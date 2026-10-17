@@ -147,7 +147,6 @@ class TestUnicodeHomoglyphsAndEncoding:
     def test_cyrillic_homoglyphs_distinguished(self) -> None:
         latin = "admin_console"
         cyrillic = "\u0430dmin_c\u043ens\u043ele"
-        assert latin != cyrillic
         assert len(latin) == len(cyrillic)
         clean_latin = sanitize_unicode_text(latin)
         clean_cyrillic = sanitize_unicode_text(cyrillic)

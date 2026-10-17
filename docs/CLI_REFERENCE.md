@@ -290,4 +290,4 @@ BD_FRAMEWORK_PORT=8770 BD_FRAMEWORK_REPORTS=./reports python3 tools/framework_da
 
 ### 5.3 Retired Tools & Historical Subsystems
 - **`tools/tasktracker_gen.py` (RETIRED):** Retired in commit `f34dc74b5` (#128). Backlog row tracking is handled by `project-knowledge/build_current_overlay.py` and toolchain scripts `bd-register-*`.
-- **`bulk_downloader/__main__.py` & `cli.py` (ABSENT):** Never existed in the codebase. Use `downloader_ui.py` for server startup or `python -m bulk_downloader.cli_dashboard` for terminal monitoring.
+- **No `__main__` module in the `bulk_downloader` package, no top-level `cli.py` (ABSENT):** Neither file has ever existed in the codebase, so `python -m bulk_downloader` is not an entry point. Use `downloader_ui.py` for server startup or `python -m bulk_downloader.cli_dashboard` for terminal monitoring.

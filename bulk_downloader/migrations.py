@@ -657,16 +657,7 @@ def _backup_db_before_migration(source=None):
             opened = cx.execute("PRAGMA database_list").fetchone()[2]
             if not opened or not os.path.samefile(opened, src):
                 raise sqlite3.OperationalError("seam handle is not %s" % src)
-            # Use non-blocking online backup API with 100-page steps and 2ms sleeps to yield lock
-            try:
-                raw_cx = getattr(cx, "_cx", cx)
-                dst_conn = sqlite3.connect(tmp)
-                try:
-                    raw_cx.backup(dst_conn, pages=100, sleep=0.002)
-                finally:
-                    dst_conn.close()
-            except Exception:
-                cx.execute("VACUUM INTO ?", (tmp,))
+            cx.execute("VACUUM INTO ?", (tmp,))
 
         if source is not None:
             _copy(source)

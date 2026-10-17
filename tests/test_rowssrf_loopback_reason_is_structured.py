@@ -162,6 +162,13 @@ _EXPECTED_RUNTIME_CONSUMERS = {
 # then excluded for this host-safety census for the stated semantic reason.
 _NONCANONICAL_SAME_NAME_CALLS = {
     "toolchain/bin/bdtools_sec.py": {"_classify_ip": 3},
+    # mainred-1903: network/url_sanitizer.py defines its own `_classify_ip`
+    # (-> tuple[bool, str], not provider_resolve_impl._common's structured
+    # reason); five calls there and one in routes/export_import.py, which
+    # imports it from url_sanitizer. Each decides on the BOOLEAN; the str is
+    # only interpolated into an SSRFBlocked message or discarded.
+    "bulk_downloader/network/url_sanitizer.py": {"_classify_ip": 5},
+    "bulk_downloader/routes/export_import.py": {"_classify_ip": 1},
 }
 
 _EXPECTED_TOTAL_SITES = sum(

@@ -8,10 +8,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-try:
-    from typing import Self
-except ImportError:
-    from typing_extensions import Self
+from typing import Self
 from urllib.parse import urlparse
 
 import httpx
@@ -119,7 +116,8 @@ class HttpClient:
         self._sleep_fn = sleep_fn
         self._rng = rng
         self._host_tracker = _HostConcurrencyTracker(self.pool_config.max_connections_per_host)
-        self._client = httpx.Client(timeout=self.timeout_config.to_httpx_timeout(), limits=self.pool_config.to_httpx_limits(), follow_redirects=True)
+        from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
+        self._client = httpx.Client(timeout=self.timeout_config.to_httpx_timeout(), follow_redirects=True, transport=guarded_transport(PUBLIC_ONLY, limits=self.pool_config.to_httpx_limits()))
 
     def __enter__(self) -> Self:
         return self
@@ -175,7 +173,8 @@ class AsyncHttpClient:
         self.backoff_config = backoff_config or BackoffConfig()
         self._sleep_fn = sleep_fn
         self._rng = rng
-        self._client = httpx.AsyncClient(timeout=self.timeout_config.to_httpx_timeout(), limits=self.pool_config.to_httpx_limits(), follow_redirects=True)
+        from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
+        self._client = httpx.AsyncClient(timeout=self.timeout_config.to_httpx_timeout(), transport=guarded_transport(PUBLIC_ONLY, limits=self.pool_config.to_httpx_limits()), follow_redirects=True)
 
     async def __aenter__(self) -> Self:
         return self
@@ -219,6 +218,7 @@ class AsyncHttpClient:
 
     async def post(self, url: str, **kwargs) -> httpx.Response:
         return await self.request("POST", url, **kwargs)
+
 _DEFAULT_CLIENT: HttpClient | None = None
 _CLIENT_LOCK = threading.Lock()
 

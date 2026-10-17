@@ -26,7 +26,7 @@ def run_argv_command(argv: list[str] | tuple[str, ...], cwd: str | Path | None=N
     for i, arg in enumerate(argv):
         if not isinstance(arg, str):
             raise TypeError(f"argv element {i} must be str, got {type(arg).__name__}")
-    return subprocess.run(list(argv), shell=False, capture_output=True, text=True, timeout=timeout, cwd=str(cwd) if cwd else None, env=env, check=False)
+    return subprocess.run(list(argv), shell=False, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout, cwd=str(cwd) if cwd else None, env=env, check=False)
 
 def safe_import_from_url(url: str, allowed_subnets: list[str] | None=None, timeout: float=30.0) -> dict[str, Any]:
     clean_url = sanitize_url(url, allowed_subnets=allowed_subnets)

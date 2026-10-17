@@ -19,6 +19,9 @@ from bulk_downloader.network.http_client import (
 from bulk_downloader.network.url_sanitizer import SSRFBlocked
 
 
+BD_GATE_SCOPE = "module"
+
+
 def test_timeout_config_defaults() -> None:
     cfg = TimeoutConfig()
     assert cfg.connect == 5.0

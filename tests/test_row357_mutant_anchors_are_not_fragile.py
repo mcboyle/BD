@@ -1285,6 +1285,34 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_f005_notification_inbox.py",
             r"(?m)^def test_filter_by_status_and_severity\(",
         ),
+    # mainred-1903 (swarm_adversarial_mutation_probing): fixed guard text in
+    # network/url_sanitizer.py and the test's own AST scanner.  No producer
+    # re-derives any of them; bd-mutate measured each CAUGHT by the catcher
+    # named here (ev/c9-mutate.log).
+    "286fdb3eb15a70a8cdab68d9fdbb6ab8244dbe7185516635d51d43750f6306d0":
+        StableValueException(
+            "M2: the None-check is the guard's exact fixed predicate text; audited by the None-URL TypeError test",
+            "tests/test_adversarial_probes.py",
+            r"(?m)^    def test_synthetic_mutant_2_none_bypass_on_url\(self\) -> None:$",
+        ),
+    "55aef316231759eb0df4528a10001e4cb85243c9b71d6820edd29e7428dd8fb9":
+        StableValueException(
+            "M3: 1 is the fixed lowest valid TCP port, not a derived value; audited by the port-0 rejection test",
+            "tests/test_adversarial_probes.py",
+            r"(?m)^    def test_synthetic_mutant_3_port_lower_bound_off_by_one\(self\) -> None:$",
+        ),
+    "11d6a2e55b7e721debf1deb9b2a02aeabc9e9ccaa30e5d6f9a8249acc0298e2a":
+        StableValueException(
+            "M4: the null-byte check is the guard's exact fixed predicate text; audited by the illegal-null-byte test",
+            "tests/test_adversarial_probes.py",
+            r"(?m)^    def test_synthetic_mutant_4_drop_null_byte_validation\(self\) -> None:$",
+        ),
+    "a370678e1f2747bf2b7a3a0010462d38fbce8325da5392db5cb2adf8624d1855":
+        StableValueException(
+            "M6: the **kwargs-unpacking predicate is the scanner's exact fixed text; audited by the kwarg-unpacking test",
+            "tests/test_adversarial_probes.py",
+            r"(?m)^    def test_synthetic_mutant_6_ast_scanner_kwarg_unpacking_and_timeout\(self\) -> None:$",
+        ),
 }
 _STABLE_VALUE_EXCEPTION_MAX = 54
 
@@ -1351,6 +1379,9 @@ _STABLE_VALUE_EXCEPTION_MAX += 6
 
 # Row 127 (O1507): row127_pg_shard_membership::M2 predicate text; one audited exception
 _STABLE_VALUE_EXCEPTION_MAX += 1
+
+# mainred-1903: swarm_adversarial_mutation_probing M2/M3/M4/M6 fixed guard text; four audited exceptions
+_STABLE_VALUE_EXCEPTION_MAX += 4
 
 _FRAGILE_RULES = (
     *_family(

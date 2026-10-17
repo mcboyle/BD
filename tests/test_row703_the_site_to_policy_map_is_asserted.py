@@ -95,6 +95,8 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/mp4_metadata.py::fetch_cover": PINNED,
     "bulk_downloader/multi_conn.py::probe": PUBLIC_ONLY,
     "bulk_downloader/multi_conn.py::download._worker": PUBLIC_ONLY,
+    "bulk_downloader/network/http_client.py::AsyncHttpClient.__init__": PUBLIC_ONLY,
+    "bulk_downloader/network/http_client.py::HttpClient.__init__": PUBLIC_ONLY,
     "bulk_downloader/oidc.py::discover": PINNED,
     "bulk_downloader/oidc.py::exchange_code": PINNED,
     "bulk_downloader/oidc.py::verify_id_token": PINNED,
