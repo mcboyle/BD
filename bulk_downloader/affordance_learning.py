@@ -201,9 +201,7 @@ def _preference_ceilings(quality_preference: Any) -> list[float]:
     return ceilings or [math.inf]
 
 
-def _preference_ceiling(quality_preference: Any) -> float:
-    """Return the first valid ceiling in the existing ordered cascade."""
-    return _preference_ceilings(quality_preference)[0]
+
 
 
 def pick_resolution(

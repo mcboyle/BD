@@ -62,16 +62,7 @@ def _record(site_id: str, score: int, action: str) -> Optional[int]:
         return None
 
 
-def _record_outcome(log_id: int, outcome: str):
-    try:
-        from . import db as _db
-        with _db.db_conn() as cx:
-            cx.execute("""UPDATE cookie_relogin_log
-                          SET outcome = ?, outcome_ts = ?
-                          WHERE id = ?""",
-                       (outcome[:200], time.time(), int(log_id)))
-    except Exception:
-        pass
+
 
 
 def _ratelimit_ok(site_id: str, *, min_seconds_between: int = 3600) -> bool:

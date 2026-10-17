@@ -182,6 +182,25 @@ def api_dashboard_widgets():
     except Exception as e:
         return jsonify({"ok": False,
                           "error": f"{type(e).__name__}: {e}"}), 500
+def _scan_runner_jobs(runner, today_iso: str) -> tuple[int, int, int, int]:
+    """Return (queued, running, today_done, today_failed) for runner jobs."""
+    queued = running = today_done = today_failed = 0
+    with runner._lock:
+        for j in runner.jobs.values():
+            s = j.get("status", "")
+            if s == "pending":
+                queued += 1
+            elif s == "running":
+                running += 1
+            ts = j.get("ts_iso", "") or ""
+            if ts.startswith(today_iso):
+                if s == "done":
+                    today_done += 1
+                elif s == "failed":
+                    today_failed += 1
+    return queued, running, today_done, today_failed
+
+
 @dashboard_bp.route("/api/dashboard/v2")
 def api_dashboard_v2():
     """SPA-shaped dashboard snapshot. Composed of:
@@ -213,21 +232,10 @@ def api_dashboard_v2():
             # Per-site queue depth + per-site today counts
             site_queued = site_running = site_today_done = 0
             try:
-                with runner._lock:
-                    for j in runner.jobs.values():
-                        s = j.get("status", "")
-                        if s == "pending":
-                            site_queued += 1
-                        elif s == "running":
-                            site_running += 1
-                        ts = j.get("ts_iso", "") or ""
-                        if ts.startswith(today_iso):
-                            if s == "done":
-                                site_today_done += 1
-                                today_done += 1
-                            elif s == "failed":
-                                today_failed += 1
+                site_queued, site_running, site_today_done, site_today_failed = _scan_runner_jobs(runner, today_iso)
                 running += site_running
+                today_done += site_today_done
+                today_failed += site_today_failed
                 if runner.state() == "running":
                     active_workers += 1
             except Exception:

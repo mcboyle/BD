@@ -197,7 +197,7 @@ def _decipher_signed_formats_ytdlp(
             f"{_YT_CIPHER_SUBPROC_TIMEOUT_SECONDS}s on "
             f"video_id={video_id}"
         )
-    except (OSError, FileNotFoundError) as ex:
+    except OSError as ex:
         return [], (
             f"yt-dlp subprocess failed to launch: "
             f"{type(ex).__name__}: {ex}"

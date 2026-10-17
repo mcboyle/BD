@@ -36,12 +36,12 @@ def record_frames(
         if process.wait(timeout=timeout_s) != 0:
             return []
         return sorted(output_dir.glob("frame-*.png"))
-    except (OSError, RuntimeError, TimeoutError, subprocess.TimeoutExpired):
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
         return []
     finally:
         if process is not None and process.poll() is None:
             process.terminate()
             try:
                 process.wait(timeout=5)
-            except (OSError, TimeoutError, subprocess.TimeoutExpired):
+            except (OSError, subprocess.TimeoutExpired):
                 return []

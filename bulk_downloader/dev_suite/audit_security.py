@@ -1149,7 +1149,7 @@ def tls_cert_check(*, hosts=None, site_configs=None, port=443,
     import socket as _socket
     import ssl as _ssl
     import time as _time
-    from datetime import datetime as _datetime
+    from datetime import datetime as _datetime, timezone as _timezone
     out = {
         "tool": "tls_cert_check",
         "ok": True,
@@ -1188,7 +1188,7 @@ def tls_cert_check(*, hosts=None, site_configs=None, port=443,
     except (TypeError, ValueError):
         timeout_f = 5.0
     ctx = _ssl.create_default_context()
-    now = _datetime.utcnow()
+    now = _datetime.now(_timezone.utc).replace(tzinfo=None)
     expiring_soon = 0
     expired = 0
     failed = 0

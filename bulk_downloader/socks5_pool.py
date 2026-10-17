@@ -217,7 +217,7 @@ class Socks5ProxyPool:
                 ep.failure_count = 0
                 ep.last_checked = time.time()
             return True
-        except (OSError, socket.error, TimeoutError):
+        except OSError:
             with self._lock:
                 ep.is_healthy = False
                 ep.failure_count = max(ep.failure_count, self.max_failures)

@@ -82,7 +82,6 @@ log = logging.getLogger(__name__)
 GITHUB_API_BASE = "https://api.github.com/repos/stashapp/CommunityScrapers"
 GITHUB_RAW_BASE = "https://raw.githubusercontent.com/stashapp/CommunityScrapers/master"
 SCRAPERS_API_PATH = "/contents/scrapers"
-DEFAULT_BRANCH = "master"
 
 # Cache
 _INDEX_CACHE_FILENAME = "community_scrapers_index.json"

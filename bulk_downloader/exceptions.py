@@ -84,54 +84,26 @@ class InvalidCredentialsError(AuthenticationError):
     default_code = "BD-AUTH-002"
     default_status = 401
 
-
-class SessionExpiredError(AuthenticationError):
-    default_code = "BD-AUTH-003"
-    default_status = 401
-    default_retryable = True
-
-
-class BotDetectionChallengeError(AuthenticationError):
-    default_code = "BD-AUTH-004"
-    default_status = 403
-
-
-# Storage Category
 class StorageError(BulkDownloaderError):
     default_code = "BD-STORE-001"
     default_status = 500
     default_retryable = False
 
-
 class ObjectNotFoundError(StorageError):
     default_code = "BD-STORE-002"
     default_status = 404
-
-
-class StorageQuotaExceededError(StorageError):
-    default_code = "BD-STORE-003"
-    default_status = 507
-
 
 class IntegrityVerificationError(StorageError):
     default_code = "BD-STORE-004"
     default_status = 500
 
-
-# Extraction Category
 class ExtractionError(BulkDownloaderError):
     default_code = "BD-EXTR-001"
     default_status = 422
     default_retryable = False
 
-
 class UnsupportedFormatError(ExtractionError):
     default_code = "BD-EXTR-002"
-
-
-class MediaUnavailableError(ExtractionError):
-    default_code = "BD-EXTR-003"
-    default_status = 404
 
 
 # Configuration Category

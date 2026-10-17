@@ -193,7 +193,7 @@ def export_template(
         cfg_copy.pop("learned", None)
     bundle = {
         "schema": SCHEMA_VERSION,
-        "exported_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "exported_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "site_id": site_id,
         "template": cfg_copy,
         "metadata": {
