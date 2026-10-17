@@ -79,9 +79,13 @@ N_VECTORS = 50000
 
 @pytest.fixture(scope="module")
 def pg_conn():
-    """Live connection to Postgres on 127.0.0.1:5432."""
-    dsn = pv.pg_vector_dsn()
-    conn = pv.connect(dsn)
+    """Live connection to the TEST Postgres: MOD3_PG_TEST_DSN ONLY (pg-test-dsn-only r2, cx62 F1).
+
+    Not pv.pg_vector_dsn(): it reads PGVECTOR_DSN / MOD3_PG_DSN, the PRODUCT's, and this fixture
+    drops and recreates a schema on what it gets. No test DSN -> no connection (pv.connect(None)
+    would fall back to that same product lookup)."""
+    dsn = (os.environ.get("MOD3_PG_TEST_DSN") or "").strip()
+    conn = pv.connect(dsn) if dsn else None
     if conn is not None:
         pv.ensure_extension(conn)
         pv.drop_schema(conn, schema=SCHEMA)

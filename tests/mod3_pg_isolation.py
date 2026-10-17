@@ -35,15 +35,15 @@ _PREFIX = "bd_t_"
 
 
 def real_dsn() -> str:
-    """The operator's DSN, or "" when the real-PG lane is not armed.
+    """The operator's TEST DSN, or "" when the real-PG lane is not armed.
 
-    MOD3_PG_TEST_DSN takes precedence over MOD3_PG_DSN: in test execution
-    (e.g. CI's postgres-integration shard), tests must use the dedicated
-    test database even if an earlier test module or ambient environment
-    leaked or set MOD3_PG_DSN.
+    MOD3_PG_TEST_DSN ONLY. MOD3_PG_DSN is the PRODUCT's DSN, and
+    `import bulk_downloader` seeds it from ~/BulkDownloader/.env on any host
+    with an install -- so falling back to it ran these modules' unscoped
+    DELETE / ALTER TABLE against the hub's product database (deflake-1901,
+    2026-10-16). Absent test DSN = skip; test_v3_66_1011 gates both halves.
     """
-    return (os.environ.get("MOD3_PG_TEST_DSN")
-            or os.environ.get("MOD3_PG_DSN") or "").strip()
+    return (os.environ.get("MOD3_PG_TEST_DSN") or "").strip()
 
 
 def schema_for(module_name: str) -> str:

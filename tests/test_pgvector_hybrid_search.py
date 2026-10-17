@@ -86,11 +86,12 @@ N_DOCS = 250
 
 
 def _candidate_dsns() -> list[str]:
-    """Operator DSNs (PGVECTOR_DSN / MOD3_PG_DSN) are authoritative when set: an explicit
-    unreachable override must skip, never be silently replaced by the default cluster."""
-    env = [(os.environ.get(k) or "").strip() for k in ("PGVECTOR_DSN", "MOD3_PG_DSN")]
-    env = [d for d in env if d]
-    return env
+    """MOD3_PG_TEST_DSN ONLY (pg-test-dsn-only r2, cx62 F1). PGVECTOR_DSN / MOD3_PG_DSN are the
+    PRODUCT's -- `import bulk_downloader` seeds MOD3_PG_DSN from ~/BulkDownloader/.env -- and this
+    fixture runs CREATE EXTENSION / DROP SCHEMA / inserts on what it selects. The band exports its
+    fresh PG as MOD3_PG_TEST_DSN. An explicit unreachable test DSN must skip, never be replaced."""
+    dsn = (os.environ.get("MOD3_PG_TEST_DSN") or "").strip()
+    return [dsn] if dsn else []
 
 
 _LOOPBACK = ("127.0.0.1", "localhost", "::1")
@@ -162,7 +163,7 @@ def pg_conn():
     """
     dsn = _probe_pgvector_dsn()
     if dsn is None:
-        pytest.skip("PostgreSQL on 127.0.0.1:5432 unavailable or pgvector not loadable")
+        pytest.skip("no MOD3_PG_TEST_DSN in the environment, or it is unreachable / pgvector not loadable")
     import psycopg
 
     conn = psycopg.connect(dsn, connect_timeout=5)
