@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckSquare, Pause, Play, Plus, Square, Trash2, Wrench, X } from "lucide-react";
+import { CheckSquare, Pause, Play, Plus, RotateCcw, Square, Trash2, Wrench, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { AddUrlDialog } from "@/components/AddUrlDialog";
@@ -76,6 +76,37 @@ type ModalTarget = {
 const KEY_SEP = "\u0001"; // pick a separator that can't appear in a URL
 // The ?status= values this page renders a view for (see statusFilter).
 const QUEUE_STATUS_VIEWS = ["all", "running", "waiting", "failed"] as const;
+// appfeat-F013: /api/queue/v2 `terminal` entries (typed here; api-types.ts is
+// outside this row's OWNS) and the single-job control response.
+type TerminalJob = {
+  site_id: string;
+  site_name: string;
+  avatar_color?: string;
+  url: string;
+  row_id?: number | null;
+  filename: string;
+  status: string;
+  message: string;
+  ts_iso?: string;
+  paused?: boolean;
+};
+type QueueV2WithTerminal = QueueV2Full & { terminal?: TerminalJob[] };
+type JobActionResponse = {
+  ok: boolean;
+  noop?: boolean;
+  error?: string;
+  status?: string;
+  previous_status?: string;
+};
+function fileNameOf(url: string): string {
+  try {
+    const last = new URL(url).pathname.split("/").filter(Boolean).pop();
+    return last ? decodeURIComponent(last) : url;
+  } catch {
+    return url;
+  }
+}
+
 function selKey(j: { site_id: string; url: string }): string {
   return `${j.site_id}${KEY_SEP}${j.url}`;
 }
@@ -245,6 +276,40 @@ export function Queue() {
     },
     onError: (e: Error) => toast.error(e.message || "Action failed"),
   });
+  // appfeat-F013 -- per-JOB pause / resume / retry. The quick-action Pause on
+  // a waiting row used siteActionMut above and paused the whole SITE
+  // (UIUX-20260928 F013 FAIL). These hit the single-job endpoints with
+  // {site_id, url}; the server answers 409 with a reason when the transition
+  // is not allowed (running / finished), which surfaces as the toast.
+  const jobActionMut = useMutation({
+    mutationFn: ({ action, site_id, url }: {
+      action: "pause" | "resume" | "retry";
+      site_id: string;
+      url: string;
+    }) => apiPost<JobActionResponse>(`/api/queue/v2/${action}`, { site_id, url }),
+    onSuccess: (res, vars) => {
+      if (res?.ok === false) {
+        toast.error(res.error || `${vars.action} refused`);
+        return;
+      }
+      if (!res?.noop) {
+        const verb =
+          vars.action === "pause" ? "Paused" : vars.action === "resume" ? "Resumed" : "Re-queued";
+        toast.success(`${verb} ${fileNameOf(vars.url)}`);
+      }
+    },
+    onError: (e: Error, vars) =>
+      toast.error(e.message || `${vars.action} failed`),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["queue-v2"] });
+    },
+  });
+  // Terminal jobs that still have a per-job control: paused -> Resume,
+  // cancelled / failed / error -> Retry. Done and the rest have none and are
+  // not listed here (the failed-runs view covers run history).
+  const terminalJobs = ((data as QueueV2WithTerminal | undefined)?.terminal ?? []).filter(
+    (t) => t.status === "stopped" || t.status === "failed" || t.status === "error" || t.status === "cancelled",
+  );
   const pausedSites = new Set(
     (data?.per_site ?? [])
       .filter((p) => p.state === "paused" || p.state === "paused_no_button")
@@ -782,10 +847,10 @@ export function Queue() {
                         <RowQuickActions
                           paused={pausedSites.has(job.site_id)}
                           onPause={() =>
-                            siteActionMut.mutate({ sid: job.site_id, action: "pause" })
+                            jobActionMut.mutate({ action: "pause", site_id: job.site_id, url: job.url })
                           }
                           onResume={() =>
-                            siteActionMut.mutate({ sid: job.site_id, action: "resume" })
+                            jobActionMut.mutate({ action: "resume", site_id: job.site_id, url: job.url })
                           }
                           onCaptureNow={() =>
                             siteActionMut.mutate({ sid: job.site_id, action: "start" })
@@ -811,6 +876,60 @@ export function Queue() {
             )}
           </div>
         ))}
+
+        {/* appfeat-F013: paused / cancelled / failed jobs with a per-job control. */}
+        {showWaiting && terminalJobs.length > 0 && (
+          <div>
+            <div className="mb-2 px-1 eyebrow">Paused &amp; failed jobs</div>
+            <ul className={isCompact ? "space-y-0.5" : "space-y-1.5"}>
+              {terminalJobs.map((t) => {
+                const name = t.filename || fileNameOf(t.url);
+                const isPaused = t.status === "stopped" && t.paused === true;
+                const busy =
+                  jobActionMut.isPending && jobActionMut.variables?.url === t.url;
+                return (
+                  <li
+                    key={`${t.site_id}-${t.url}`}
+                    className="flex items-center justify-between gap-3 rounded-md bg-surface px-3 py-2 hairline"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm text-ink">{name}</div>
+                      <div className="truncate text-xs text-ink-3">
+                        {t.site_name} · {isPaused ? "paused" : t.status}
+                        {t.message ? ` · ${t.message}` : ""}
+                      </div>
+                    </div>
+                    {isPaused ? (
+                      <button
+                        type="button"
+                        aria-label={`Resume job ${name}`}
+                        disabled={busy}
+                        onClick={() =>
+                          jobActionMut.mutate({ action: "resume", site_id: t.site_id, url: t.url })
+                        }
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hairline hover:bg-surface-2 disabled:opacity-50"
+                      >
+                        <Play className="h-3.5 w-3.5" aria-hidden /> Resume
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={`Retry job ${name}`}
+                        disabled={busy}
+                        onClick={() =>
+                          jobActionMut.mutate({ action: "retry", site_id: t.site_id, url: t.url })
+                        }
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-primary hairline hover:bg-surface-2 disabled:opacity-50"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Retry
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         <BulkActionBar
           count={selection.size}

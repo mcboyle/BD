@@ -91,7 +91,12 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # the /notifications inbox list + mark read/unread. Baseline 1026 -> 1028 lines with
 # exactly those two additions (restacked onto f2a97465, after F038). INTENTIONAL
 # surface change, stated here.
-_BASELINE_SHA = "20ecbd4ba51d6ede0942b608c9778fc25f8ede0fa4cef2f716d1cd891cd3877e"
+# appfeat-F013: re-frozen. THREE routes ADDED, none removed or re-pathed: POST
+# /api/queue/v2/pause, /api/queue/v2/resume, /api/queue/v2/retry (app_queue.py), the
+# per-JOB pause/resume/retry trio beside /api/queue/v2/cancel. Baseline 1028 -> 1031
+# lines with exactly those three additions (diff of the regenerated snapshot against
+# the old file). INTENTIONAL surface change, stated here.
+_BASELINE_SHA = "5bab968d2271c31c9f2034ec6a04c04c4854d4d97d657acd8dfb50f7b1352d9e"
 
 
 def _live_snapshot() -> str:

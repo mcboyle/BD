@@ -468,6 +468,9 @@
 /api/queue/v2/cancel	POST	api_queue_v2_cancel
 /api/queue/v2/job_log	GET	api_queue_v2_job_log
 /api/queue/v2/job_log_diff	GET	api_queue_v2_job_log_diff
+/api/queue/v2/pause	POST	api_queue_v2_pause
+/api/queue/v2/resume	POST	api_queue_v2_resume
+/api/queue/v2/retry	POST	api_queue_v2_retry
 /api/queue_templates	GET,POST	api_queue_templates
 /api/queue_templates/<int:tid>	DELETE,GET,PUT	api_queue_template_one
 /api/queue_templates/<int:tid>/apply/<sid>	POST	api_queue_template_apply
