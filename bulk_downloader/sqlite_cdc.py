@@ -297,8 +297,11 @@ class PostgresSink:
 
 def _read_table_snapshot(db_path: str, table: str, pk: str) -> dict:
     """Current {pk_value: row_dict} for one table, read through a normal
-    connection (which merges WAL + main file transparently)."""
-    cx = sqlite3.connect(db_path)
+    connection (which merges WAL + main file transparently).
+
+    hub-db-corruption-rootcause r7: both CDC opens only read, so they open mode=ro (never write or create the
+    tracked DB, which may be the history DB)."""
+    cx = sqlite3.connect(f"file:{_ro_quote(db_path)}?mode=ro", uri=True)
     cx.row_factory = sqlite3.Row
     try:
         rows = cx.execute(f'SELECT * FROM {_ident(table)}').fetchall()
@@ -323,8 +326,14 @@ def _cell(value):
     return value
 
 
+def _ro_quote(db_path: str) -> str:
+    """``db_path`` for a file: URI: percent-encoded, so a '?', '#' or '%' in it cannot add a mode."""
+    from urllib.parse import quote
+    return quote(os.fspath(db_path), safe="/")
+
+
 def _table_columns(db_path: str, table: str) -> list:
-    cx = sqlite3.connect(db_path)
+    cx = sqlite3.connect(f"file:{_ro_quote(db_path)}?mode=ro", uri=True)
     try:
         return [r[1] for r in cx.execute(f'PRAGMA table_info({_ident(table)})').fetchall()]
     finally:

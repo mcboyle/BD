@@ -35,10 +35,20 @@ class _App:
 
 app_mod.app = _App()
 app_mod.boot_once = lambda: None
+# hub-db-rootcause r8: __main__ runs the history-writer boot guard before the
+# app import; stub it as a host that may write (the guard has its own tests).
+db_mod = types.ModuleType("bulk_downloader.db")
+
+class HistoryDBWriteRefused(Exception):
+    pass
+
+db_mod.HistoryDBWriteRefused = HistoryDBWriteRefused
+db_mod.refuse_history_writer_boot = lambda entrypoint: None
 waitress = types.ModuleType("waitress")
 waitress.serve = lambda app, **kw: served.append("waitress")
 sys.modules.update({"bulk_downloader": pkg,
                     "bulk_downloader.app": app_mod,
+                    "bulk_downloader.db": db_mod,
                     "waitress": waitress})
 
 threads = []

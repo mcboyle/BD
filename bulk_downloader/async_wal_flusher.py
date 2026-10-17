@@ -238,7 +238,10 @@ class AsyncWalFlusherPipeline:
 
         t0 = time.time()
         try:
-            conn = sqlite3.connect(db_path, timeout=5.0)
+            # r5 hub-db-rootcause (cx135 F1): the scheduled flush checkpoints the history DB; the guarded connect
+            # refuses a writable open of a file on a network mount or owned by another host.
+            from .db import guarded_connect
+            conn = guarded_connect(db_path, timeout=5.0)
             cur = conn.cursor()
             row = cur.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
             conn.close()

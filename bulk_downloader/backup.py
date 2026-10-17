@@ -117,9 +117,12 @@ def _restore_allowed(name: str) -> bool:
 
 def _snapshot_db(src: Path, out: Path) -> None:
     """Copy a live SQLite DB (db + its WAL) into one self-contained file."""
-    s = sqlite3.connect(str(src), timeout=30)
+    # r6: both opens go through the history guard. The source is the live downloader_history.db (an rw open, so it
+    # is refused on a network mount or a non-owner host); the tempdir destination is local and passes.
+    from .db import guarded_connect
+    s = guarded_connect(str(src), timeout=30)
     try:
-        d = sqlite3.connect(str(out))
+        d = guarded_connect(str(out))
         try:
             s.backup(d)
             d.execute("PRAGMA journal_mode=DELETE")
@@ -141,13 +144,27 @@ def _restore_db(tmp: Path, dest: Path) -> str | None:
     its own locks and WAL, so open app handles see the restored content and the
     old WAL frames are superseded). If that fails (dest not a DB, page-size
     clash), the file is swapped and the old -wal/-shm deleted BEFORE the swap.
-    Returns a warning, or None."""
+    Returns a warning, or None.
+
+    r7 (cx230): ``dest`` is the history DB this restore exists to replace. It is judged by the history guard before
+    anything touches it -- in place or by swap, existing or not -- and both in-place opens go through
+    db.guarded_connect. A refused destination (network mount, BD_DB_OWNER_HOST names another host) raises
+    HistoryDBWriteRefused with ``dest`` and its sidecars unchanged and ``tmp`` removed; it never falls through to
+    the swap."""
+    from .db import HistoryDBWriteRefused, _history_write_refusal, guarded_connect
+    try:
+        refusal = _history_write_refusal(str(dest))
+        if refusal:
+            raise HistoryDBWriteRefused("history DB write refused: " + refusal)
+    except HistoryDBWriteRefused:
+        tmp.unlink(missing_ok=True)
+        raise
     warn = None
     if dest.exists():
         try:
-            s = sqlite3.connect(str(tmp))
+            s = guarded_connect(str(tmp))
             try:
-                d = sqlite3.connect(str(dest), timeout=30)
+                d = guarded_connect(str(dest), timeout=30)
                 try:
                     s.backup(d)
                 finally:
@@ -157,9 +174,20 @@ def _restore_db(tmp: Path, dest: Path) -> str | None:
             tmp.unlink()
             _unlink_sidecars(tmp)
             return None
+        except HistoryDBWriteRefused:
+            tmp.unlink(missing_ok=True)
+            _unlink_sidecars(tmp)
+            raise
         except sqlite3.Error as e:
             warn = (f"{dest.name}: in-place DB restore failed "
                     f"({type(e).__name__}); file swapped, stale -wal/-shm removed")
+    # r7 AMEND (D231 F1): the swap is a write onto the history path too; judged again right before it, so no
+    # replace lands on a destination the guard refuses (mount or owner changed since the first check).
+    refusal = _history_write_refusal(str(dest))
+    if refusal:
+        tmp.unlink(missing_ok=True)
+        _unlink_sidecars(tmp)
+        raise HistoryDBWriteRefused("history DB write refused: " + refusal)
     _unlink_sidecars(tmp)
     _unlink_sidecars(dest)
     tmp.replace(dest)
@@ -521,6 +549,8 @@ def restore_backup(backup_path: str | Path,
 
     warnings = []
     refused: list = []
+    db_refused: list = []  # r7: DB members the history guard refused to write
+    from .db import HistoryDBWriteRefused
     files_restored = 0
     files_skipped = 0
     manifest = None
@@ -689,7 +719,13 @@ def restore_backup(backup_path: str | Path,
                 tmp_dest = dest.with_suffix(dest.suffix + ".bdtmp")
                 tmp_dest.write_bytes(data)
                 if name in _DB_MEMBERS:
-                    _warn = _restore_db(tmp_dest, dest)
+                    try:
+                        _warn = _restore_db(tmp_dest, dest)
+                    except HistoryDBWriteRefused as e:  # r7 (cx230): dest untouched, the restore reports it
+                        warnings.append(f"{name}: {e}")
+                        db_refused.append(name)
+                        files_skipped += 1
+                        continue
                     if _warn:
                         warnings.append(_warn)
                 else:
@@ -702,13 +738,14 @@ def restore_backup(backup_path: str | Path,
     finally:
         zf.close()
 
-    return {
-        "ok": True,
+    out = {
+        "ok": not db_refused,
         "files_restored": files_restored,
         "files_skipped": files_skipped,
         "manifest": manifest,
         "warnings": warnings,
         "refused": refused,
+        "db_refused": db_refused,
         "dry_run": dry_run,
         # CAP-4 integrity signal: True when every checksummed member matched
         # (or the backup predates checksums -- nothing to verify).
@@ -717,6 +754,9 @@ def restore_backup(backup_path: str | Path,
         "checksums_verified": checksums_verified,
         "elapsed_ms": round((time.time() - t0) * 1000, 1),
     }
+    if db_refused:
+        out["error"] = "history guard refused to restore: " + ", ".join(db_refused)
+    return out
 
 
 def default_backup_filename() -> str:

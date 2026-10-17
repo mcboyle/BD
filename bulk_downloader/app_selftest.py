@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 
 from flask import Blueprint, jsonify, request
-from .constants import DB_PATH as _DB_PATH
 from . import selftest as _selftest
 
 selftest_bp = Blueprint("selftest", __name__)
@@ -60,9 +59,10 @@ def api_selftest():
     for _s in s_cfg.values():
         _d = _s.get("download_dir")
         if _d: dd.append(_d)
+    from .db import _resolve_db_path  # r6 (D159-D S1): the resolved history DB, not the cwd-relative DB_PATH
     report = _selftest.run_all(
         sites_config_path=_SITES_CFG_PATH,
-        db_path=_DB_PATH,
+        db_path=_resolve_db_path(),
         cookies_dir="cookies",
         download_dirs=dd,
         captures_root=str(_capture_store_root_for_selftest()),

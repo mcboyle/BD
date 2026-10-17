@@ -208,6 +208,10 @@ def start():
     global _thread, _started
     if _started:
         return
+    # r5 hub-db-rootcause (PM 05:55Z): the scheduler's tasks write the history DB, so it does not start on a host
+    # that must not write it. Raises HistoryDBWriteRefused before any thread exists.
+    from .db import refuse_history_writer_boot
+    refuse_history_writer_boot("bg_scheduler.start")
     _stop_event.clear()
     _thread = threading.Thread(target=_loop, daemon=True, name="bd-bg-scheduler")
     _thread.start()
