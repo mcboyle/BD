@@ -2463,7 +2463,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1954,
+    "edge_count": 1955,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4727,6 +4727,7 @@
         "bulk_downloader/jd_bridge.py",
         "bulk_downloader/mp4_metadata.py",
         "bulk_downloader/multi_conn.py",
+        "bulk_downloader/network/http_client.py",
         "bulk_downloader/oidc.py",
         "bulk_downloader/outbound_guard.py",
         "bulk_downloader/qb_bridge.py",
@@ -7250,6 +7251,9 @@
       ],
       "bulk_downloader/network/__init__.py": [
         "bulk_downloader/http_client.py"
+      ],
+      "bulk_downloader/network/http_client.py": [
+        "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/network_log_reducer.py": [
         "bulk_downloader/capture_artifact_redact.py",
