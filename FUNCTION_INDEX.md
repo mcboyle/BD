@@ -620,27 +620,27 @@ Schema version: 2
 - L0153 `QueueMixin` `[class]`
   - L0154 `QueueMixin._job_status_writer` `[private]`
   - L0157 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
-  - L0238 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
-  - L0675 `QueueMixin.reorder_urls`
-  - L0687 `QueueMixin.set_priority`
-  - L0697 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0715 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0753 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0786 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0812 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0834 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
-  - L0842 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0864 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0888 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0935 `QueueMixin.clear_completed` — Drop URLs in `done` status from both the in-memory job map and the
-  - L0952 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0969 `QueueMixin._log_queue_persist_failure` `[private]` — ddr-fix F7: a bulk verb's queue write failed. Memory already moved,
-  - L0975 `QueueMixin.retry`
-  - L0977 `QueueMixin.clear`
-  - L0979 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0985 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
-  - L1002 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
-  - L1007 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
+  - L0244 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
+  - L0681 `QueueMixin.reorder_urls`
+  - L0693 `QueueMixin.set_priority`
+  - L0703 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0721 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0759 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0792 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0818 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0840 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
+  - L0848 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0870 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0894 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0941 `QueueMixin.clear_completed` — Drop URLs in `done` status from both the in-memory job map and the
+  - L0958 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0975 `QueueMixin._log_queue_persist_failure` `[private]` — ddr-fix F7: a bulk verb's queue write failed. Memory already moved,
+  - L0981 `QueueMixin.retry`
+  - L0983 `QueueMixin.clear`
+  - L0985 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0991 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L1008 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
+  - L1013 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
 ```
 
 

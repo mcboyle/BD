@@ -131,7 +131,7 @@ Graph version: 1
 - **plugins** (`app_plugins.py`) — routes 7, providers 1
 - **provenance** (`app_provenance.py`) — routes 5, providers 2
 - **push** (`app_push.py`) — routes 5, providers 1
-- **queue** (`app_queue.py`) — routes 10, providers 8
+- **queue** (`app_queue.py`) — routes 13, providers 8
 - **queue_templates** (`app_queue_templates.py`) — routes 3, providers 2
 - **quick_add** (`app_quick_add.py`) — routes 1, providers 0
 - **ramdisk** (`app_ramdisk.py`) — routes 1, providers 1

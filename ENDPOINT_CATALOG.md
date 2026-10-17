@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (834)
+## /api/* routes (837)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -495,6 +495,9 @@ POST    /api/queue/v2/bulk_cancel                              CSRF: yes  — Ca
 POST    /api/queue/v2/cancel                                   CSRF: yes  — Cancel one URL. Body: {site_id, url}. Marks the job as stopped
 GET     /api/queue/v2/job_log                                  CSRF: no   — Last N events for one URL. Query: site_id, url, limit (default
 GET     /api/queue/v2/job_log_diff                             CSRF: no   — Return two job logs + a precomputed unified diff.
+POST    /api/queue/v2/pause                                    CSRF: yes  — Pause ONE pending job (not its site). Body: {site_id, url}.
+POST    /api/queue/v2/resume                                   CSRF: yes  — Resume ONE user-paused job. Body: {site_id, url}. stopped(+paused)
+POST    /api/queue/v2/retry                                    CSRF: yes  — Re-queue ONE cancelled/failed job. Body: {site_id, url}. Only that
 GET     /api/queue_templates                                   CSRF: no
 POST    /api/queue_templates                                   CSRF: yes
 DELETE  /api/queue_templates/<int:tid>                         CSRF: yes

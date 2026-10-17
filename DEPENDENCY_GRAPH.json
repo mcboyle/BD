@@ -1298,7 +1298,7 @@
         "bulk_downloader/selector_drift.py",
         "bulk_downloader/tombstone.py"
       ],
-      "route_count": 10,
+      "route_count": 13,
       "routes": [
         "ROUTE /api/queue/dead_letter",
         "ROUTE /api/queue/dead_letter/requeue",
@@ -1309,7 +1309,10 @@
         "ROUTE /api/queue/v2/bulk_cancel",
         "ROUTE /api/queue/v2/cancel",
         "ROUTE /api/queue/v2/job_log",
-        "ROUTE /api/queue/v2/job_log_diff"
+        "ROUTE /api/queue/v2/job_log_diff",
+        "ROUTE /api/queue/v2/pause",
+        "ROUTE /api/queue/v2/resume",
+        "ROUTE /api/queue/v2/retry"
       ],
       "var": "queue_bp"
     },
