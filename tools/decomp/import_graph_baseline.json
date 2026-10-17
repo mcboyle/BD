@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6653,
+  "edge_count": 6670,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -598,7 +598,7 @@
       "bulk_downloader/selector_drift.py"
     ],
     "bulk_downloader/app_selftest.py": [
-      "bulk_downloader/constants.py",
+      "bulk_downloader/db.py",
       "bulk_downloader/dom_analyzer.py",
       "bulk_downloader/selftest.py"
     ],
@@ -875,6 +875,9 @@
       "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/storage_tier.py"
     ],
+    "bulk_downloader/async_wal_flusher.py": [
+      "bulk_downloader/db.py"
+    ],
     "bulk_downloader/audio_fingerprint.py": [
       "bulk_downloader/ffmpeg_bin.py"
     ],
@@ -934,6 +937,7 @@
       "bulk_downloader/disco_runner.py"
     ],
     "bulk_downloader/backup.py": [
+      "bulk_downloader/db.py",
       "bulk_downloader/dom_analyzer.py",
       "bulk_downloader/integrity.py"
     ],
@@ -2295,6 +2299,7 @@
       "bulk_downloader/selector_check.py"
     ],
     "bulk_downloader/selftest.py": [
+      "bulk_downloader/db.py",
       "bulk_downloader/dom_analyzer.py",
       "bulk_downloader/download_egress.py",
       "bulk_downloader/healthcheck.py",
@@ -4761,6 +4766,24 @@
     ],
     "tests/test_hooks_webhook_ssrf.py": [
       "bulk_downloader/hooks.py"
+    ],
+    "tests/test_hub_db_rootcause_nfs_owner_write_refusal.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_selftest.py",
+      "bulk_downloader/async_wal_flusher.py",
+      "bulk_downloader/backup.py",
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/database.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/selftest.py",
+      "bulk_downloader/sqlite_cdc.py",
+      "tools/baselines_snapshot.py",
+      "tools/db_cutover_probe.py"
+    ],
+    "tests/test_hub_db_rootcause_premigration_integrity_gate.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
     ],
     "tests/test_hunt4_captcha_start_pending.py": [
       "bulk_downloader/app_captcha_relay.py",

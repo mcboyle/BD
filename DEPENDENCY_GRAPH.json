@@ -1655,7 +1655,7 @@
     "selftest": {
       "module": "app_selftest.py",
       "providers": [
-        "bulk_downloader/constants.py",
+        "bulk_downloader/db.py",
         "bulk_downloader/dom_analyzer.py",
         "bulk_downloader/selftest.py"
       ],
@@ -2466,7 +2466,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1955,
+    "edge_count": 1958,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3080,7 +3080,6 @@
       ],
       "bulk_downloader/constants.py": [
         "bulk_downloader/app.py",
-        "bulk_downloader/app_selftest.py",
         "bulk_downloader/app_sites.py",
         "bulk_downloader/app_sites_auth.py",
         "bulk_downloader/app_sites_collection.py",
@@ -3228,6 +3227,7 @@
         "bulk_downloader/app_queue.py",
         "bulk_downloader/app_queue_templates.py",
         "bulk_downloader/app_search.py",
+        "bulk_downloader/app_selftest.py",
         "bulk_downloader/app_session_history.py",
         "bulk_downloader/app_sites.py",
         "bulk_downloader/app_sites_auth.py",
@@ -3243,9 +3243,11 @@
         "bulk_downloader/app_thumbnail_sheets.py",
         "bulk_downloader/app_tpdb.py",
         "bulk_downloader/app_widgets_api.py",
+        "bulk_downloader/async_wal_flusher.py",
         "bulk_downloader/audit.py",
         "bulk_downloader/audit_journal.py",
         "bulk_downloader/automation_status.py",
+        "bulk_downloader/backup.py",
         "bulk_downloader/backup_verify.py",
         "bulk_downloader/batch_ops.py",
         "bulk_downloader/bg_scheduler.py",
@@ -3316,6 +3318,7 @@
         "bulk_downloader/scheduled_exports.py",
         "bulk_downloader/scheduling.py",
         "bulk_downloader/selector_drift.py",
+        "bulk_downloader/selftest.py",
         "bulk_downloader/semantic_search.py",
         "bulk_downloader/session_keeper.py",
         "bulk_downloader/shares.py",
@@ -6089,7 +6092,7 @@
         "bulk_downloader/selector_drift.py"
       ],
       "bulk_downloader/app_selftest.py": [
-        "bulk_downloader/constants.py",
+        "bulk_downloader/db.py",
         "bulk_downloader/dom_analyzer.py",
         "bulk_downloader/selftest.py"
       ],
@@ -6366,6 +6369,9 @@
         "bulk_downloader/ssrf_transport.py",
         "bulk_downloader/storage_tier.py"
       ],
+      "bulk_downloader/async_wal_flusher.py": [
+        "bulk_downloader/db.py"
+      ],
       "bulk_downloader/audio_fingerprint.py": [
         "bulk_downloader/ffmpeg_bin.py"
       ],
@@ -6425,6 +6431,7 @@
         "bulk_downloader/disco_runner.py"
       ],
       "bulk_downloader/backup.py": [
+        "bulk_downloader/db.py",
         "bulk_downloader/dom_analyzer.py",
         "bulk_downloader/integrity.py"
       ],
@@ -7786,6 +7793,7 @@
         "bulk_downloader/selector_check.py"
       ],
       "bulk_downloader/selftest.py": [
+        "bulk_downloader/db.py",
         "bulk_downloader/dom_analyzer.py",
         "bulk_downloader/download_egress.py",
         "bulk_downloader/healthcheck.py",
