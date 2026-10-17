@@ -119,6 +119,7 @@ def _run(target: str, envfile_body: str | None) -> dict:
         envpath = Path(d) / ".env"
         envpath.write_text(envfile_body, encoding="utf-8")
         child["BD_ENVFILE"] = str(envpath)
+        child["BD_TEST_ALLOW_ENVFILE"] = "1"
 
     proc = subprocess.run(
         [str(_PY), "-m", "pytest", "-p", "probe", target, "-q", "-p", "no:randomly"],

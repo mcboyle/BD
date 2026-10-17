@@ -74,12 +74,18 @@ _REAL_PG_MODULES = (
 
 
 def _dsn():
-    return (os.environ.get("MOD3_PG_TEST_DSN")
-            or os.environ.get("MOD3_PG_DSN") or "").strip()
+    # One source of truth: never the product's MOD3_PG_DSN (see the
+    # pg-test-dsn-only block at the end of this file).
+    import mod3_pg_isolation as iso
+    return iso.real_dsn()
 
 
 def _skip_without_pg():
     if not _dsn():
+        # Rule 46: in the shard that exists to run these, absent is a failure.
+        if os.environ.get("GITHUB_JOB") == "postgres-integration":
+            pytest.fail("PG-SHARD-UNARMED: postgres-integration ran without "
+                        "MOD3_PG_TEST_DSN; every real-PG file would skip green")
         pytest.skip("no MOD3_PG_TEST_DSN in the environment")
     try:
         import psycopg  # noqa: F401
@@ -429,3 +435,251 @@ def test_postgres_integration_shard_reports_zero_skips_for_real_pg_files():
     assert "skipped" not in summary_line.lower() or " 0 skipped" in summary_line, (
         f"postgres-integration shard reported skips in real-PG files:\n{summary_line}\nFull stdout:\n{res.stdout}"
     )
+
+
+# ── pg-test-dsn-only: the PRODUCT DSN never arms a real-PG test ───────────────
+#
+# MEASURED 2026-10-16 22:34-22:51Z (deflake-1901, DF-D): `import bulk_downloader`
+# seeds MOD3_PG_DSN from ~/BulkDownloader/.env (bulk_downloader/_envfile.py
+# `_candidate_paths()`), and the helpers above fell back to it, so an ad-hoc
+# pytest on a host with an install ran the real-PG modules -- unscoped DELETE,
+# ALTER TABLE -- against the hub's PRODUCT database. Nine iterations, before
+# anyone noticed. Two guards, both asserted here:
+#   * the helpers read ONLY MOD3_PG_TEST_DSN; the product DSN is never a source;
+#   * tests/conftest.py neutralises the host .env before the package is imported.
+# Every DSN below is a sentinel on port 1: nothing in this block can reach a
+# server, on any host, whatever it is run with.
+
+_SENTINEL_PRODUCT = "postgresql://bd_product_sentinel@127.0.0.1:1/product_sentinel"
+_SENTINEL_TEST = "postgresql://bd_test_sentinel@127.0.0.1:1/test_sentinel"
+_REAL_PG_TARGET = "tests/test_v3_66_800_mod3_dual_write.py::TestRealRoundTrip"
+_NO_TEST_DSN = "no MOD3_PG_TEST_DSN in the environment"
+
+
+def test_the_product_dsn_is_never_a_real_pg_source(monkeypatch):
+    import mod3_pg_isolation as iso
+    monkeypatch.delenv("MOD3_PG_TEST_DSN", raising=False)
+    monkeypatch.setenv("MOD3_PG_DSN", _SENTINEL_PRODUCT)
+    assert iso.real_dsn() == "", "PG-PRODUCT-DSN-FALLBACK: mod3_pg_isolation.real_dsn()"
+    assert _dsn() == "", "PG-PRODUCT-DSN-FALLBACK: test_v3_66_1011 _dsn()"
+    monkeypatch.setenv("MOD3_PG_TEST_DSN", _SENTINEL_TEST)
+    assert iso.real_dsn() == _SENTINEL_TEST
+    assert _dsn() == _SENTINEL_TEST
+
+
+def test_the_pg_shard_fails_loudly_when_its_dsn_is_missing(monkeypatch):
+    """Rule 46: with the fallback gone, a postgres-integration job whose
+    MOD3_PG_TEST_DSN went missing would skip every real-PG file and stay green.
+    GITHUB_JOB is the job id on GitHub and under act, so the shard needs no flag."""
+    monkeypatch.delenv("MOD3_PG_TEST_DSN", raising=False)
+    monkeypatch.setenv("GITHUB_JOB", "postgres-integration")
+    with pytest.raises(pytest.fail.Exception, match="PG-SHARD-UNARMED"):
+        _skip_without_pg()
+    monkeypatch.setenv("GITHUB_JOB", "gate-suites")
+    with pytest.raises(pytest.skip.Exception, match=_NO_TEST_DSN):
+        _skip_without_pg()
+
+
+_PROBE = """
+import json, os, sys
+_skips = []
+def pytest_runtest_logreport(report):
+    if report.skipped and isinstance(report.longrepr, tuple):
+        _skips.append(report.longrepr[2])
+def pytest_sessionfinish(session, exitstatus):
+    sys.path.insert(0, os.path.join(os.getcwd(), "tests"))
+    import mod3_pg_isolation
+    with open(os.environ["PROBE_OUT"], "w") as f:
+        json.dump({"exitstatus": int(exitstatus),
+                   "product_dsn": os.environ.get("MOD3_PG_DSN", ""),
+                   "real_dsn": mod3_pg_isolation.real_dsn(),
+                   "skips": _skips}, f)
+"""
+
+
+def _host_with_an_install(tmp_path):
+    """A child env with NOTHING inherited but PATH: HOME is a temp dir holding
+    the `~/BulkDownloader/.env` an installed host carries. Built, not copied --
+    the parent runs with BD_ENVFILE=/dev/null and MOD3_PG_DSN= exported, and an
+    inherited env would never read the .env, so the test could not go red."""
+    assert not (REPO / ".env").exists(), "COULD NOT LOOK: a cwd .env in the tree"
+    home = tmp_path / "home"
+    (home / "BulkDownloader").mkdir(parents=True)
+    (home / "BulkDownloader" / ".env").write_text(
+        "MOD3_PG_DSN=%s\n" % _SENTINEL_PRODUCT, encoding="utf-8")
+    probe_dir = tmp_path / "probe"
+    probe_dir.mkdir()
+    (probe_dir / "pgdsnprobe.py").write_text(_PROBE, encoding="utf-8")
+    return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home),
+            "PYTHONPATH": "%s:%s" % (probe_dir, REPO),
+            "PROBE_OUT": str(tmp_path / "probe.json"),
+            "BD_DISABLE_KEEPALIVE": "1"}
+
+
+def _child_pytest(env):
+    import json
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "pgdsnprobe", "-p", "no:randomly",
+         "-p", "no:cacheprovider", "-q", "-rs", _REAL_PG_TARGET],
+        cwd=str(REPO), env=env, capture_output=True, text=True, timeout=180)
+    out = pathlib.Path(env["PROBE_OUT"])
+    assert out.is_file(), "child pytest never finished:\n%s\n%s" % (
+        proc.stdout[-3000:], proc.stderr[-3000:])
+    return json.loads(out.read_text(encoding="utf-8")), proc
+
+
+def test_the_host_envfile_is_reachable_without_the_conftest(tmp_path):
+    """Rule 7 control. The package alone DOES seed the product DSN from the
+    temp-HOME .env; without this, a green test below could mean the .env was
+    never in reach."""
+    env = _host_with_an_install(tmp_path)
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         "import os, bulk_downloader; print(os.environ.get('MOD3_PG_DSN', ''))"],
+        cwd=str(REPO), env=env, capture_output=True, text=True, timeout=120)
+    assert proc.stdout.strip().splitlines()[-1:] == [_SENTINEL_PRODUCT], (
+        proc.stdout[-2000:], proc.stderr[-2000:])
+
+
+def test_a_host_envfile_cannot_arm_the_real_pg_modules(tmp_path):
+    got, proc = _child_pytest(_host_with_an_install(tmp_path))
+    assert got["product_dsn"] == "", (
+        "PG-HOST-ENVFILE-BLEED: conftest let the host .env seed MOD3_PG_DSN=%r"
+        % got["product_dsn"])
+    assert got["real_dsn"] == "", (
+        "PG-PRODUCT-DSN-FALLBACK: real-PG helper armed with %r" % got["real_dsn"])
+    assert got["skips"] and all(_NO_TEST_DSN in s for s in got["skips"]), (
+        "PG-PRODUCT-DSN-FALLBACK: real-PG tests were not skipped for want of a "
+        "test DSN: %r\n%s" % (got["skips"], proc.stdout[-3000:]))
+
+
+def test_a_test_dsn_still_arms_the_real_pg_modules(tmp_path):
+    """The other half: the dedicated test DSN still reaches the helper, so the
+    guard above is not just 'never run'. Port 1 refuses, so they get past the
+    DSN gate and stop at the server -- never at the absent-DSN skip."""
+    env = _host_with_an_install(tmp_path)
+    env["MOD3_PG_TEST_DSN"] = _SENTINEL_TEST
+    got, proc = _child_pytest(env)
+    assert got["real_dsn"] == _SENTINEL_TEST, got
+    assert got["product_dsn"] == "", got
+    assert not any(_NO_TEST_DSN in s for s in got["skips"]), (
+        got["skips"], proc.stdout[-3000:])
+
+
+# ── r2 (cx62 F1): an INHERITED BD_ENVFILE, and the pgvector fixtures ──────────
+#
+# MEASURED 2026-10-17 (cx62, connect-interception, no DB touched): r1's
+# `os.environ.setdefault("BD_ENVFILE", os.devnull)` let an inherited BD_ENVFILE
+# survive -- a path, or "" (which `resolve_envfile_path()` treats as absent) --
+# so the package import re-seeded MOD3_PG_DSN after the pop, and the two
+# pgvector fixtures, which still read PGVECTOR_DSN / MOD3_PG_DSN, picked it up
+# (CREATE EXTENSION, DROP/CREATE SCHEMA, inserts); with -n 2 in every worker.
+# Here psycopg.connect is REPLACED before collection: every call is recorded and
+# raises, so whatever the code under test selects, no server is contacted.
+
+_PGVECTOR_NODES = (
+    "tests/test_pgvector_hybrid_search.py::TestPgvectorHybridSearchAcceptance"
+    "::test_1_create_hybrid_table_and_insert_docs",
+    "tests/test_row875_pgvector_hnsw.py::TestRow875Acceptance"
+    "::test_1_create_vector_table_and_insert_50k",
+)
+
+_CONNECT_PROBE = """
+import json, os
+import psycopg
+_calls = []
+def _intercept(dsn="", *args, **kwargs):
+    _calls.append(str(dsn))
+    raise psycopg.OperationalError("PG-CONNECT-INTERCEPTED: no server is contacted")
+psycopg.connect = _intercept
+def pytest_sessionfinish(session, exitstatus):
+    path = os.path.join(os.environ["PROBE_DIR"], "connect-%d.json" % os.getpid())
+    with open(path, "w") as f:
+        json.dump({"worker": os.environ.get("PYTEST_XDIST_WORKER", "controller"),
+                   "product_dsn": os.environ.get("MOD3_PG_DSN", ""),
+                   "calls": _calls}, f)
+"""
+
+
+def _connect_probe_run(tmp_path, targets, *, envfile, extra=(), **env_over):
+    """Child pytest on a temp-HOME 'installed host' (its ~/BulkDownloader/.env
+    carries the product sentinel) with BD_ENVFILE INHERITED as given (None =
+    unset). Returns one record per process (controller + any xdist workers)."""
+    import json
+    env = _host_with_an_install(tmp_path)
+    home_env = pathlib.Path(env["HOME"]) / "BulkDownloader" / ".env"
+    if envfile is not None:
+        env["BD_ENVFILE"] = envfile.replace("{home_env}", str(home_env))
+    env.update(env_over)
+    probe_dir = tmp_path / "connects"
+    probe_dir.mkdir()
+    (tmp_path / "probe" / "pgconnectprobe.py").write_text(_CONNECT_PROBE, encoding="utf-8")
+    env["PROBE_DIR"] = str(probe_dir)
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    # MEASURED 2026-10-17 on wrk-test06 (24 cores, load1 1.6): slowest child 8.66s (xdist-2), the
+    # rest 4.0-4.7s. 120s is ~14x that -- room for band-load inflation -- and below the 240s item
+    # bound (test_v3_66_1222), so a hung child fails here instead of killing the worker.
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "pgconnectprobe", "-p", "xdist.plugin",
+         "-p", "no:randomly", "-p", "no:cacheprovider", "-q", "-rs",
+         *extra, *targets],
+        cwd=str(REPO), env=env, capture_output=True, text=True, timeout=120)
+    records = [json.loads(p.read_text(encoding="utf-8"))
+               for p in sorted(probe_dir.glob("connect-*.json"))]
+    assert records, "COULD NOT LOOK: child pytest wrote no connect record:\n%s\n%s" % (
+        proc.stdout[-3000:], proc.stderr[-3000:])
+    return records, proc
+
+
+@pytest.mark.parametrize("envfile, extra", [
+    ("{home_env}", ()),                # inherited explicit path to the host .env
+    ("", ()),                          # inherited empty string == 'absent' to the loader
+    ("/nonexistent/bd-test.env", ()),  # inherited unreadable path -> loader falls back
+    ("{home_env}", ("-n", "2")),       # every xdist worker inherits it
+], ids=["explicit", "empty", "unreadable", "xdist-2"])
+def test_an_inherited_envfile_cannot_reach_the_product_db(tmp_path, envfile, extra):
+    records, proc = _connect_probe_run(tmp_path, _PGVECTOR_NODES, envfile=envfile,
+                                       extra=extra)
+    if extra:
+        workers = {r["worker"] for r in records}
+        assert {"gw0", "gw1"} <= workers, (
+            "COULD NOT LOOK: xdist workers wrote no record: %r\n%s"
+            % (workers, proc.stdout[-3000:]))
+    product = [(r["worker"], c) for r in records for c in r["calls"]
+               if "bd_product_sentinel" in c]
+    assert product == [], (
+        "PG-PRODUCT-CONNECT: %d connection(s) to the product DSN without "
+        "MOD3_PG_TEST_DSN: %r" % (len(product), product))
+    leaked = [(r["worker"], r["product_dsn"]) for r in records if r["product_dsn"]]
+    assert leaked == [], "PG-HOST-ENVFILE-BLEED: MOD3_PG_DSN re-seeded: %r" % leaked
+
+
+def test_an_ambient_product_dsn_cannot_arm_the_pgvector_fixtures(tmp_path):
+    """MOD3_PG_DSN exported by the caller, never via the .env."""
+    records, proc = _connect_probe_run(tmp_path, _PGVECTOR_NODES, envfile="/dev/null",
+                                       MOD3_PG_DSN=_SENTINEL_PRODUCT,
+                                       PGVECTOR_DSN=_SENTINEL_PRODUCT)
+    product = [c for r in records for c in r["calls"] if "bd_product_sentinel" in c]
+    assert product == [], "PG-PRODUCT-CONNECT: pgvector fixture used %r" % product
+
+
+def test_the_connect_probe_can_see_a_connection(tmp_path):
+    """Rule 7 control for the zeros above, true at RED and GREEN: with the test
+    DSN set, the mod3 real-PG fixture DOES reach psycopg.connect, and the probe
+    records it."""
+    records, proc = _connect_probe_run(tmp_path, (_REAL_PG_TARGET,), envfile="/dev/null",
+                                       MOD3_PG_TEST_DSN=_SENTINEL_TEST)
+    calls = [c for r in records for c in r["calls"]]
+    assert any("bd_test_sentinel" in c for c in calls), (calls, proc.stdout[-3000:])
+
+
+def test_the_pgvector_fixtures_arm_on_the_test_dsn(tmp_path):
+    """The other half for pgvector: MOD3_PG_TEST_DSN is now their only source,
+    so with it set both fixtures connect -- to it -- rather than going dark."""
+    records, proc = _connect_probe_run(tmp_path, _PGVECTOR_NODES, envfile="{home_env}",
+                                       MOD3_PG_TEST_DSN=_SENTINEL_TEST)
+    calls = [c for r in records for c in r["calls"]]
+    assert sum("bd_test_sentinel" in c for c in calls) >= 2, (
+        "PG-TEST-DSN-UNARMED: pgvector fixtures ignored MOD3_PG_TEST_DSN: %r\n%s"
+        % (calls, proc.stdout[-3000:]))
+    assert not any("bd_product_sentinel" in c for c in calls), calls

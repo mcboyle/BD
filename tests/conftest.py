@@ -43,6 +43,21 @@ os.environ.setdefault("BD_BATTERY_HELD", str(os.getpid()))
 PKG_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PKG_ROOT))
 
+# A TEST RUN NEVER INHERITS THE HOST'S PRODUCT DATABASE. `import bulk_downloader`
+# (first done below) seeds MOD3_PG_DSN from cwd/.env, then ~/BulkDownloader/.env
+# (bulk_downloader/_envfile.py); on any host with an install that is the hub's
+# product Postgres, and real-PG tests ran DELETE / ALTER TABLE there
+# (deflake-1901, 2026-10-16). BD_ENVFILE=/dev/null is read first and is empty, so
+# neither fallback is tried. ASSIGNED, not setdefault (cx62 F1): an INHERITED
+# BD_ENVFILE -- a path, or "" which the loader treats as absent -- re-seeded the
+# product DSN after the pop. The ONLY escape is BD_TEST_ALLOW_ENVFILE=1, for a
+# test that seeds its own temp .env into a child pytest (test_v3_66_946); even
+# then MOD3_PG_DSN is popped again once the package has loaded (below). The band
+# runner exports the same pair. Gated by tests/test_v3_66_1011_mod3_pg_isolation.py.
+if os.environ.get("BD_TEST_ALLOW_ENVFILE") != "1":
+    os.environ["BD_ENVFILE"] = os.devnull
+os.environ.pop("MOD3_PG_DSN", None)
+
 # IMPORTED FOR ITS PRESENCE IN sys.modules, NOT FOR ITS API -- do not remove as
 # "unused". `unittest.mock.patch.dict` restores sys.modules to the snapshot it
 # took on entry, so a module FIRST IMPORTED inside such a block is DELETED on
@@ -83,6 +98,9 @@ import bulk_downloader.ssrf_transport  # noqa: F401
 # The seam's PUBLIC_ONLY policy pulls the established guard from _common
 # lazily for the same reason, so it gets the same preload.
 import bulk_downloader.provider_resolve_impl._common  # noqa: F401
+# The package import above ran `_envfile.load_envfile()`; whatever it seeded,
+# the product DSN does not survive into the session (see the BD_ENVFILE block).
+os.environ.pop("MOD3_PG_DSN", None)
 
 # The last three, pulled in LAZILY by machinery rather than by any import
 # statement anyone wrote: encodings.idna and stringprep by IDNA hostname
