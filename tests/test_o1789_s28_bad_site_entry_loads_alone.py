@@ -120,6 +120,7 @@ elif mode in ("load", "boot"):   # a restart over the file in <home>
     out["threads"] = sorted(t.name for t in threading.enumerate())
     out["euid"] = os.geteuid()
     out["retired"] = retired
+    out["jars"] = {sid: getattr(r, "config", {}).get("cookie_file") for sid, r in S.runners.items()}
     from bulk_downloader import app_health as H
     payload = {"ok": True}; H._attach_sites_config_health(payload); out["health"] = payload
     if arg.get("save"):
@@ -474,10 +475,16 @@ BAD_ENTRIES = [
 ]
 
 
+# runner-account-jar r4 (f1738717e, landed after s28 r2 and cookie-file-roots r4): accounts[N]["cookie_file"] is
+# not read -- account N's jar is derived from the site's cookie_file (cookie_jar_path) -- so F1's two account-cell
+# rows no longer fail their site's load. They run through test_an_account_cell_cookie_file_is_inert_and_listed.
+ACCOUNT_CELL_ENTRIES = BAD_ENTRIES[10:12]
+
 # every bad entry through the loader; two of them also through the boot caller that used to retire every runner
-LOAD_CASES = [("load", b) for b in BAD_ENTRIES] + [
-    ("boot", b) for b in BAD_ENTRIES[:1] + BAD_ENTRIES[7:8] + BAD_ENTRIES[10:12]
+LOAD_CASES = [("load", b) for b in BAD_ENTRIES if b not in ACCOUNT_CELL_ENTRIES] + [
+    ("boot", b) for b in BAD_ENTRIES[:1] + BAD_ENTRIES[7:8]
 ]
+ACCOUNT_CELL_CASES = [(m, b) for m in ("load", "boot") for b in ACCOUNT_CELL_ENTRIES]
 
 
 def _cookie_path_entry(bad) -> bool:
@@ -543,6 +550,39 @@ def test_a_bad_entry_is_skipped_and_every_other_site_loads(tmp_path, bad, mode):
         f"S28-SKIPPED-SITE-ERASED-BY-SAVE [{mode}] {sorted(got['file_after'])}"
     )
     assert sorted(got["file_after"]) == ["a-good", "m-bad", "z-good"]
+
+
+@pytest.mark.parametrize(
+    "mode,bad", ACCOUNT_CELL_CASES, ids=[f"{m}:{json.dumps(b)[:70]}" for m, b in ACCOUNT_CELL_CASES]
+)
+def test_an_account_cell_cookie_file_is_inert_and_listed(tmp_path, bad, mode):
+    """An account cookie_file the OS refuses is never opened (runner-account-jar r4), so its site loads beside the
+    others -- still listed as a stored cell outside the roots, its value never the runner's jar, kept on save."""
+    got = _child(
+        tmp_path,
+        mode,
+        tmp_path / "home",
+        {"sites": ["a-good", "m-bad", "z-good"], "bad": {"m-bad": bad}, "save": True},
+    )
+    every = ["a-good", "m-bad", "z-good"]
+    assert got["raised"] == "" and got["sites"] == every and got["runners"] == every and got["meta"] == every, (
+        f"S28-ACCOUNT-CELL-SITE-NOT-LOADED [{mode}] bad={json.dumps(bad)[:80]}: raised={got['raised'][:120]!r} "
+        f"sites={got['sites']} runners={got['runners']}"
+    )
+    assert got["real_runners"] and got["retired"] == {}, got["retired"]
+    sc = got["health"]["sites_config"]
+    assert not sc.get("skipped_sites") and sc.get("cookie_file_outside_roots") == ["m-bad"], (
+        f"S28-ACCOUNT-CELL-NOT-LISTED [{mode}] {sc}"
+    )
+    stored = got["file_before"]["m-bad"]
+    assert got["jars"]["m-bad"] == stored["cookie_file"] != stored["accounts"][0]["cookie_file"], (
+        f"S28-ACCOUNT-CELL-READ-AS-JAR [{mode}] jar={str(got['jars']['m-bad'])[:120]!r}"
+    )
+    assert got["saved"] is True
+    assert got["file_after"]["m-bad"]["accounts"][0]["cookie_file"] == stored["accounts"][0]["cookie_file"], (
+        f"S28-ACCOUNT-CELL-ERASED-BY-SAVE [{mode}]"
+    )
+    assert sorted(got["file_after"]) == every
 
 
 def test_a_published_runner_that_cannot_be_proved_stopped_is_never_dropped(tmp_path):
