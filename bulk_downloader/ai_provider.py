@@ -205,7 +205,8 @@ class AIProvider:
     def __init__(self, endpoint: str = "", api_key: str = "",
                   model_vision: str = "", model_text: str = ""):
         self.endpoint = (endpoint or self.default_endpoint).rstrip("/")
-        self.api_key = api_key or ""
+        # strip: a pasted key with a trailing newline is an invalid header
+        self.api_key = (api_key or "").strip()
         self.model_vision = (model_vision or "").strip() or self.default_models.get("vision", "")
         self.model_text = (model_text or "").strip() or self.default_models.get("text", "")
 
@@ -222,6 +223,23 @@ class AIProvider:
 
     # ── Shared HTTP helper ──────────────────────────────────────────
 
+    def _redact_key(self, text: str) -> str:
+        """Strip the API key from error text: raw, URL-quoted, and the
+        repr-escaped forms (http.client's "Invalid header value b'...'"
+        escapes CR/LF/control chars). Gemini puts it in the URL query, and
+        a non-HTTP failure's message carries the URL (dev-console-misc C5)."""
+        if not self.api_key or not isinstance(text, str):
+            return text
+        from urllib.parse import quote
+        k = self.api_key
+        forms = {k, k.strip(), quote(k, safe=""), repr(k)[1:-1],
+                 repr(k.encode("utf-8", "replace"))[2:-1],
+                 # http.client encodes header values latin-1
+                 repr(k.encode("latin-1", "replace"))[2:-1]}
+        for f in sorted((f for f in forms if f), key=len, reverse=True):
+            text = text.replace(f, "[REDACTED]")
+        return text
+
     def _http_post(self, url: str, body: Dict[str, Any],
                     headers: Dict[str, str],
                     timeout: float) -> tuple:
@@ -234,10 +252,10 @@ class AIProvider:
         data = json.dumps(body).encode("utf-8")
         all_headers = {"Content-Type": "application/json"}
         all_headers.update(headers)
-        req = Request(url, data=data, method="POST",
-                        headers=all_headers)
         started = time.time()
         try:
+            req = Request(url, data=data, method="POST",
+                            headers=all_headers)
             resp = urlopen(req, timeout=timeout)
             raw = resp.read().decode("utf-8", "replace")
             ms = int((time.time() - started) * 1000)
@@ -263,10 +281,10 @@ class AIProvider:
             return False, 0, f"network: {e.reason}", ms
         except TimeoutError as e:  # socket.timeout: connected, no reply in time
             ms = int((time.time() - started) * 1000)
-            return False, self.STATUS_TIMEOUT, f"{type(e).__name__}: {e}", ms
+            return False, self.STATUS_TIMEOUT, self._redact_key(f"{type(e).__name__}: {e}"), ms
         except Exception as e:
             ms = int((time.time() - started) * 1000)
-            return False, 0, f"{type(e).__name__}: {e}", ms
+            return False, 0, self._redact_key(f"{type(e).__name__}: {e}"), ms
 
     def _classify_http_error(self, status: int) -> str:
         """Map an HTTP status code to one of the standard error_kind
@@ -618,7 +636,7 @@ class OpenAIProvider(AIProvider):
                 error=f"HTTP {e.code}: {e.reason}")
         except Exception as e:
             return HealthResult(
-                ok=False, error=f"{type(e).__name__}: {e}")
+                ok=False, error=self._redact_key(f"{type(e).__name__}: {e}"))
 
     def list_models(self):
         h = self.health_check()
@@ -757,7 +775,7 @@ class GeminiProvider(AIProvider):
                 ok=False, error=f"HTTP {e.code}: {e.reason}")
         except Exception as e:
             return HealthResult(
-                ok=False, error=f"{type(e).__name__}: {e}")
+                ok=False, error=self._redact_key(f"{type(e).__name__}: {e}"))
 
     def list_models(self):
         h = self.health_check()
