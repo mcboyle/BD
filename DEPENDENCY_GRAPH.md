@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1964**
+- internal import edges: **1966**
 - tools: 238 · with internal edge: 137 · with tool→package edge: 77
 - blueprints: 163 · config stores: 5
 
@@ -192,8 +192,8 @@ Graph version: 1
 - **tpdb** (`app_tpdb.py`) — routes 2, providers 4
 - **ui_events** (`app_ui_events.py`) — routes 2, providers 1
 - **user_templates** (`app_user_templates.py`) — routes 5, providers 1
-- **vpn** (`app_vpn.py`) — routes 4, providers 1
-- **vpn_api** (`app_vpn_api.py`) — routes 25, providers 8
+- **vpn** (`app_vpn.py`) — routes 4, providers 2
+- **vpn_api** (`app_vpn_api.py`) — routes 25, providers 9
 - **wakeup** (`app_wakeup.py`) — routes 2, providers 2
 - **wayback** (`app_wayback.py`) — routes 2, providers 1
 - **weather** (`app_weather.py`) — routes 3, providers 1

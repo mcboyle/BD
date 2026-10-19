@@ -808,8 +808,8 @@ POST    /api/vpn/auto_blacklist                                CSRF: yes
 GET     /api/vpn/backends/availability                         CSRF: no
 GET     /api/vpn/best_for/<sid>                                CSRF: no
 GET     /api/vpn/blacklist                                     CSRF: no
-POST    /api/vpn/kill_switch/<tunnel_id>/clear                 CSRF: yes
-POST    /api/vpn/kill_switch/<tunnel_id>/trigger               CSRF: yes
+POST    /api/vpn/kill_switch/<tunnel_id>/clear                 CSRF: yes  — dva K2: an id that is neither a registered tunnel nor holding a kill
+POST    /api/vpn/kill_switch/<tunnel_id>/trigger               CSRF: yes  — dva K2: an unknown tunnel id is 404 and creates no kill state.
 PUT     /api/vpn/kill_switch/auto_recover                      CSRF: yes
 GET     /api/vpn/kill_switch/state                             CSRF: no
 GET     /api/vpn/providers                                     CSRF: no
