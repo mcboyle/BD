@@ -218,7 +218,7 @@ export function Queue() {
   // per-site priority endpoint; the runner moves the URL to the queue head.
   const pinMut = useMutation({
     mutationFn: (vars: { site_id: string; url: string }) =>
-      apiPost(`/api/sites/${vars.site_id}/priority`, {
+      apiPost(`/api/sites/${encodeURIComponent(vars.site_id)}/priority`, {
         url: vars.url,
         priority: "high",
       }),
@@ -392,51 +392,65 @@ export function Queue() {
   // exactly why accounts/rotate and captcha/test still read as unwired CONTROL endpoints
   // despite being perfectly reachable from SiteActions. Wiring these through a variable
   // suffix would fix the GUI and leave the ledger red forever.
-  const fanOut = async (call: SiteCall): Promise<{ sites: number; failed: string[] }> => {
+  //
+  // ssqh F1: "the real number" is the SERVER's count, not selection.size. Each endpoint
+  // names it differently (bulk_pause -> paused, bulk_resume -> resumed, bulk_retry ->
+  // retried, bulk_priority -> count, jobs/bulk_* -> affected), so every call site passes
+  // its key. A missing key counts as 0: a shortfall is shown, never assumed away.
+  const fanOut = async (
+    countKey: string,
+    call: SiteCall,
+  ): Promise<{ sites: number; failed: string[]; done: number; requested: number }> => {
     const bySite = groupBySite(selection.ids);
     const failed: string[] = [];
+    let done = 0;
+    let requested = 0;
     await Promise.all(
       [...bySite.entries()].map(async ([sid, urls]) => {
+        requested += urls.length;
         try {
-          await call(sid, urls);
+          const res = await call(sid, urls);
+          done += Number(res?.[countKey]) || 0;
         } catch {
           failed.push(sid);
         }
       }),
     );
-    return { sites: bySite.size, failed };
+    return { sites: bySite.size, failed, done, requested };
   };
 
-  const runBulk = (label: string, call: SiteCall) =>
-    fanOut(call).then(({ sites, failed }) => {
+  const runBulk = (label: string, countKey: string, call: SiteCall) =>
+    fanOut(countKey, call).then(({ sites, failed, done, requested }) => {
       qc.invalidateQueries({ queryKey: ["queue-v2"] });
       exitSelectionMode();
       if (failed.length) {
         toast.error(`${label}: failed on ${failed.length} of ${sites} site(s)`);
+      } else if (done === requested) {
+        toast.success(`${label}: ${done} job(s) across ${sites} site(s)`);
       } else {
-        toast.success(`${label}: ${selection.size} job(s) across ${sites} site(s)`);
+        toast.warning(`${label}: ${done} of ${requested} job(s) across ${sites} site(s)`);
       }
     });
 
   const bulkPauseMut = useMutation({
-    mutationFn: () => runBulk("Paused", (sid, urls) =>
+    mutationFn: () => runBulk("Paused", "paused", (sid, urls) =>
       apiPost<BulkOpResponse>(`/api/sites/${encodeURIComponent(sid)}/bulk_pause`, { urls })),
   });
   const bulkResumeMut = useMutation({
-    mutationFn: () => runBulk("Resumed", (sid, urls) =>
+    mutationFn: () => runBulk("Resumed", "resumed", (sid, urls) =>
       apiPost<BulkOpResponse>(`/api/sites/${encodeURIComponent(sid)}/bulk_resume`, { urls })),
   });
   const bulkRetryMut = useMutation({
-    mutationFn: () => runBulk("Retried", (sid, urls) =>
+    mutationFn: () => runBulk("Retried", "retried", (sid, urls) =>
       apiPost<BulkOpResponse>(`/api/sites/${encodeURIComponent(sid)}/bulk_retry`, { urls })),
   });
   const bulkHighMut = useMutation({
-    mutationFn: () => runBulk("Priority high", (sid, urls) =>
+    mutationFn: () => runBulk("Priority high", "count", (sid, urls) =>
       apiPost<BulkOpResponse>(`/api/sites/${encodeURIComponent(sid)}/bulk_priority`,
         { urls, priority: "high" })),
   });
   const bulkNormalMut = useMutation({
-    mutationFn: () => runBulk("Priority normal", (sid, urls) =>
+    mutationFn: () => runBulk("Priority normal", "count", (sid, urls) =>
       apiPost<BulkOpResponse>(`/api/sites/${encodeURIComponent(sid)}/bulk_priority`,
         { urls, priority: "normal" })),
   });
@@ -444,12 +458,12 @@ export function Queue() {
   // (a freeform label the runner consults when picking the next pending URL), where
   // bulk_priority reorders the waiting QUEUE. Both are real; not duplicates.
   const jobsPriorityMut = useMutation({
-    mutationFn: () => runBulk("Job priority high", (sid, urls) =>
+    mutationFn: () => runBulk("Job priority high", "affected", (sid, urls) =>
       apiPost<BulkOpResponse>(`/api/sites/${encodeURIComponent(sid)}/jobs/bulk_priority`,
         { urls, priority: "high" })),
   });
   const bulkMarkMut = useMutation({
-    mutationFn: (status: string) => runBulk(`Marked ${status}`, (sid, urls) =>
+    mutationFn: (status: string) => runBulk(`Marked ${status}`, "affected", (sid, urls) =>
       apiPost<BulkOpResponse>(`/api/sites/${encodeURIComponent(sid)}/jobs/bulk_mark`,
         { urls, status })),
   });
@@ -457,7 +471,7 @@ export function Queue() {
   // and reports the count the server actually removed.
   const [confirmDelete, setConfirmDelete] = useState(false);
   const bulkDeleteMut = useMutation({
-    mutationFn: () => runBulk("Deleted", (sid, urls) =>
+    mutationFn: () => runBulk("Deleted", "affected", (sid, urls) =>
       apiPost<BulkOpResponse>(`/api/sites/${encodeURIComponent(sid)}/jobs/bulk_delete`,
         { urls })),
   });
