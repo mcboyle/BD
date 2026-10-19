@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1915 - T282au-D
+
+(TODO changelog body)
+
 ## v3.66.1914 - T282at-D
 
 (TODO changelog body)
