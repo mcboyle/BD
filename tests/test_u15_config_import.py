@@ -96,14 +96,20 @@ def test_preflight_flags_collision_with_existing_site():
 
 
 def test_preflight_flags_bad_url_and_unknown_template():
+    # F026 r6: a non-http(s) login_url is a parse error (csv_bulk's shared
+    # login_url rule, the one the import commits by), so the bad-URL row
+    # never becomes a row; the template check runs on a valid-URL row.
     csv = ("name,login_url,username,password,login_template\n"
-           "Bad,not-a-url,u,p,no_such_template\n")
+           "Bad,not-a-url,u,p,no_such_template\n"
+           "Good,https://good.example/login,u,p,no_such_template\n")
     r = ds.import_preflight(text=csv,
                             known_login_templates=["login_real"])
-    assert r["rows_with_errors"] == 1
+    assert r["parse_errors"] == [{"line": 2, "error": "invalid login_url"}]
+    assert r["safe_to_import"] is False
+    assert r["rows_parsed"] == 1
     assert r["unknown_login_templates"] == 1
     row = r["rows"][0]
-    assert any("URL" in e for e in row["errors"])
+    assert row["line"] == 3
     assert any("template" in w for w in row["warnings"])
 
 

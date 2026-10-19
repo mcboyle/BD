@@ -301,6 +301,23 @@ def build_xlsx_template(templates, login_templates=None) -> bytes:
 
 # ───────────────────────────── parsing ──────────────────────────────
 
+# The one login_url rule: urllib.parse reads the URL with an http or https scheme and a non-empty hostname
+# (bracketed IPv6 / IPvFuture literals included); urlsplit's ValueError (bad brackets, NFKC netloc) is invalid.
+# Everything else (javascript:, data:, ftp:, file:, scheme-less "example.com", "http:x") is "invalid login_url".
+# The /imports preview applies the same rule through its urlsplit port (frontend ImportsCenter.tsx pyUrlSplit) and
+# both test suites assert it against frontend/src/routes/ImportsCenter.bulkSiteRules.cases.json, so a row the
+# preview marks invalid is a row this parser rejects.
+def is_valid_http_login_url(url: str) -> bool:
+    """True when urllib.parse reads `url` as http(s) with a hostname (the rule the preview applies)."""
+    if not isinstance(url, str):
+        return False
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(parts.hostname)
+
+
 def _rows_from_records(records):
     """Shared row-normalisation for CSV and XLSX. `records` is a list of
     (line_no, header_lower_list, value_list). Returns (rows, errors)."""
@@ -322,6 +339,9 @@ def _rows_from_records(records):
         row["line"] = lineno
         if not row["login_url"]:
             errors.append((lineno, "missing login_url"))
+            continue
+        if not is_valid_http_login_url(row["login_url"]):
+            errors.append((lineno, "invalid login_url"))
             continue
         rows.append(row)
     return rows, errors
