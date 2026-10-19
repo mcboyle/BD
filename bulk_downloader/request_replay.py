@@ -369,6 +369,29 @@ def _targets_self(base_url: str) -> bool:
     return False
 
 
+def _targets_internal(base_url: str) -> bool:
+    """True iff ``base_url`` addresses an internal (non-global) target: RFC1918,
+    CGNAT, link-local (cloud metadata), ULA, TEST-NET -- a name or address that
+    resolves to one, or an IPv4-mapped spelling of one. Loopback / unspecified
+    are _targets_self's. Unresolvable = True (fail closed)."""
+    import ipaddress
+    import socket
+    try:
+        host = (urlsplit(base_url).hostname or "").rstrip(".")
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except (ValueError, OSError, UnicodeError):
+        return True
+    for _f, _t, _p, _c, sa in infos:
+        try:
+            ip = ipaddress.ip_address(sa[0].split("%")[0])
+        except ValueError:
+            return True
+        ip = getattr(ip, "ipv4_mapped", None) or ip
+        if not (ip.is_global or ip.is_loopback or ip.is_unspecified):
+            return True
+    return False
+
+
 def _caller_has_master_token() -> bool:
     """True iff the CURRENT request presents an accepted server token
     (app._request_has_master_token). No request context = False."""
@@ -387,11 +410,19 @@ class _SelfRedirectRefused(Exception):
     """A replay's redirect pointed at this box without the master token."""
 
 
+class _InternalRedirectRefused(Exception):
+    """A replay's redirect pointed at an internal target without the master token."""
+
+
 def _self_hop_gate(url: str) -> None:
-    """r2 (PM F2b): a redirect is a new target -- one aimed at this box needs
-    the master token, as the first hop does."""
-    if _targets_self(url) and not _caller_has_master_token():
+    """r2 (PM F2b): a redirect is a new target -- one aimed at this box, or at
+    an internal target, needs the master token, as the first hop does."""
+    if _caller_has_master_token():
+        return
+    if _targets_self(url):
         raise _SelfRedirectRefused(url)
+    if _targets_internal(url):
+        raise _InternalRedirectRefused(url)
 
 
 def replay(request_id: str, *, base_url: str = "http://127.0.0.1:5555",
@@ -445,6 +476,10 @@ def replay(request_id: str, *, base_url: str = "http://127.0.0.1:5555",
     if _targets_self(base_url) and not _caller_has_master_token():
         out["error"] = "a replay to this box needs the master token"
         return out
+    # SSRF policy (option b): so does one aimed at an internal target.
+    if _targets_internal(base_url) and not _caller_has_master_token():
+        out["error"] = "a replay to an internal target needs the master token"
+        return out
     # Build URL
     base = base_url.rstrip("/")
     url = base + path + (("?" + query) if query else "")
@@ -468,8 +503,13 @@ def replay(request_id: str, *, base_url: str = "http://127.0.0.1:5555",
         # vetted literal, each redirect hop judged again (loopback/LAN admitted:
         # the replay target is normally this app; link-local/metadata refused).
         # r9: each hop also passes the F2b self-redirect gate.
+        # SSRF policy r2 (F1): without the master token every pinned address is
+        # judged too (internal refused), so a name that resolves public for the
+        # gates and internal for the connect is refused before the socket opens.
         from . import outbound_guard as _outbound_guard
-        with _outbound_guard.urlopen(req, timeout=t_f,
+        policy = (_outbound_guard.LAN_OK if _caller_has_master_token()
+                  else _outbound_guard.LOOPBACK_OR_PUBLIC)
+        with _outbound_guard.urlopen(req, policy=policy, timeout=t_f,
                                      hop_gate=_self_hop_gate) as resp:
             out["replay_status"] = resp.status
             raw = resp.read().decode("utf-8", errors="replace")
@@ -483,6 +523,9 @@ def replay(request_id: str, *, base_url: str = "http://127.0.0.1:5555",
             out["replay_body"] = ""
     except _SelfRedirectRefused:
         out["error"] = "a replay redirected to this box needs the master token"
+        return out
+    except _InternalRedirectRefused:
+        out["error"] = "a replay redirected to an internal target needs the master token"
         return out
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {str(e)[:200]}"

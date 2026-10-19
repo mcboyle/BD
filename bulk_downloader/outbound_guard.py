@@ -10,7 +10,7 @@ call site that has only a URL string asks "may BD open this?".
 WHAT IS JUDGED.  Scheme (http/https unless the caller names others), a host,
 a parseable port, then EVERY address the host resolves to -- a name with one
 refused answer is refused, and a name that does not resolve is refused (fail
-closed).  Two policies, the same two ``ssrf_transport`` has:
+closed).  The two policies ``ssrf_transport`` has, and one for loopback callers:
 
 ``LAN_OK``      -- an operator's own targets may live on the LAN: loopback,
                    RFC1918, ULA and CGNAT are admitted; link-local (169.254/16
@@ -19,6 +19,11 @@ closed).  Two policies, the same two ``ssrf_transport`` has:
                    on every IPv4 an IPv6 address embeds
                    (``ssrf_transport.never_admissible``).
 ``PUBLIC_ONLY`` -- public unicast only (``provider_resolve_impl._common._classify_ip``).
+``LOOPBACK_OR_PUBLIC`` -- ``LAN_OK``'s refusals, then every non-global address
+                   but loopback (RFC1918, CGNAT, ULA, TEST-NET), on the address
+                   or the IPv4 it maps: a caller whose own gate admits only this
+                   box and the internet (``request_replay`` without the master
+                   token) judges the address it connects to, not an earlier lookup.
 
 WHAT A CHECK DOES NOT DO.  ``check_url`` judges; it does not pin.  A fetcher
 that resolves again afterwards (a browser, ffmpeg, a third-party server) keeps
@@ -46,7 +51,8 @@ from bulk_downloader.urllib_ssrf import PinnedUrlOpener
 
 LAN_OK = "lan-ok"
 PUBLIC_ONLY = "public-only"
-POLICIES = (LAN_OK, PUBLIC_ONLY)
+LOOPBACK_OR_PUBLIC = "loopback-or-public"
+POLICIES = (LAN_OK, PUBLIC_ONLY, LOOPBACK_OR_PUBLIC)
 
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
 # Schemes a browser page uses that open no connection BD could judge.
@@ -83,6 +89,14 @@ def address_refusal(addr, host: str, policy: str = LAN_OK) -> Optional[str]:
         return (
             None if ok else (str(message) or f"non-public address ({host} -> {addr})")
         )
+    if policy == LOOPBACK_OR_PUBLIC:
+        reason = never_admissible(addr)
+        if reason is not None:
+            return f"{reason} address ({host} -> {addr})"
+        ip = getattr(addr, "ipv4_mapped", None) or addr
+        if ip.is_global or ip.is_loopback:
+            return None
+        return f"internal address ({host} -> {addr})"
     raise ValueError(f"unknown outbound policy {policy!r}; expected one of {POLICIES}")
 
 
