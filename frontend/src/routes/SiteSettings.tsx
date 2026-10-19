@@ -63,6 +63,13 @@ interface EditableResponse {
   gated_groups: Record<string, FieldDescriptor[]>;
 }
 
+// PUT /api/sites/<sid> reply; the flags mean the typed password was not stored.
+interface SaveResponse {
+  ok?: boolean;
+  secrets_locked?: boolean;
+  secrets_plaintext?: boolean;
+}
+
 // v3.66.336: one selectable VPN tunnel for the vpn_tunnel_id dropdown.
 interface VpnTunnelOption {
   tunnel_id: string;
@@ -137,6 +144,10 @@ export function SiteSettings() {
   // (blank => preserve-on-blank, never sent).
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // dsf F5: the text of a number box while it has focus. The clamped number
+  // goes to the draft on each keystroke; the box shows the clamp on blur, so
+  // "50" in [10,100] or "0.5" in [0.1,30] can be typed digit by digit.
+  const [numText, setNumText] = useState<Record<string, string>>({});
 
   const allMeta = useMemo<Record<string, FieldDescriptor>>(
     () => ({ ...(data?.field_meta ?? {}), ...(data?.gated_meta ?? {}) }),
@@ -155,12 +166,31 @@ export function SiteSettings() {
     return buildSiteConfigClipboard(obj);
   }, [data, siteId]);
 
-  const saveMut = useMutation<unknown, Error, Record<string, unknown>>({
+  const saveMut = useMutation<SaveResponse, Error, Record<string, unknown>>({
     mutationFn: (patch) =>
-      apiPut(`/api/sites/${encodeURIComponent(siteId)}`, patch),
-    onSuccess: () => {
-      toast.success("Site settings saved");
-      setDraft({});
+      apiPut<SaveResponse>(`/api/sites/${encodeURIComponent(siteId)}`, patch),
+    onSuccess: (res, sent) => {
+      // dsf F1: a 2xx is not "stored". With the vault locked or a plaintext
+      // backend the server applies the other fields, drops the password and
+      // says so with a flag; keep the typed secret so it can be saved again.
+      const dropped = res?.secrets_locked
+        ? "the vault is locked. Unlock it, then save again."
+        : res?.secrets_plaintext
+          ? "the secrets backend is plaintext. Switch to an encrypted backend in Settings → Secrets, then save again."
+          : null;
+      if (dropped) toast.error(`Other settings saved, but the password was not stored: ${dropped}`);
+      else toast.success("Site settings saved");
+      // dsf F3: drop only what this PUT carried (and blank secrets, which are
+      // never sent); an edit typed while the save was in flight stays.
+      setDraft((d) => {
+        const next: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(d)) {
+          if (dropped && k === "password" && Object.is(v, sent[k])) next[k] = v;
+          else if (allMeta[k]?.secret && (v === "" || v == null)) continue;
+          else if (!(k in sent) || !Object.is(v, sent[k])) next[k] = v;
+        }
+        return next;
+      });
       setConfirmOpen(false);
       qc.invalidateQueries({ queryKey: ["site-editable", siteId] });
     },
@@ -203,7 +233,10 @@ export function SiteSettings() {
 
   // F009: Cancel drops every pending edit (incl. typed-but-blank secrets).
   const hasDraft = Object.keys(draft).length > 0;
-  const onCancel = () => setDraft({});
+  const onCancel = () => {
+    setDraft({});
+    setNumText({});
+  };
 
   useEffect(() => {
     if (!hasDraft) return;
@@ -245,14 +278,23 @@ export function SiteSettings() {
           type="number"
           min={lo}
           max={hi}
-          value={cur}
+          value={numText[d.key] ?? cur}
           onChange={(e) => {
-            let n = parseFloat(e.target.value);
+            const raw = e.target.value;
+            setNumText((t) => ({ ...t, [d.key]: raw }));
+            let n = parseFloat(raw);
             if (Number.isNaN(n)) n = lo ?? 0;
             if (lo != null) n = Math.max(lo, n);
             if (hi != null) n = Math.min(hi, n);
             setField(d.key, n);
           }}
+          onBlur={() =>
+            setNumText((t) => {
+              const next = { ...t };
+              delete next[d.key];
+              return next;
+            })
+          }
           className="w-28 text-right tabular"
         />
       );
@@ -388,7 +430,7 @@ export function SiteSettings() {
     <AppShell
       title={`Site settings — ${siteId}`}
       subtitle="Every editable per-site field · secrets write-only · saved with audit"
-      backTo={{ to: `/sites/${siteId}`, label: "Back to site" }}
+      backTo={{ to: `/sites/${encodeURIComponent(siteId)}`, label: "Back to site" }}
       breadcrumb={`Sites › ${siteId} › Settings`}
     >
       {isLoading && <Skeleton className="h-64 w-full" />}
