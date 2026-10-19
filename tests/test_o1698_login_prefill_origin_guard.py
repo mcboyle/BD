@@ -58,7 +58,7 @@ def _jar(names):
 def _run(monkeypatch, tmp_path, *, login_url, landed, success_url=None, flow_ran=False,
          allow_manual=False, challenge_to=None, after_username=None, staged_to=None,
          wait_redirect=None, wait_field="password", wait_state="attached",
-         wait_resubmit=False):
+         wait_resubmit=False, staged_refusal_error=False):
     """Drive the real do_login; replace only the browser/UI boundaries.
 
     The page is on `landed` once login_url is loaded (the redirect already
@@ -175,7 +175,7 @@ def _run(monkeypatch, tmp_path, *, login_url, landed, success_url=None, flow_ran
 
     monkeypatch.setattr(submit, "clear_cloudflare_challenge", clear)
 
-    def type_value(page, selector, value):
+    def type_value(page, selector, value, refusal=None):
         role = "username" if selector == "#fixture-user" else "password"
         label = role
         if calls["submit"]:
@@ -197,6 +197,16 @@ def _run(monkeypatch, tmp_path, *, login_url, landed, success_url=None, flow_ran
     def submit_form(page, selectors, password_selectors, *a, **kw):
         calls["submit"] += 1
         return bool(challenge_to), "fixture submit"
+
+    if staged_refusal_error:
+        original_refusal = submit._prefill_origin_refusal
+
+        def staged_check(page, *args):
+            if calls["continued"]:
+                raise RuntimeError("fixture: staged origin verifier unavailable")
+            return original_refusal(page, *args)
+
+        monkeypatch.setattr(submit, "_prefill_origin_refusal", staged_check)
 
     monkeypatch.setattr(_common, "_type_field_value", type_value)
     monkeypatch.setattr(_common, "_is_honeypot_field", lambda loc: (False, ""))
@@ -531,7 +541,7 @@ def typed(monkeypatch):
     monkeypatch.setattr(_common, "_is_honeypot_field", lambda loc: (False, ""))
     monkeypatch.setattr(_common, "_is_search_field", lambda loc: (False, ""))
     monkeypatch.setattr(_common, "_type_field_value",
-                        lambda page, sel, value: rec.append((page.url, value)))
+                        lambda page, sel, value, refusal=None: rec.append((page.url, value)))
     return rec
 
 
@@ -620,3 +630,14 @@ def test_click_failure_rechecks_before_fallback_fill(typed, foreign):
     assert fills == ([""] if foreign else ["", SECRET]), (
         f"O1698_FALLBACK_REFUSAL: unexpected values {fills}")
     assert typed == []
+
+
+def test_staged_preask_error_is_reported_as_refusal(monkeypatch, tmp_path):
+    result, calls = _run(monkeypatch, tmp_path, login_url=LOGIN, landed=LOGIN,
+                         staged_to=LOGIN + "/step2", staged_refusal_error=True)
+    assert calls["continued"], "premise: reached staged pre-ask"
+    assert not _typed_password(calls) and calls["submit"] == 0
+    assert result[0] is False
+    assert "cross-origin prefill refused" in result[1], (
+        f"OG_FU1_STAGED_CHECK_ERROR: {result[1]}")
+    assert "could not verify" in result[1]

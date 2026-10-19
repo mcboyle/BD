@@ -2704,7 +2704,10 @@ def do_login(config, allow_manual_takeover=False):
             # o1698 r2 (F1): ... and the Continue click can move it anywhere.
             _stg_refused=[]
             def _stg_refusal():
-                why=None if _flow_ran else _prefill_origin_refusal(page, url, success)
+                try:
+                    why=None if _flow_ran else _prefill_origin_refusal(page, url, success)
+                except Exception:
+                    why="cross-origin prefill refused: could not verify the current page"
                 if why:
                     _stg_refused.append(why)
                 return why
