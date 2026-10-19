@@ -226,7 +226,8 @@
     "bitrot": {
       "module": "app_bitrot.py",
       "providers": [
-        "bulk_downloader/bitrot.py"
+        "bulk_downloader/bitrot.py",
+        "bulk_downloader/paths.py"
       ],
       "route_count": 3,
       "routes": [
@@ -2466,7 +2467,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1958,
+    "edge_count": 1959,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4155,6 +4156,7 @@
         "bulk_downloader/app_secrets.py"
       ],
       "bulk_downloader/paths.py": [
+        "bulk_downloader/app_bitrot.py",
         "bulk_downloader/app_rebalance.py",
         "bulk_downloader/crash_recovery.py",
         "bulk_downloader/retention.py",
@@ -5703,7 +5705,8 @@
         "bulk_downloader/bg_scheduler.py"
       ],
       "bulk_downloader/app_bitrot.py": [
-        "bulk_downloader/bitrot.py"
+        "bulk_downloader/bitrot.py",
+        "bulk_downloader/paths.py"
       ],
       "bulk_downloader/app_budget.py": [
         "bulk_downloader/policy_gates.py"
