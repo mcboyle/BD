@@ -203,3 +203,6 @@ login_evidence/
 # Machine-local agent rule symlinks (-> /home/mboyle/*.md); absolute targets dangle in CI, so never tracked (T101 fix of 28ee2fd17).
 /AGENTS.md
 /GEMINI.md
+
+# Root DONE.md is a per-cut receipt file; tracking it on main makes the precollect guard (H96) refuse every cut (RULING-pm-BD-main-DONE-md). Receipt kept: harness-work/O1789/landing/receipts/Train11-DONE-77cab75dd.md
+/DONE.md
