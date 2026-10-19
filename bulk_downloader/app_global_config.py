@@ -502,6 +502,11 @@ def api_global_config():
             if _bad:
                 return jsonify({"error":
                     f"{_k} must be {getattr(_exp, '__name__', _exp)}"}), 400
+            # dscs-f08: a number stored as a string must parse and be in range.
+            from .global_config import numeric_str_error
+            _nerr = numeric_str_error(_k, _v)
+            if _nerr and _v != _app_cfg.get(_k):
+                return jsonify({"error": _nerr}), 400
             _choices = _spec.get("choices")
             # settings-fe-fix r3 (A1): an unchanged stored value never blocks a save.
             if _choices and _v not in _choices and _v != _app_cfg.get(_k):

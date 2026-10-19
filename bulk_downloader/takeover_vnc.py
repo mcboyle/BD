@@ -53,9 +53,11 @@ _executable_path: Optional[str] = os.environ.get("BD_VNC_CHROME") or None
 
 def resolve_ws_port(config: Optional[dict]) -> int:
     try:
-        return int((config or {}).get("captcha_vnc_websocket_port", _DEFAULT_WS_PORT))
+        port = int((config or {}).get("captcha_vnc_websocket_port", _DEFAULT_WS_PORT))
     except (TypeError, ValueError):
         return _DEFAULT_WS_PORT
+    # dscs-f08: a stored '-999' / '0' / '70000' is not a port; use the default.
+    return port if 1 <= port <= 65535 else _DEFAULT_WS_PORT
 
 
 def resolve_vnc_display(config: Optional[dict]) -> str:
