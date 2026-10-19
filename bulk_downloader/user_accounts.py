@@ -49,6 +49,8 @@ ROLES = ("admin", "reviewer", "operator")
 _PROMOTE_ROLES = ("admin", "reviewer")
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
 _PBKDF2_ITERS = 200_000
+PASSWORD_MAX_LEN = 1024
+PW_TOO_LONG = f"password must be at most {PASSWORD_MAX_LEN} characters"
 _SESSION_TTL = 12 * 3600  # 12h default
 
 
@@ -267,6 +269,8 @@ def create_user(username: str, password: str, role: str = "operator",
         return False, "username cannot be only dots"
     if not password:
         return False, "password must be non-empty"
+    if len(password) > PASSWORD_MAX_LEN:
+        return False, PW_TOO_LONG
     if role not in ROLES:
         return False, f"role must be one of {ROLES}"
     salt = secrets.token_hex(16)
@@ -424,6 +428,8 @@ def set_password(username: str, new_password: str,
                  base_dir: str | os.PathLike | None = None) -> tuple[bool, str]:
     if not new_password:
         return False, "password must be non-empty"
+    if len(new_password) > PASSWORD_MAX_LEN:
+        return False, PW_TOO_LONG
     name = (username or "").strip()
     salt = secrets.token_hex(16)
     pw_hash = _hash_password(new_password, salt, _PBKDF2_ITERS)

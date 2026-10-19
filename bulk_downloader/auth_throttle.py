@@ -54,6 +54,7 @@ session. No module-level work beyond a lock and an empty dict.
 """
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -106,15 +107,19 @@ def is_enabled() -> bool:
 
 def _cfg() -> tuple[int, float, float]:
     def _num(env, store_key, default, cast):
+        # A non-finite value is unset: max(0.0, nan) is 0.0 (cooldown off), inf locks out forever.
         sv = _store_get(store_key)
         if sv is not None:
             try:
-                return cast(sv)
-            except (TypeError, ValueError):
+                v = cast(sv)
+                if math.isfinite(v):
+                    return v
+            except (TypeError, ValueError, OverflowError):
                 pass
         try:
-            return cast(os.environ[env])
-        except (KeyError, TypeError, ValueError):
+            v = cast(os.environ[env])
+            return v if math.isfinite(v) else default
+        except (KeyError, TypeError, ValueError, OverflowError):
             return default
     free = _num("BD_AUTH_THROTTLE_FREE", "auth_throttle_free", _DEFAULT_FREE, int)
     base = _num("BD_AUTH_THROTTLE_BASE", "auth_throttle_base", _DEFAULT_BASE, float)

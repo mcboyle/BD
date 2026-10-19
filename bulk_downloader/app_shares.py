@@ -11,6 +11,7 @@ import math
 from flask import Blueprint, jsonify, request
 
 shares_bp = Blueprint("shares", __name__)
+ACCESS_LOG_MAX = 1000   # /api/shares/access_log rows per call; a negative SQLite LIMIT is every row
 
 def _check_csrf(*_a, **_k):
     """Delegate to app._check_csrf at call time (lazy; avoids an import cycle)."""
@@ -23,7 +24,13 @@ def api_shares_create():
     refused = _check_csrf()   # returns a 403 response to refuse; it does not abort
     if refused is not None:
         return refused
-    body = request.json or {}
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
+    if not all(isinstance(body.get(k, ""), str) for k in ("label", "ip_whitelist")):
+        return jsonify({"ok": False, "error": "label and ip_whitelist must be strings"}), 400
     ttl_hours = None
     if body.get("ttl_hours") is not None:
         try:
@@ -71,10 +78,14 @@ def api_shares_revoke(token_id):
 
 @shares_bp.route("/api/shares/access_log")
 def api_shares_access():
+    raw = request.args.get("limit", "100")
+    # ASCII digits only and bounded: int() also takes "1_0", " 5" and non-ASCII digits
+    if not (raw.isascii() and raw.isdigit() and len(raw) <= 9) or int(raw) < 1:
+        return jsonify({"error": "limit must be a positive integer"}), 400
     try:
         from . import shares as _sh
         return jsonify({"log": _sh.recent_access(
-            limit=int(request.args.get("limit", 100)))})
+            limit=min(int(raw), ACCESS_LOG_MAX))})
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 

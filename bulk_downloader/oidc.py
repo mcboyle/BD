@@ -22,6 +22,9 @@ from typing import Optional
 from urllib.parse import urlencode
 
 _DISCO_CACHE: dict = {}
+# id_token signatures accepted against a provider JWKS: asymmetric only, never HS*.
+_ID_TOKEN_ALGS = ("RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
+                  "ES256", "ES384", "ES512")
 _log = logging.getLogger(__name__)
 
 
@@ -63,6 +66,8 @@ def discover(issuer: str) -> dict:
         r = c.get(issuer + "/.well-known/openid-configuration")
         r.raise_for_status()
         doc = r.json()
+    if not isinstance(doc, dict):
+        raise ValueError("OIDC discovery document is not a JSON object")
     _DISCO_CACHE[issuer] = doc
     return doc
 
@@ -120,15 +125,29 @@ def verify_id_token(id_token: str, *, nonce: Optional[str] = None,
         disco = discover(cfg["issuer"])
     if not id_token:
         raise ValueError("no id_token")
-    from authlib.jose import jwt as _jwt
+    from authlib.jose import JsonWebToken
+    from authlib.jose.errors import UnsupportedAlgorithmError
     import httpx
     jwks_uri = disco.get("jwks_uri")
     if not jwks_uri:
         raise ValueError("provider has no jwks_uri")
     from bulk_downloader.ssrf_transport import guarded_transport, PINNED
     with httpx.Client(timeout=10, transport=guarded_transport(PINNED)) as c:
-        jwks = c.get(jwks_uri).json()
-    claims = _jwt.decode(id_token, jwks)
+        r = c.get(jwks_uri)
+        r.raise_for_status()
+        jwks = r.json()
+    # Whatever reaches jwt.decode is used as the KEY: a JSON string or list there
+    # became an HMAC secret, so an IdP answering 200 "attacker" let an HS256 token
+    # signed with "attacker" log in as any sub. Only a key set is a key set.
+    keys = jwks.get("keys") if isinstance(jwks, dict) else None
+    if not isinstance(keys, list) or not all(isinstance(k, dict) for k in keys):
+        raise ValueError("provider JWKS is not a JSON object with a keys list")
+    # An id_token checked against a JWKS is asymmetric. Pinning the algorithms
+    # keeps a symmetric ("oct") key in that set from verifying an HS* token.
+    try:
+        claims = JsonWebToken(_ID_TOKEN_ALGS).decode(id_token, jwks)
+    except UnsupportedAlgorithmError as e:
+        raise ValueError(f"id_token algorithm not accepted: {e}") from e
     claims.validate()  # exp / iat / nbf
     if (claims.get("iss") or "").rstrip("/") != cfg["issuer"]:
         raise ValueError("issuer mismatch")

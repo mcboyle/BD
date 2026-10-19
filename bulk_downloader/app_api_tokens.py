@@ -13,8 +13,15 @@ api_tokens_bp = Blueprint("api_tokens", __name__)
 
 @api_tokens_bp.route("/api/api_tokens", methods=["POST"])
 def api_api_tokens_create():
-    body = request.get_json(silent=True) or {}
-    scope = (body.get("scope") or "").strip()
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
+    scope, label = body.get("scope") or "", body.get("label") or ""
+    if not isinstance(scope, str) or not isinstance(label, str):
+        return jsonify({"ok": False, "error": "scope and label must be strings"}), 400
+    scope = scope.strip()
     from . import api_tokens as _apitok
     if scope not in _apitok.SCOPES:
         return jsonify({"ok": False,
@@ -22,7 +29,7 @@ def api_api_tokens_create():
                                  "enqueue, admin"}), 400
     res = _apitok.create_token(
         scope=scope,
-        label=(body.get("label") or "")[:200],
+        label=label[:200],
         ttl_hours=body.get("ttl_hours"),
     )
     return jsonify(res), (200 if res.get("ok") else 400)
