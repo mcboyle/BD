@@ -258,6 +258,10 @@ def _sqlite_col_to_pg(name, decl, notnull, dflt):
     return f'"{name}" {frag}'
 
 
+def _sqlite_identifier(name):
+    return '"' + name.replace('"', '""') + '"'
+
+
 def _sqlite_columns(tables=None):
     """({table: [(name, decl, notnull, dflt, pk), ...]}, error) read from the
     LIVE SQLite store through the seam. A table SQLite has not created yet
@@ -270,7 +274,7 @@ def _sqlite_columns(tables=None):
             raw = getattr(cx, "_cx", cx)
             for t in sorted(tables or _MIRRORED_TABLES):
                 out[t] = [(r[1], r[2], int(r[3] or 0), r[4], int(r[5] or 0))
-                          for r in raw.execute(f"PRAGMA table_info({t})").fetchall()]
+                          for r in raw.execute(f"PRAGMA table_info({_sqlite_identifier(t)})").fetchall()]
         return out, None
     except Exception as e:
         return {}, f"sqlite schema read failed ({type(e).__name__})"
