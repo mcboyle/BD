@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6696,
+  "edge_count": 6708,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -209,7 +209,8 @@
       "bulk_downloader/bg_scheduler.py"
     ],
     "bulk_downloader/app_bitrot.py": [
-      "bulk_downloader/bitrot.py"
+      "bulk_downloader/bitrot.py",
+      "bulk_downloader/paths.py"
     ],
     "bulk_downloader/app_budget.py": [
       "bulk_downloader/policy_gates.py"
@@ -4293,6 +4294,12 @@
       "bulk_downloader/db.py",
       "bulk_downloader/run_history.py"
     ],
+    "tests/test_dl_misc_r3_effects_and_resume_guards.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/resume.py",
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_dl_runner_bughunt_fixes.py": [
       "bulk_downloader/app_runners.py",
       "bulk_downloader/db.py",
@@ -4879,6 +4886,9 @@
     "tests/test_hunt_custom_alert_evaluation.py": [
       "bulk_downloader/alerts_engine.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_hunt_deep_adapters_browser.py": [
+      "bulk_downloader/runner_browser.py"
     ],
     "tests/test_hunt_direct_http_truncated.py": [
       "bulk_downloader/runner_transport.py",
@@ -5696,6 +5706,14 @@
       "bulk_downloader/backup.py",
       "bulk_downloader/db.py",
       "bulk_downloader/queue_templates.py"
+    ],
+    "tests/test_o1789_recovery_retention_lows.py": [
+      "bulk_downloader/app_bitrot.py",
+      "bulk_downloader/app_retention.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/bitrot.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/retention.py"
     ],
     "tests/test_o1789_session_auth_capture_f7_f19.py": [
       "bulk_downloader/cookies.py",

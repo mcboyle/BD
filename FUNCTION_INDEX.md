@@ -192,24 +192,24 @@ Schema version: 2
 - L7085 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
 - L7118 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
 - L7163 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L7231 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L7373 `serve_ss` `GET /screenshots/<path:filename>`
-- L7682 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7689 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7700 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7715 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7779 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7808 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7816 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7833 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7845 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7868 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7884 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7900 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7917 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7970 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L8091 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
-- L8128 `_dev_session_is_paired` `[private]` — True iff the cookie names a live login session minted by pair_redeem.
+- L7249 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L7391 `serve_ss` `GET /screenshots/<path:filename>`
+- L7700 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L7707 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7718 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7733 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7797 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7826 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7834 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7851 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7863 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7886 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7902 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7918 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7935 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7988 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L8109 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L8146 `_dev_session_is_paired` `[private]` — True iff the cookie names a live login session minted by pair_redeem.
 ```
 
 
@@ -495,55 +495,56 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_browser.py` (46 entries)
+## `bulk_downloader/runner_browser.py` (47 entries)
 
 ```
 - L0032 `_adaptive_manifest_kind` `[private]` — Return "hls" for a URL whose PATH ends in .m3u8, "dash" for .mpd,
 - L0047 `_adaptive_manifest_kind_from_mime` `[private]`
-- L0052 `AdaptiveManifestWatcher` `[class]` — Groups ``Network.requestWillBeSent`` CDP events by ``requestId`` so a
-  - L0061 `AdaptiveManifestWatcher.__init__` `[dunder]`
-  - L0066 `AdaptiveManifestWatcher._detect` `[private]` — Record/refresh the detection for ``rid``: ``url`` is the FINAL
-  - L0084 `AdaptiveManifestWatcher.feed_playwright_response` — Feed a Playwright ``response`` (context-level ``response`` event):
-  - L0115 `AdaptiveManifestWatcher.feed` — Feed one raw CDP event. Returns the detection dict when this event
-- L0162 `extract_media_urls` — Every http(s) URL string carried by a parsed WebSocket message
-- L0186 `WebSocketFrameDispatcher` `[class]` — Row904: routes JSON WebSocket frames captured over CDP into a plain
-  - L0196 `WebSocketFrameDispatcher.__init__` `[dunder]`
-  - L0212 `WebSocketFrameDispatcher._on_frame` `[private]`
-  - L0243 `WebSocketFrameDispatcher.drain` — Every queued message so far, in arrival order.
-  - L0252 `WebSocketFrameDispatcher.media_urls` — Media URLs carried by every message captured since the last call,
-  - L0263 `WebSocketFrameDispatcher.close` — Detach the CDP session (if any) and stop routing frames.
-- L0367 `BrowserMixin` `[class]`
-  - L0368 `BrowserMixin._install_adaptive_manifest_capture` `[private]` — Row 899: attach a live CDP ``Network`` listener to every page of
-  - L0419 `BrowserMixin._maybe_install_adaptive_manifest_capture` `[private]` — Production wiring: every persistent playback context gets the
-  - L0433 `BrowserMixin.drain_manifest_urls` — The transport pipeline's read side: hand over every manifest
-  - L0442 `BrowserMixin._on_adaptive_manifest_detected` `[private]` — Handoff point for a detected adaptive-streaming manifest: queue
-  - L0471 `BrowserMixin._watch_websocket_json` `[private]` — Row904: attach a CDP ``Network`` session to ``page`` and route
-  - L0493 `BrowserMixin._maybe_install_websocket_json_capture` `[private]` — Production wiring: every page of a persistent playback context
-  - L0520 `BrowserMixin.drain_websocket_media_urls` — The consumer: media URLs carried by every JSON WebSocket message
-  - L0531 `BrowserMixin._close_websocket_capture` `[private]`
-  - L0537 `BrowserMixin._collect_virtualized_media_urls` `[private]` — Collect media URLs from each rendered viewport of an opt-in catalog.
-  - L0610 `BrowserMixin._virtual_scroll_step` `[private]` — Scroll step strictly inside one viewport so consecutive snapshots
-  - L0622 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
-  - L0638 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
-  - L0657 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
-  - L0716 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
-  - L0748 `BrowserMixin._manual_browser_open` `[private]` — True while a manual-login window or a captcha solve browser this
-  - L0761 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
-  - L0792 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
-  - L0813 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
-  - L0845 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
-  - L0873 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
-  - L1079 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
-  - L1128 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
-  - L1205 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
-  - L1228 `BrowserMixin._spa_settlement_script` `[private]` — Row 914: JS installed on a page to detect SPA route transitions
-  - L1317 `BrowserMixin._install_spa_settlement_hooks` `[private]` — Arm the pushState/replaceState + MutationObserver settlement
-  - L1329 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
-  - L1341 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
-  - L1358 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
-  - L1431 `BrowserMixin.check_challenge_and_pause` — Row 935: Scan frame descriptors on the current page for challenge widgets and pause lane on match.
-  - L1447 `BrowserMixin.maybe_acknowledge_dialogs` — Acknowledge standard web dialogs and consent banners if enabled (Row 1048).
-- L1472 `_watch_verification_settlement` `[private]` — Watch page verification settlement and capture session headers.
+- L0055 `AdaptiveManifestWatcher` `[class]` — Groups ``Network.requestWillBeSent`` CDP events by ``requestId`` so a
+  - L0064 `AdaptiveManifestWatcher.__init__` `[dunder]`
+  - L0069 `AdaptiveManifestWatcher._detect` `[private]` — Record/refresh the detection for ``rid``: ``url`` is the FINAL
+  - L0087 `AdaptiveManifestWatcher.feed_playwright_response` — Feed a Playwright ``response`` (context-level ``response`` event):
+  - L0118 `AdaptiveManifestWatcher.feed` — Feed one raw CDP event. Returns the detection dict when this event
+- L0172 `extract_media_urls` — Every http(s) URL string carried by a parsed WebSocket message
+- L0196 `WebSocketFrameDispatcher` `[class]` — Row904: routes JSON WebSocket frames captured over CDP into a plain
+  - L0206 `WebSocketFrameDispatcher.__init__` `[dunder]`
+  - L0222 `WebSocketFrameDispatcher._on_frame` `[private]`
+  - L0253 `WebSocketFrameDispatcher.drain` — Every queued message so far, in arrival order.
+  - L0262 `WebSocketFrameDispatcher.media_urls` — Media URLs carried by every message captured since the last call,
+  - L0273 `WebSocketFrameDispatcher.close` — Detach the CDP session (if any) and stop routing frames.
+- L0377 `BrowserMixin` `[class]`
+  - L0378 `BrowserMixin._install_adaptive_manifest_capture` `[private]` — Row 899: attach a live CDP ``Network`` listener to every page of
+  - L0429 `BrowserMixin._maybe_install_adaptive_manifest_capture` `[private]` — Production wiring: every persistent playback context gets the
+  - L0443 `BrowserMixin.drain_manifest_urls` — The transport pipeline's read side: hand over every manifest
+  - L0452 `BrowserMixin._manifest_url_index` `[private]` — [queue, length, ids, url -> first entry] over ``self.manifest_urls``;
+  - L0466 `BrowserMixin._on_adaptive_manifest_detected` `[private]` — Handoff point for a detected adaptive-streaming manifest: queue
+  - L0503 `BrowserMixin._watch_websocket_json` `[private]` — Row904: attach a CDP ``Network`` session to ``page`` and route
+  - L0525 `BrowserMixin._maybe_install_websocket_json_capture` `[private]` — Production wiring: every page of a persistent playback context
+  - L0567 `BrowserMixin.drain_websocket_media_urls` — The consumer: media URLs carried by every JSON WebSocket message
+  - L0578 `BrowserMixin._close_websocket_capture` `[private]`
+  - L0584 `BrowserMixin._collect_virtualized_media_urls` `[private]` — Collect media URLs from each rendered viewport of an opt-in catalog.
+  - L0669 `BrowserMixin._virtual_scroll_step` `[private]` — Scroll step strictly inside one viewport so consecutive snapshots
+  - L0681 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
+  - L0697 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
+  - L0716 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
+  - L0775 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
+  - L0807 `BrowserMixin._manual_browser_open` `[private]` — True while a manual-login window or a captcha solve browser this
+  - L0820 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
+  - L0851 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
+  - L0872 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
+  - L0904 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
+  - L0932 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
+  - L1138 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
+  - L1187 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
+  - L1264 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
+  - L1287 `BrowserMixin._spa_settlement_script` `[private]` — Row 914: JS installed on a page to detect SPA route transitions
+  - L1376 `BrowserMixin._install_spa_settlement_hooks` `[private]` — Arm the pushState/replaceState + MutationObserver settlement
+  - L1388 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
+  - L1400 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
+  - L1417 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
+  - L1490 `BrowserMixin.check_challenge_and_pause` — Row 935: Scan frame descriptors on the current page for challenge widgets and pause lane on match.
+  - L1506 `BrowserMixin.maybe_acknowledge_dialogs` — Acknowledge standard web dialogs and consent banners if enabled (Row 1048).
+- L1531 `_watch_verification_settlement` `[private]` — Watch page verification settlement and capture session headers.
 ```
 
 
@@ -1228,4 +1229,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 1052 across 22 files._
+_Total entries: 1053 across 22 files._
