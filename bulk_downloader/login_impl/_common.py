@@ -553,7 +553,9 @@ def _try_fill(page,selectors,value,what,refusal=None):
                 # input scheduler and is executed by it. A keystroke failure
                 # propagates to the `continue` below (next match), exactly as
                 # the base loop did -- it is never retyped into the same field.
-                _type_field_value(page, sel, value)
+                why=_type_field_value(page, sel, value, refusal=refused)
+                if why:
+                    return False,why
                 return True,sel
             except Exception: continue
     # Row 770: "nothing matched" and "every match was a decoy" are opposite
@@ -577,11 +579,12 @@ def get_input_scheduler():
     return SyntheticInputScheduler()
 
 
-def _type_field_value(page, sel, value):
+def _type_field_value(page, sel, value, refusal=None):
     """Row 1049: type ``value`` into the focused field through the scheduler's
     field plan (TYPE_CHAR actions, per-character delay with hesitation) and
     its executor. Only building the plan may fall back to the Phase 15.5
-    uniform(50,150) loop; typing is attempted once either way."""
+    uniform(50,150) loop; typing is attempted once either way.
+    Return a refusal reason terminally, or None after a complete fill."""
     import random
     try:
         from bulk_downloader.synthetic_input_scheduler import InputSchedule
@@ -592,10 +595,21 @@ def _type_field_value(page, sel, value):
     except Exception:
         sched = None
     if sched is None:
+        def refused():
+            try:
+                return refusal() if refusal is not None else None
+            except Exception:
+                return "cross-origin prefill refused: could not verify the current page"
+
         for ch in value:
+            why = refused()
+            if why:
+                return why
             page.keyboard.type(ch, delay=random.uniform(50, 150))
-        return
-    res = sched.execute_schedule(page, plan)
+        return refused()
+    res = sched.execute_schedule(page, plan, refusal=refusal)
+    if res.get("refusal"):
+        return res["refusal"]
     if res["characters_typed"] != len(value):
         raise RuntimeError(f"typed {res['characters_typed']} of {len(value)} characters")
 
