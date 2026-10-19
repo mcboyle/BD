@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6672,
+  "edge_count": 6675,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4521,6 +4521,11 @@
       "tools/cockpit_console.py",
       "tools/cockpit_core.py",
       "tools/cockpit_templates.py"
+    ],
+    "tests/test_f051_vpn_secrets_status_unavailable_state.py": [
+      "bulk_downloader/app_data_layer.py",
+      "bulk_downloader/app_report_center.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_f2_3_needs_review_wired.py": [
       "tools/spa_population.py"
