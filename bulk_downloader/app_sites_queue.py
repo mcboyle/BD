@@ -241,7 +241,18 @@ def api_reorder(sid):
 def api_priority(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    data=request.json or {}; runners[sid].set_priority(_job_key(runners[sid], data.get("row_id") or data.get("url","")),data.get("priority","normal"))
+    data=request.json  # a non-JSON Content-Type keeps app.py's 415 (q-misc L7)
+    if data is None: data={}
+    if not isinstance(data, dict): return jsonify({"error":"body must be a JSON object"}),400
+    # ssqh F5: the same priority check as bulk_priority, and 404 (not ok:true)
+    # for a URL / row id that names no queued job.
+    pri=data.get("priority","normal")
+    if pri not in ("normal","high"): return jsonify({"error":"bad priority"}),400
+    r=runners[sid]; key=_job_key(r, data.get("row_id") or data.get("url",""))
+    with r._lock:
+        queued = isinstance(key, str) and key in r.jobs
+    if not queued: return jsonify({"error":"URL not queued"}),404
+    r.set_priority(key,pri)
     return jsonify({"ok":True})
 
 
