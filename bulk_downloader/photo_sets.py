@@ -109,12 +109,23 @@ def photo_set_image_count(path) -> int:
 
 
 def _free_name(parent: Path, name: str) -> Path:
+    """Reserve and return a NEW directory `parent/name`, or `parent/name_N` for the first free N.
+
+    The reservation is the mkdir itself (exist_ok=False), so two callers racing for the same
+    name can never both receive it (O1671 AUDIT-07): an exists()-then-return probe handed the
+    same folder to both and the loser's cleanup removed the winner's half-written work.
+    """
+    parent.mkdir(parents=True, exist_ok=True)
     candidate = parent / name
     i = 1
-    while candidate.exists():
-        candidate = parent / f"{name}_{i}"
-        i += 1
-    return candidate
+    while True:
+        try:
+            candidate.mkdir()
+        except FileExistsError:
+            candidate = parent / f"{name}_{i}"
+            i += 1
+        else:
+            return candidate
 
 
 def extract_images(zip_path, dest_dir) -> tuple:
@@ -131,13 +142,13 @@ def extract_images(zip_path, dest_dir) -> tuple:
     Returns (images_written, folder). If `dest_dir` exists, a "_1" style name is used.
     """
     zip_path = Path(zip_path)
-    dest = _free_name(Path(dest_dir).parent, Path(dest_dir).name)
-    work = _free_name(dest.parent, dest.name + ".extracting")
-    work.mkdir(parents=True)
-    root = work.resolve()
+    dest = _free_name(Path(dest_dir).parent, Path(dest_dir).name)  # reserved: exists, empty
+    work = None
     written = 0
     used = set()
     try:
+        work = _free_name(dest.parent, dest.name + ".extracting")
+        root = work.resolve()
         with zipfile.ZipFile(zip_path) as zf:
             for info in zf.infolist():
                 if info.is_dir() or _is_symlink(info) or _is_junk(info):
@@ -156,9 +167,13 @@ def extract_images(zip_path, dest_dir) -> tuple:
                     shutil.copyfileobj(src, out, 1 << 20)
                 used.add(name.lower())
                 written += 1
+        if os.name == "nt":
+            os.rmdir(dest)  # Windows cannot rename over a directory; POSIX replaces the empty one
         os.rename(work, dest)
     except BaseException:
-        shutil.rmtree(work, ignore_errors=True)
+        if work is not None:
+            shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(dest, ignore_errors=True)  # the empty reservation, unless already replaced
         raise
     return written, dest
 
