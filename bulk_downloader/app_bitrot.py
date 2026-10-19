@@ -6,6 +6,8 @@ routing surface is byte-identical (test_route_map_invariant diffs empty).
 """
 from __future__ import annotations
 
+import math
+
 from flask import Blueprint, jsonify, request
 
 bitrot_bp = Blueprint("bitrot", __name__)
@@ -16,10 +18,64 @@ def _check_csrf(*_a, **_k):
     return getattr(importlib.import_module("bulk_downloader.app"), "_check_csrf")(*_a, **_k)
 
 
+# Highest accepted target_mbps (100 Gbit/s); above it pacing is off in effect.
+TARGET_MBPS_MAX = 100000.0
+
+
+class _BadParam(ValueError):
+    """A request field that does not parse: a 400 naming the field (F13),
+    never the conversion's exception text."""
+
+
+def _number(body: dict, key: str, default, cast, *, positive: bool = False,
+            maximum: float | None = None):
+    """body[key] (``default`` when absent or null) through ``cast``; finite,
+    > 0 when ``positive``, <= ``maximum`` when given, else _BadParam."""
+    raw = body.get(key)
+    if raw is None:
+        return default
+    try:
+        if isinstance(raw, bool):
+            raise ValueError(key)
+        val = cast(raw)
+    except (TypeError, ValueError, OverflowError):
+        raise _BadParam(f"{key} must be a number") from None
+    if not math.isfinite(val) or (positive and val <= 0) or (
+            maximum is not None and val > maximum):
+        raise _BadParam(f"{key} must be a finite number"
+                        + (" > 0" if positive else "")
+                        + (f" <= {maximum:g}" if maximum is not None else ""))
+    return val
+
+
+def _bound_dirs(dirs):
+    """download_dirs from a request, each inside a configured download root
+    (F11: ["/etc"] used to become the scrubber's walk); None stays None."""
+    if dirs is None:
+        return None
+    from . import paths as _paths
+    if not isinstance(dirs, list) or not all(isinstance(d, str) for d in dirs):
+        raise _BadParam("download_dirs must be a list of paths")
+    outside = [d for d in dirs if not _paths.within_download_roots(d)]
+    if outside:
+        raise _BadParam("download_dirs must lie inside a download root: "
+                        + ", ".join(d[:120] for d in outside[:5]))
+    return list(dirs)
+
+
 def _handle_scrubber_action(scrubber, body: dict, action: str | None):
-    target_mbps = body.get("target_mbps")
+    target_mbps = _number(body, "target_mbps", None, float, positive=True,
+                          maximum=TARGET_MBPS_MAX)
+    starting = (action not in ("stop", "pause", "resume", "status")
+                and (action == "start" or body.get("continuous")))
+    if starting:
+        download_dirs = _bound_dirs(body.get("download_dirs"))
+        min_age = _number(body, "min_age_days", 7, int)
+        reverify = _number(body, "reverify_after_days", 90, int)
+        batch_size = _number(body, "batch_size", 25, int)
+        idle_sleep = _number(body, "idle_sleep_seconds", 30.0, float)
     if target_mbps is not None and scrubber.pacer:
-        scrubber.pacer.set_nominal_rate(float(target_mbps) * 125000)
+        scrubber.pacer.set_nominal_rate(target_mbps * 125000)
     if action == "stop":
         scrubber.stop()
     elif action == "pause":
@@ -28,12 +84,7 @@ def _handle_scrubber_action(scrubber, body: dict, action: str | None):
         scrubber.resume()
     elif action == "status":
         pass
-    elif action == "start" or body.get("continuous"):
-        download_dirs = body.get("download_dirs")
-        min_age = int(body.get("min_age_days", 7))
-        reverify = int(body.get("reverify_after_days", 90))
-        batch_size = int(body.get("batch_size", 25))
-        idle_sleep = float(body.get("idle_sleep_seconds", 30.0))
+    elif starting:
         ok = scrubber.start(continuous=bool(body.get("continuous", True)), download_dirs=download_dirs, min_age_days=min_age, reverify_after_days=reverify, batch_size=batch_size, idle_sleep_seconds=idle_sleep)
         if not ok:
             return (jsonify({"ok": False, "action": action or "start", "error": "download roots unavailable", "scrubber": scrubber.status()}), 503)
@@ -49,8 +100,10 @@ def api_bitrot_scan():
         if action or body.get("continuous"):
             scrubber = _br.get_scrubber()
             return _handle_scrubber_action(scrubber, body, action)
-        result = _br.run_scan(scan_fraction=float(body.get("scan_fraction", 0.05)), min_age_days=int(body.get("min_age_days", 7)), max_files=int(body.get("max_files", 100)))
+        result = _br.run_scan(scan_fraction=_number(body, "scan_fraction", 0.05, float), min_age_days=_number(body, "min_age_days", 7, int), max_files=_number(body, "max_files", 100, int))
         return (jsonify(result), 200 if result.get("available", True) else 503)
+    except _BadParam as e:
+        return (jsonify({"ok": False, "error": str(e)}), 400)
     except Exception as e:
         return (jsonify({"error": str(e)[:200]}), 500)
 
