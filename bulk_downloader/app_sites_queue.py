@@ -776,7 +776,8 @@ def api_jobs_mark(sid):
     Body: {url, status, message?}
     Allowed statuses: failed, needs_review, pending, done. Anything else
     is rejected — we don't allow setting `running` (the worker owns that)
-    or arbitrary strings."""
+    or arbitrary strings. A running job is refused (409), and a user-paused
+    job is moved on without its pause (dqb F8, as jobs/bulk_mark)."""
     runners = _app_runners()
     if sid not in runners:
         return jsonify({"error": "Not found"}), 404
@@ -795,17 +796,31 @@ def api_jobs_mark(sid):
         if url not in runner.jobs:
             return jsonify({"ok": False, "error": "url not in queue"}), 404
         j = runner.jobs[url]
+        # dqb F8 (as jobs/bulk_mark): a running job belongs to the worker.
+        if j.get("status") == "running":
+            return jsonify({"ok": False,
+                            "error": "job is running (the worker owns it)"}), 409
         prev = j.get("status", "")
         # O1826 M020: what this route may change, so a failed persist can
         # put the job back the way it was.
         touched = ("status", "message", "ts", "ts_iso",
-                   "next_auto_retry_at", "auto_retry_count")
+                   "next_auto_retry_at", "auto_retry_count", "_paused_by_user")
         saved = {k: j[k] for k in touched if k in j}
         token = object()
         _mark_tokens[(sid, url)] = token
+        # dqb F8: moving a user-paused job on retires the pause identity
+        # (dqb r3 F6: bulk_resume acts on _paused_by_user).
+        paused = (j.get("_paused_by_user")
+                  or (j.get("status") == "stopped"
+                      and j.get("message") == "Paused by user"))
+        retire = bool(paused) and status != "stopped"
         j["status"] = status
+        if retire and not message:
+            message = f"Marked {status}"
         if message:
             j["message"] = message
+        if retire:
+            j.pop("_paused_by_user", None)
         j["ts"] = _ts()
         # CUT #41: the date-comparable sibling. Without it a manually
         # marked job is counted by NO day-window consumer.
