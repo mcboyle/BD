@@ -25,6 +25,9 @@ from .app_sites import (
     _app_runners,
     _app_s_cfg,
     _app_s_meta,
+    _site_changed_during_slow_handler,
+    _site_identity,
+    _site_lifecycle_released,
     sites_bp,
 )
 
@@ -197,61 +200,73 @@ def api_hooks_test(sid):
            "resolution": "4K", "hash": "abc123",
            "message": "Bulk Downloader hook test"}
     vars = build_vars(cfg, "completed", job)
-    try:
-        if kind == "post_cmd":
-            if body.get("override"):
-                return jsonify({"ok": False, "error": "command override rejected: use configured command"}), 400
-            cmd = (cfg.get("post_download_cmd", "")).strip()
-            if not cmd: return jsonify({"ok":False,"message":"No command configured"})
-            ok, msg = run_command_hook(cmd, vars, timeout=30)
-            return jsonify({"ok":ok,"message":msg[:1000]})
-        if kind == "webhook":
-            url = body.get("override") or ""
-            if not url:
-                urls = [u for u in (cfg.get("webhook_urls","") or "").splitlines() if u.strip()]
-                url = urls[0] if urls else ""
-            if not url: return jsonify({"ok":False,"message":"No webhook URL configured"})
-            payload = dict(vars); payload["job"] = job
-            # send_webhook returns THREE values (Phase 80 / v3.40.0): the
-            # third is the endpoint's own parsed JSON reply. Unpacking two
-            # raised ValueError, which the handler's blanket except turned
-            # into a 500 -- reporting a webhook that had already been
-            # delivered as a server error. The reply is surfaced as
-            # `response` so this test route shows what the endpoint said.
-            ok, msg, resp = send_webhook(_render_template(url, vars), payload)
-            return jsonify({"ok":ok,"message":msg,"response":resp})
-        if kind == "stash":
-            ok, msg = stash_trigger_scan(
-                body.get("override") or cfg.get("stash_url",""),
-                cfg.get("stash_api_key",""),
-                paths=[],  # full library scan as a test
-            )
-            return jsonify({"ok":ok,"message":msg})
-        if kind == "plex":
-            ok, msg = plex_refresh(
-                body.get("override") or cfg.get("plex_url",""),
-                cfg.get("plex_token",""),
-                section_id=cfg.get("plex_section_id") or None,
-            )
-            return jsonify({"ok":ok,"message":msg})
-        if kind == "jellyfin":
-            ok, msg = jellyfin_refresh(
-                body.get("override") or cfg.get("jellyfin_url",""),
-                cfg.get("jellyfin_api_key",""),
-            )
-            return jsonify({"ok":ok,"message":msg})
-        if kind == "ha":
-            ok, msg = home_assistant_notify(
-                body.get("override") or cfg.get("ha_url",""),
-                cfg.get("ha_token",""),
-                cfg.get("ha_service","notify"),
-                _render_template(cfg.get("ha_message_template","[{site}] test"), vars),
-                title="Bulk Downloader hook test",
-            )
-            return jsonify({"ok":ok,"message":msg})
-        return jsonify({"ok":False,"message":f"Unknown hook kind: {kind}"}),400
-    except Exception as e:
-        return jsonify({"ok":False,"message":f"{type(e).__name__}: {str(e)[:200]}"}),500
+    # sl-lock: a hook test runs commands/HTTP calls for up to 30s; run it
+    # outside the site lock and re-check identity once it is held again.
+    identity = _site_identity(sid)
+
+    def _run_hook_test():
+        try:
+            if kind == "post_cmd":
+                if body.get("override"):
+                    return jsonify({"ok": False, "error": "command override rejected: use configured command"}), 400
+                cmd = (cfg.get("post_download_cmd", "")).strip()
+                if not cmd: return jsonify({"ok":False,"message":"No command configured"})
+                ok, msg = run_command_hook(cmd, vars, timeout=30)
+                return jsonify({"ok":ok,"message":msg[:1000]})
+            if kind == "webhook":
+                url = body.get("override") or ""
+                if not url:
+                    urls = [u for u in (cfg.get("webhook_urls","") or "").splitlines() if u.strip()]
+                    url = urls[0] if urls else ""
+                if not url: return jsonify({"ok":False,"message":"No webhook URL configured"})
+                payload = dict(vars); payload["job"] = job
+                # send_webhook returns THREE values (Phase 80 / v3.40.0): the
+                # third is the endpoint's own parsed JSON reply. Unpacking two
+                # raised ValueError, which the handler's blanket except turned
+                # into a 500 -- reporting a webhook that had already been
+                # delivered as a server error. The reply is surfaced as
+                # `response` so this test route shows what the endpoint said.
+                ok, msg, resp = send_webhook(_render_template(url, vars), payload)
+                return jsonify({"ok":ok,"message":msg,"response":resp})
+            if kind == "stash":
+                ok, msg = stash_trigger_scan(
+                    body.get("override") or cfg.get("stash_url",""),
+                    cfg.get("stash_api_key",""),
+                    paths=[],  # full library scan as a test
+                )
+                return jsonify({"ok":ok,"message":msg})
+            if kind == "plex":
+                ok, msg = plex_refresh(
+                    body.get("override") or cfg.get("plex_url",""),
+                    cfg.get("plex_token",""),
+                    section_id=cfg.get("plex_section_id") or None,
+                )
+                return jsonify({"ok":ok,"message":msg})
+            if kind == "jellyfin":
+                ok, msg = jellyfin_refresh(
+                    body.get("override") or cfg.get("jellyfin_url",""),
+                    cfg.get("jellyfin_api_key",""),
+                )
+                return jsonify({"ok":ok,"message":msg})
+            if kind == "ha":
+                ok, msg = home_assistant_notify(
+                    body.get("override") or cfg.get("ha_url",""),
+                    cfg.get("ha_token",""),
+                    cfg.get("ha_service","notify"),
+                    _render_template(cfg.get("ha_message_template","[{site}] test"), vars),
+                    title="Bulk Downloader hook test",
+                )
+                return jsonify({"ok":ok,"message":msg})
+            return jsonify({"ok":False,"message":f"Unknown hook kind: {kind}"}),400
+        except Exception as e:
+            return jsonify({"ok":False,"message":f"{type(e).__name__}: {str(e)[:200]}"}),500
+
+    with _site_lifecycle_released():
+        result = _run_hook_test()
+    if _site_changed_during_slow_handler(sid, identity, "hooks/test"):
+        return jsonify({"ok": False,
+                        "message": "site was deleted or replaced during the hook test"}), 409
+    return result
 
 
 @sites_bp.route("/api/sites/<sid>/hooks/spillover_check", methods=["GET"])
@@ -328,18 +343,25 @@ def api_storage_tier_run_now(sid):
     s_cfg = _app_s_cfg()
     if sid not in runners:
         return jsonify({"error": "Not found"}), 404
-    cfg = s_cfg.get(sid, {})
+    # sl-lock: snapshot under the site lock, migrate with it released (a
+    # pass can run for minutes), re-check identity once it is held again.
+    identity = _site_identity(sid)
+    cfg = dict(s_cfg.get(sid, {}))
     dl_dir = (cfg.get("download_dir") or "").strip()
     if not dl_dir:
         return jsonify({"ok": False,
                           "error": "download_dir not set"}), 400
     try:
         from . import storage_tier as _st
-        summary = _st.run_site_migration(sid, cfg, dl_dir)
-        return jsonify({"ok": True, "summary": summary})
+        with _site_lifecycle_released():
+            summary = _st.run_site_migration(sid, cfg, dl_dir)
     except Exception as e:
         return jsonify({"ok": False,
                           "error": f"{type(e).__name__}: {e}"}), 500
+    if _site_changed_during_slow_handler(sid, identity, "storage_tier/run_now"):
+        return jsonify({"ok": False, "summary": summary,
+                        "error": "site was deleted or replaced during the migration"}), 409
+    return jsonify({"ok": True, "summary": summary})
 
 
 @sites_bp.route("/api/sites/<sid>/export_watchlist")

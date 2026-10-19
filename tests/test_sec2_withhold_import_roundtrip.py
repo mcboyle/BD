@@ -127,8 +127,10 @@ def _import_while_stripes_held(A, client, body, during):
     import threading
     import time
     from bulk_downloader import app_state
-    locks = tuple(app_state._site_lifecycle_locks)
-    for lk in locks:  # an in-flight site route owns the stripes
+    # sl-lock: per-site locks replaced the stripe tuple; any held site lock
+    # is an in-flight site route, and the import waits for every one.
+    locks = (app_state.site_lifecycle_lock("sec2r2-in-flight-route"),)
+    for lk in locks:  # an in-flight site route owns its site lock
         lk.acquire()
     out = {}
     t = threading.Thread(target=lambda: out.setdefault(
