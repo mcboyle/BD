@@ -3871,7 +3871,16 @@ class TransportMixin:
                         # dl95-porndig-3: Stop/Cancel ended the transfer and the
                         # job already says so -- no browser retry, no failure.
                         return
+                    # dl-retry-writer: the scheduler's retry readers take
+                    # status_code / retry_after_header from the job. None for
+                    # a failure with no HTTP status clears a stale value.
+                    http_failure = {
+                        "status_code": getattr(e, "status_code", None),
+                        "retry_after_header": getattr(e, "retry_after", None),
+                    }
                     if click_only_grant:
+                        self._update_job(page_url, "running",
+                                         f"HTTP failed ({e})", **http_failure)
                         self._handle_failure(
                             page_url,
                             f"HTTP failed after single-use browser grant; "
@@ -3885,6 +3894,10 @@ class TransportMixin:
                         with page.expect_download(timeout=60000) as dli2: best["locator"].click()
                         dl=dli2.value
                     except PWTimeout:
+                        # LENS-FIXED F1: stamp only where the HTTP failure is the
+                        # outcome; a browser leg that delivers owns any later failure.
+                        self._update_job(page_url, "running",
+                                         f"HTTP failed ({e})", **http_failure)
                         self._handle_failure(page_url,f"HTTP failed and no fallback download event: {e}")
                         return
                     # The httpx attempt failed and the browser moved the bytes, so
@@ -4803,7 +4816,10 @@ class TransportMixin:
                     if resume_from > 0:
                         self.log_event("resume", "Server returned 200 — resource changed, restarting download", url=page_url)
                 else:
-                    raise _HTTPDownloadFailed(f"HTTP {resp.status_code}")
+                    raise _HTTPDownloadFailed(
+                        f"HTTP {resp.status_code}",
+                        status_code=resp.status_code,
+                        retry_after=resp.headers.get("Retry-After"))
                 # Phase 62: stash the validators alongside the .part so a
                 # subsequent resume attempt can use If-Range. Cheap — we
                 # only write this once per download.
