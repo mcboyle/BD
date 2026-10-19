@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6855,
+  "edge_count": 6857,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4481,6 +4481,10 @@
       "bulk_downloader/backup.py",
       "bulk_downloader/backup_verify.py",
       "bulk_downloader/dom_analyzer.py"
+    ],
+    "tests/test_dsc_d4tail_update_dedup_urls.py": [
+      "bulk_downloader/capture_schedules.py",
+      "bulk_downloader/db.py"
     ],
     "tests/test_dsc_p14_schedules_list_body.py": [
       "bulk_downloader/app.py",
