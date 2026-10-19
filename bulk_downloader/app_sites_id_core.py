@@ -546,7 +546,7 @@ def api_sites_v2_bulk():
             continue
         seen.add(sid)
         ordered.append(sid)
-    results = {"ok": 0, "errors": []}
+    results = {"ok": 0, "errors": [], "skipped": []}
     for sid in ordered:
         if action != "delete" and sid not in runners:
             results["errors"].append({"site_id": sid, "error": "unknown site_id"})
@@ -689,7 +689,16 @@ def api_sites_v2_bulk():
                         "error": f"runner has no method {action!r}",
                     })
                     continue
+                # ssqh-f6: pause() returns early unless the site is running,
+                # so a pause of any other state is a no-op. It is still
+                # called (an operator Pause of a window_paused site closes
+                # the gate), but it is reported as skipped, not applied.
+                pre_state = runners[sid].state() if action == "pause" else None
                 method()
+                if action == "pause" and pre_state != "running":
+                    results["skipped"].append(
+                        {"site_id": sid, "state": pre_state})
+                    continue
         except Exception as e:
             results["errors"].append({"site_id": sid, "error": str(e)[:200]})
             continue
@@ -712,6 +721,7 @@ def api_sites_v2_bulk():
         "applied_to": results["ok"],
         "total": len(ordered),
         "errors": results["errors"],
+        "skipped": results["skipped"],
     })
 
 
