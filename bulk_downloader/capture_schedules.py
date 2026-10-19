@@ -52,17 +52,15 @@ def add_schedule(*, site_id: str, cadence_hours: int,
                  urls: Optional[List[str]] = None) -> Optional[int]:
     """Register a recurring-capture schedule. Returns the row id, or None
     on invalid input. Idempotent: an identical enabled (site_id,
-    cadence_hours) schedule returns the existing id instead of duplicating
-    -- the double-submit guard for the POST surface."""
+    cadence_hours, label, urls) schedule returns the existing id instead of
+    duplicating -- the double-submit guard for the POST surface. A schedule
+    differing only in label or urls is a new one, not dropped."""
     _ensure_table()
     site_id = (site_id or "").strip()
     if not site_id:
         return None
-    try:
-        cadence_hours = int(cadence_hours)
-    except Exception:
-        return None
-    if cadence_hours <= 0:
+    cadence_hours = _whole_hours(cadence_hours)
+    if cadence_hours is None or cadence_hours <= 0:
         return None
     if isinstance(urls, str):
         urls = [urls]       # one URL, not one "URL" per character
@@ -71,13 +69,17 @@ def add_schedule(*, site_id: str, cadence_hours: int,
                 or not all(isinstance(u, str) for u in urls)):
             return None     # refused, not silently dropped
         urls = [u.strip() for u in urls if u.strip()]
+    label = (label or "")[:200]
+    urls_json = json.dumps(list(urls) if urls else [])
     try:
         from . import db as _db
         with _db.db_conn() as cx:
             existing = cx.execute(
                 """SELECT id FROM capture_schedules
-                   WHERE site_id = ? AND cadence_hours = ? AND enabled = 1""",
-                (site_id, cadence_hours)).fetchone()
+                   WHERE site_id = ? AND cadence_hours = ? AND enabled = 1
+                     AND COALESCE(label, '') = ?
+                     AND COALESCE(urls_json, '[]') = ?""",
+                (site_id, cadence_hours, label, urls_json)).fetchone()
             if existing is not None:
                 return int(existing["id"] if hasattr(existing, "keys")
                            else existing[0])
@@ -87,8 +89,7 @@ def add_schedule(*, site_id: str, cadence_hours: int,
                     site_id, label, cadence_hours, urls_json,
                     created_at, next_run_ts
                 ) VALUES (?,?,?,?,?,?)""",
-                (site_id, (label or "")[:200], cadence_hours,
-                 json.dumps(list(urls) if urls else []), now, now))
+                (site_id, label, cadence_hours, urls_json, now, now))
             return cur.lastrowid
     except Exception:
         return None
@@ -104,7 +105,10 @@ def _whole_hours(v) -> Optional[int]:
     if isinstance(v, float):
         return int(v) if v.is_integer() else None
     if isinstance(v, str) and v.strip().isdigit():
-        return int(v.strip())
+        try:
+            return int(v.strip())
+        except ValueError:      # "\u00b2".isdigit() is True; int() refuses it
+            return None
     return None
 
 
@@ -265,6 +269,11 @@ def run_due(*, enqueue_fn: Callable,
             # row's uncommitted UPDATE locked out the next row's record_change
             # (its own handle): 10 s of busy_timeout each, change record lost.
             with _db.db_conn() as cx:
+                # Rows were selected before the sweep began: one removed or
+                # disabled since (while an earlier row's enqueue ran) does not fire.
+                if cx.execute("SELECT 1 FROM capture_schedules WHERE id = ? AND enabled = 1",
+                              (r["id"],)).fetchone() is None:
+                    continue
                 results.append(_fire_one(cx, r, enqueue_fn, now))
     except Exception as e:
         return {"ran": len(results), "results": results,
@@ -341,7 +350,10 @@ def adaptive_cadence_hours(base_hours, *, change_count: int, window_days: int = 
     cc = max(0, int(change_count or 0))
     interval = (base * 2) if cc == 0 else (base / (1 + cc))
     interval = int(round(interval))
-    lo, hi = int(min_hours), int(max_hours)
+    # A cadence is at least 1 h: a zero or negative cadence_min_h in the site
+    # config became the interval, and the schedule fired on every sweep.
+    lo = max(1, int(min_hours))
+    hi = max(lo, int(max_hours))
     if interval <= 0:
         interval = lo
     return max(lo, min(hi, interval))
@@ -433,7 +445,14 @@ def _ics_dt(ts) -> str:
         t = 0.0
     if t <= 0:
         t = time.time()
-    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(t))
+    try:
+        return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(t))
+    except (OverflowError, OSError, ValueError):
+        # nan, inf, or a next_run_ts past year 9999 (a huge cadence): one row
+        # must not raise out of the whole calendar.
+        if t > 0:
+            return "99991231T235959Z"
+        return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(time.time()))
 
 
 def schedules_to_ics(schedules, *, now: Optional[float] = None) -> str:
