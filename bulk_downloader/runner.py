@@ -4036,6 +4036,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     # Row 987: the advice describes the LAST FAILURE; a success
                     # retires it (job detail serves the whole job dict).
                     self.jobs[url].pop("remediation", None)
+                    # dl-retry-writer: so is the last HTTP failure's status.
+                    self.jobs[url].pop("status_code", None)
+                    self.jobs[url].pop("retry_after_header", None)
                     # v3.43.44: fold the successful URL's host +
                     # path-prefix into the per-site fingerprint so
                     # future scoring favors similar CDN/path patterns.
@@ -4940,6 +4943,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 "ts": _ts(),
                 "last_progress_at": now,
             })
+            # dl-retry-writer: a new attempt must not inherit the previous
+            # attempt's HTTP status / Retry-After into its own failure.
+            job.pop("status_code", None)
+            job.pop("retry_after_header", None)
             mark_status_changed()
             with self._worker_heartbeats_lock:
                 self._worker_current_urls[worker_idx] = url

@@ -161,8 +161,17 @@ LOGGED_OUT_SHAPE_JS = r"""() => {
 class _HTTPDownloadFailed(Exception):
     """Raised by SiteRunner._http_download when httpx can't complete the
     transfer. Caller catches this and falls back to Playwright save_as.
-    Distinct from regular Exception so we don't swallow programming bugs."""
-    pass
+    Distinct from regular Exception so we don't swallow programming bugs.
+
+    dl-retry-writer: an HTTP status failure carries ``status_code`` and the
+    raw ``Retry-After`` header (``retry_after``) so the caller can stamp
+    them on the job for the scheduler's retry readers. Both are None for
+    failures that had no HTTP status."""
+
+    def __init__(self, *args, status_code=None, retry_after=None):
+        super().__init__(*args)
+        self.status_code = status_code
+        self.retry_after = retry_after
 
 
 class _StagingUnavailable(Exception):
