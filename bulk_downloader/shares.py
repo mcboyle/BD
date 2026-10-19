@@ -71,6 +71,12 @@ def _ensure_tables():
         sys.stderr.write(f"[shares] schema init: {e}\n")
 
 
+class SigningSecretUnavailable(RuntimeError):
+    """aac F8b: the share-token signing secret is not in the config store and
+    could not be written there. Minting and verifying refuse rather than sign
+    with a secret the next call would not reproduce."""
+
+
 def _signing_secret() -> str:
     """Get/create the share-token signing secret."""
     try:
@@ -80,15 +86,24 @@ def _signing_secret() -> str:
         if sec:
             return sec
         sec = secrets.token_urlsafe(32)
+        # aac F8b: set_config REPORTS a failed write by returning False (it
+        # never raises). The old `try/except: pass` ignored that and handed
+        # back a secret nobody stored, so every call minted a different one:
+        # a token signed by one call failed `bad signature` on the next.
         try:
-            set_config({**cfg, "share_token_secret": sec})
+            persisted = set_config({**cfg, "share_token_secret": sec}) is True
         except Exception:
-            pass
-        return sec
+            persisted = False
+        if persisted:
+            return sec
     except Exception:
         if not hasattr(_signing_secret, "_fb"):
             _signing_secret._fb = secrets.token_urlsafe(32)  # type: ignore
         return _signing_secret._fb  # type: ignore
+    # Refuse, outside the try (its except would swallow this into _fb): a
+    # secret that is not persisted would rotate silently on the next call.
+    raise SigningSecretUnavailable(
+        "share-token signing secret could not be persisted to the config store")
 
 
 def create_token(*, scopes: list, label: str = "",
@@ -104,7 +119,10 @@ def create_token(*, scopes: list, label: str = "",
     token_id = secrets.token_urlsafe(8)  # short stable ID
     nonce = secrets.token_urlsafe(16)
     expires_at = (time.time() + ttl_hours * 3600) if ttl_hours else None
-    secret = _signing_secret()
+    try:
+        secret = _signing_secret()
+    except SigningSecretUnavailable as e:
+        return {"ok": False, "error": str(e)}
     # Token format: <token_id>.<nonce>.<sig>
     sig_body = f"{token_id}.{nonce}"
     sig = hmac.new(secret.encode("utf-8"), sig_body.encode("utf-8"),
@@ -186,7 +204,12 @@ def verify_token(token: str, *, required_scope: str,
     except ValueError:
         return {"ok": False, "reason": "malformed token"}
     # Signature check first (cheap, no DB)
-    secret = _signing_secret()
+    try:
+        secret = _signing_secret()
+    except SigningSecretUnavailable:
+        _log_access(token_id, request_path, required_scope, False,
+                    client_ip, "signing secret unavailable")
+        return {"ok": False, "reason": "signing secret unavailable"}
     expected = hmac.new(secret.encode("utf-8"),
                         f"{token_id}.{nonce}".encode("utf-8"),
                         hashlib.sha256).hexdigest()[:24]
