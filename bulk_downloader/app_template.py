@@ -255,6 +255,63 @@ def _sandbox_browser_route_is_safe(url, host_safety):
     return True, None
 
 
+def _sandbox_browser_hop_is_safe(url, host_safety):
+    """BD-SEC-3 residual (b). The sandbox's verdict on one request its browser
+    makes: http(s)/ws(s) by ``_sandbox_browser_route_is_safe`` (public, plus the
+    loopback exemption); every other scheme as the outbound guard judges a page
+    request (about:/data:/blob: open no connection, file: and the rest refused)."""
+    from urllib.parse import urlsplit as _urlsplit
+    from . import outbound_guard as _og
+
+    try:
+        scheme = (_urlsplit(str(url)).scheme or "").lower()
+    except ValueError:
+        return False
+    if scheme not in ("http", "https", "ws", "wss"):
+        return _og.page_request_refusal(url) is None
+    return _sandbox_browser_route_is_safe(url, host_safety)[0]
+
+
+def _sandbox_browser_hop_backstop(page, host_safety):
+    """BD-SEC-3 residual (b). ROW 804's route guard is never handed the redirect
+    hop Chromium follows (Playwright 1.62, measured: a 302 to the metadata
+    address was fetched). Judge every request of the sandbox browser once more,
+    below Playwright, on a browser-level CDP ``Fetch`` session -- the mechanism
+    of ``outbound_guard.install_fetch_backstop``, with the sandbox's own
+    predicate, which no outbound_guard policy matches (public + loopback).
+    A refused or undecided request fails; an admitted one continues.
+
+    Returns False, judging nothing more than the route, when the page's browser
+    has no browser-level CDP session (not a Chromium). An error opening one
+    propagates: the sandbox does not browse unguarded."""
+    browser = getattr(getattr(page, "context", None), "browser", None)
+    open_session = getattr(browser, "new_browser_cdp_session", None)
+    if not callable(open_session):
+        return False
+    session = open_session()
+
+    def paused(event):
+        request_id = event.get("requestId")
+        try:
+            url = str((event.get("request") or {}).get("url") or "")
+            ok = _sandbox_browser_hop_is_safe(url, host_safety)
+        except Exception:  # fail closed: an undecided request is not sent
+            ok = False
+        try:
+            if ok:
+                session.send("Fetch.continueRequest", {"requestId": request_id})
+            else:
+                session.send("Fetch.failRequest", {"requestId": request_id,
+                                                   "errorReason": "BlockedByClient"})
+        except Exception:  # the request or the browser is already gone
+            pass
+
+    session.on("Fetch.requestPaused", paused)
+    session.send("Fetch.enable", {"patterns": [{"urlPattern": "*",
+                                                "requestStage": "Request"}]})
+    return True
+
+
 # ── v3.45.1 / v3.46.2 Phase 176: template sandbox ─────────────────────
 # Fetches a URL + applies a draft template's selectors. Two modes:
 #
@@ -357,6 +414,9 @@ def api_template_sandbox():
         try:
             with _cloak.cloaked_page(headless=True, user_agent=ua,
                                      args=_launch_args) as page:
+                # The route below never sees a 302 hop (Playwright): the CDP
+                # Fetch backstop judges every request the browser makes.
+                _sandbox_browser_hop_backstop(page, _host_safety)
                 # ROW 804: the pin above only protects the FIRST navigation --
                 # a redirect, JS `window.location` hop, or XHR/fetch to a new
                 # host inside this same page is a fresh connection Chromium

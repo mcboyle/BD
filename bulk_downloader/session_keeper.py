@@ -179,6 +179,7 @@ def _body_has_login_form(body: str) -> bool:
     return scan.password and bool(_SIGNIN_TEXT_RE.search("".join(scan.text)))
 
 from . import cloak as _cloak
+from . import outbound_guard as _outbound_guard
 from . import db
 
 
@@ -1422,11 +1423,19 @@ class SessionKeeper:
                         route.abort()
                         if route.request.resource_type in
                            ("image", "media", "font")
-                        else route.continue_()
+                        else _outbound_guard.pass_on(route)
                     ),
                 )
             except Exception:
                 pass
+            # BD-SEC-3 residual (c): the check URL comes from the site config and
+            # was navigated unjudged, a redirect hop included.  LAN_OK, as the
+            # runner's own browser: a LAN-hosted site is a legitimate keepalive
+            # target.  Registered last, the guard judges first.  An install
+            # failure is a launch failure (except below): the httpx fallback is
+            # guarded, an unguarded browser is not.
+            _outbound_guard.install_page_guard(
+                self._page, _outbound_guard.LAN_OK, backend=backend)
             self._browser_started_at = _now()
             self._last_navigate_at = 0  # force a navigate on first iteration
             sys.stderr.write(
