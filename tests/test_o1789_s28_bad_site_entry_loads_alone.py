@@ -436,11 +436,13 @@ def test_put_can_repair_accounts_already_stored_wrong(tmp_path, junk):
     assert row["status"] == 200, (
         f"S28-REPAIR-PUT-FAILED stored={junk!r} -> {row['status']} {row['error']!r}"
     )
+    # deep-site-templates S03: a typed account password goes to the vault
+    # only; under this rig's plaintext backend it is not stored at all.
     assert row["stored_accounts"] == [
         {
             "label": "",
             "username": "u",
-            "password": "p",
+            "password": "",
             "cookie_file": "",
             "cooldown_until": 0,
             "last_failure": "",

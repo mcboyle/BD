@@ -5,6 +5,7 @@ Handlers attach to the SHARED sites_bp (imported from .app_sites); the routing s
 """
 from __future__ import annotations
 import os as _os
+import copy
 import json
 import logging
 import os
@@ -658,8 +659,29 @@ def api_sites_v2_bulk():
                     from . import account_pool as _ap
                     _ap.remove_pool(sid)
                 except Exception: pass
-                s_meta.pop(sid, None)
-                s_cfg.pop(sid, None)
+                _popped_meta = s_meta.pop(sid, None)
+                _popped_cfg = s_cfg.pop(sid, None)
+                # deep-site-templates SL-F2: as api_delete -- save per site
+                # BEFORE the irreversible reaps; a save that did not land puts
+                # the site back and it is an error, not applied.
+                try:
+                    _saved = _save_sites_config()
+                except Exception as _save_err:
+                    _saved = False
+                    _save_why = f"config save failed: {str(_save_err)[:200]}"
+                else:
+                    _save_why = "sites_config not saved; the site was not deleted"
+                if _saved is False:
+                    if _popped_cfg is not None:
+                        s_cfg[sid] = _popped_cfg
+                    if _popped_meta is not None:
+                        s_meta[sid] = _popped_meta
+                    if runner is not None:
+                        with _watch_registry_lock:
+                            runners.setdefault(sid, runner)
+                    results["errors"].append(
+                        {"site_id": sid, "error": _save_why})
+                    continue
                 try:
                     from .db import queue_delete_site
                     queue_delete_site(sid)
@@ -706,15 +728,6 @@ def api_sites_v2_bulk():
             if delete_lock is not None:
                 delete_lock.release()
         results["ok"] += 1
-    if action == "delete" and results["ok"] > 0:
-        # One config save at the end, not one per delete — matches the
-        # per-site api_delete's _save_sites_config() call.
-        try: _save_sites_config()
-        except Exception as e:
-            results["errors"].append({
-                "site_id": "*",
-                "error": f"config save failed: {str(e)[:200]}",
-            })
     return jsonify({
         "ok": True,
         "action": action,
@@ -964,7 +977,12 @@ def api_update(sid):
     s_cfg = _app_s_cfg()
     s_meta = _app_s_meta()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    data=request.json or {}
+    data=request.json
+    if data is None:
+        data = {}
+    # deep-site-templates S06: a JSON array body was a 500 (or, empty, a no-op 200).
+    if not isinstance(data, dict):
+        return jsonify({"error": "request body must be a JSON object"}), 400
     # BD-SEC-2 ROW 2: a withheld marker echoed back keeps the stored value.
     from .egress_withhold import restore_withheld
     if isinstance(data, dict):
@@ -979,9 +997,22 @@ def api_update(sid):
     data.pop(CAPTCHA_EGRESS_ACK_FIELD, None)
     if _captcha_egress_error:
         return jsonify({"error": _captcha_egress_error}), 400
+    # deep-site-templates S15: only the fields a restart keeps (_load_one_site:
+    # CFG_FIELDS + name + these three) are stored; any other key -- NUL in it,
+    # 10,000 characters long, a typo -- is dropped and counted in the reply.
+    # probe_headers is kept as before: not a restart field, but a PUT-set
+    # header map the diagnostics bundle must still redact (sec2 GETRES).
+    _known = set(_app_CFG_FIELDS()) | {"name", "password", "applied_template",
+                                       "draft_test_override", "learned",
+                                       "probe_headers"}
+    _ignored = [k for k in data if k not in _known]
+    for k in _ignored:
+        data.pop(k, None)
     # v3.48 (#25): snapshot the BEFORE state for audit logging. Copy
     # because s_cfg[sid] is going to mutate below.
     _audit_old = dict(s_cfg.get(sid) or {})
+    # deep-site-templates S27: what a failed save rolls the entry back to.
+    _rollback = copy.deepcopy(s_cfg.get(sid) or {})
     # v3.47.8 (#81): normalize display name on update too, so renames
     # that contain bidi/control chars get cleaned before persist.
     if "name" in data:
@@ -1005,6 +1036,14 @@ def api_update(sid):
             elif isinstance(v, (list, dict)):
                 return jsonify({"error": f"{str_field} must be a string"}), 400
             elif not isinstance(v, str): data[str_field] = str(v)
+    # deep-site-templates S04: validate_config's REQUIRED_FIELDS rule for name.
+    if "name" in data and not str(data["name"]).strip():
+        return jsonify({"error": "'name' is required and cannot be empty."}), 400
+    # deep-site-templates S09-S11: what /api/sites/validate rejects is not stored.
+    from . import site_editor as _se_txt
+    _txt_errs = _se_txt.validate_text_updates(data)
+    if _txt_errs:
+        return jsonify({"error": " ".join(_txt_errs)}), 400
     # dss-site-secrets F5: a stored secret is a string or blank. A list, dict,
     # number or bool used to be stored as-is (and str() of one is a junk key).
     for secret_field in ("captcha_api_key", "qb_password", "plex_token",
@@ -1148,6 +1187,7 @@ def api_update(sid):
         existing = ([e if isinstance(e, dict) else {} for e in existing]
                     if isinstance(existing, list) else [])
         merged = []
+        _typed = {}   # merged index -> a newly-typed account password
         for i, new_acct in enumerate(data["accounts"]):
             if not isinstance(new_acct, dict): continue
             old = existing[i] if i < len(existing) else {}
@@ -1156,14 +1196,53 @@ def api_update(sid):
                 # Try to find the existing account with the same username
                 m = next((e for e in existing if e.get("username") == new_acct["username"]), None)
                 if m: old = m
+            _old_pw = old.get("password", "") if old else ""
+            _pw = new_acct.get("password") or _old_pw
+            if _pw and _pw != _old_pw:
+                # deep-site-templates S03: a typed account password goes to the
+                # vault like the top-level one (below); never plaintext here.
+                # Until it lands the row keeps its OWN old value only -- the
+                # index match may be another user's row (rows removed).
+                _typed[len(merged)] = _pw
+                _pw = (_old_pw if (old or {}).get("username", "")
+                       == new_acct.get("username", "") else "")
             merged.append({
                 "label": new_acct.get("label", "") or "",
                 "username": new_acct.get("username", ""),
-                "password": new_acct.get("password") or (old.get("password","") if old else ""),
+                "password": _pw,
                 "cookie_file": new_acct.get("cookie_file", ""),
                 "cooldown_until": new_acct.get("cooldown_until") or (old.get("cooldown_until", 0) if old else 0),
                 "last_failure": new_acct.get("last_failure") or (old.get("last_failure", "") if old else ""),
             })
+        if _typed:
+            _acct_allowed, _s, _acct_errbody = _vault_guard_for_password()
+            if not _acct_allowed:
+                # Same posture as the top-level password: the old value stays,
+                # the rest of the update applies, the reply says why.
+                for _flag in ("secrets_locked", "secrets_plaintext"):
+                    if _acct_errbody.get(_flag):
+                        _cred_flags[_flag] = True
+            else:
+                from . import secrets_store as ss
+                # The pre-edit rows count too: a failed save rolls back to them,
+                # and a key written here must not be another account's then.
+                _held = {a["password"] for a in merged + existing
+                         if isinstance(a.get("password"), str)}
+                for _i, _pw in sorted(_typed.items()):
+                    # The account-N key another merged or pre-edit row
+                    # references is never overwritten: take a free one.
+                    _n = _i
+                    while ss.make_account_password_reference(sid, _n) in _held - {merged[_i]["password"]}:
+                        _n += 1
+                    try:
+                        ss.get_backend().set(ss.account_password_key(sid, _n), _pw)
+                    except Exception as _acct_err:  # noqa: BLE001
+                        sys.stderr.write(f"  vault store on update {sid} accounts[{_i}] failed: {_acct_err}\n")
+                        _cred_flags["cred_stored"] = False
+                        _cred_flags["cred_error"] = str(_acct_err or "vault store failed")
+                        continue
+                    merged[_i]["password"] = ss.make_account_password_reference(sid, _n)
+                    _held.add(merged[_i]["password"])
         data["accounts"] = merged
     # runner-account-jar r4: the stored base was derived from the old
     # cookie_file; kept, it resolved the new one onto that jar (another
@@ -1208,7 +1287,24 @@ def api_update(sid):
             _cred_flags["cred_stored"] = False
             _cred_flags["cred_error"] = str(_cred_err or "vault store failed")
     runners[sid].update_config(s_cfg[sid])
-    _save_sites_config()
+    # deep-site-templates S27: a failed save is not ok, and the edit is taken
+    # back out of memory and the runner (in place: the runner may hold the dict).
+    def _roll_back():
+        s_cfg[sid].clear()
+        s_cfg[sid].update(_rollback)
+        s_meta[sid] = _build_meta(s_cfg[sid])
+        runners[sid].update_config(s_cfg[sid])
+    try:
+        _saved = _save_sites_config()
+    except Exception:
+        _roll_back()
+        raise
+    if _saved is False:
+        _roll_back()
+        return jsonify({"ok": False,
+                        "error": "sites_config not saved; the change was not applied"}), 500
+    if _ignored:
+        _cred_flags["ignored_fields"] = len(_ignored)
     # v3.43.16: sync session keeper to the updated config. If the user
     # toggled keep_alive_enabled or changed credentials, we update the
     # keeper's config in place (it picks up the change on next check)
@@ -1408,8 +1504,30 @@ def _api_delete_transaction(sid, keep_vault_refs_of=None):
     # BUG-1: config/meta removal + queue cleanup + save are UNCONDITIONAL, so an
     # idle (never-started, runner-less) site is actually deleted rather than
     # silently left in place behind a success toast.
-    s_meta.pop(sid, None)
-    s_cfg.pop(sid, None)
+    _popped_meta = s_meta.pop(sid, None)
+    _popped_cfg = s_cfg.pop(sid, None)
+    # deep-site-templates SL-F2: the save comes BEFORE the irreversible reaps
+    # (queue rows, auth_health, runs). A save that did not land puts the site
+    # back and the delete is not ok; nothing of it is gone.
+    def _put_back():
+        if _popped_cfg is not None:
+            s_cfg[sid] = _popped_cfg
+        if _popped_meta is not None:
+            s_meta[sid] = _popped_meta
+        if runner is not None:
+            with _watch_registry_lock:
+                runners.setdefault(sid, runner)
+    try:
+        _saved = _save_sites_config()
+    except Exception:
+        _put_back()
+        raise
+    if _saved is False:
+        _put_back()
+        return jsonify({
+            "ok": False,
+            "error": "sites_config not saved; the site was not deleted",
+        }), 500
     try:
         from .db import queue_delete_site
         queue_delete_site(sid)
@@ -1438,7 +1556,6 @@ def _api_delete_transaction(sid, keep_vault_refs_of=None):
     # Advisory: close_site_runs never raises.
     from . import run_history as _rh
     _rh.close_site_runs(sid)
-    _save_sites_config()
     # v3.48 (#25): audit log — record even if the site was already absent
     # (idempotent delete) so the audit trail captures the intent
     try:
