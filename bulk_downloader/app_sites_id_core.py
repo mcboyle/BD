@@ -878,15 +878,16 @@ def api_clone_site(sid):
     if sid not in s_cfg: return jsonify({"error":"Not found"}),404
     src = s_cfg[sid]
     new_sid = uuid.uuid4().hex[:8]
-    # Fields to STRIP from clone (must be unique per site)
+    # Fields to STRIP from clone (must be unique per site). sl-fix-r2 row 2:
+    # the secrets come from site_editor.SECRET_FIELDS (the set export/diff/
+    # audit use) so this list can no longer drift from it.
+    from . import site_editor as _se
     strip = {"username","password","cookie_file","accounts","learned",
              "keep_alive_enabled",
-             "fingerprint","captcha_api_key",
-             # Phase 20: site-specific secrets that shouldn't carry over
-             "stash_api_key","plex_token","jellyfin_api_key","ha_token",
+             "fingerprint",
              # runner-account-jar r3: the parent's account-0 jar -- inherited,
              # the clone's own cookie_file resolved onto the parent's jar
-             "cookie_jar_base"}
+             "cookie_jar_base"} | _se.SECRET_FIELDS
     cfg = {k: v for k, v in src.items() if k not in strip}
     # Mark the clone with a " (copy)" suffix on the name; numbered if needed
     base_name = (src.get("name") or "Site").rstrip()
@@ -905,9 +906,7 @@ def api_clone_site(sid):
     from .constants import make_fingerprint
     cfg["fingerprint"] = make_fingerprint()
     # Wipe credentials explicitly (some may have been set as empty strings)
-    for f in ("username", "password", "cookie_file", "captcha_api_key",
-              # Phase 20: also redact webhook/integration secrets
-              "stash_api_key", "plex_token", "jellyfin_api_key", "ha_token"):
+    for f in ("username", "cookie_file", *sorted(_se.SECRET_FIELDS)):
         cfg[f] = ""
     # cookie-file-roots r3 (lens R26-C F1): the clone is a NEW site, so the
     # source's download_dir / spillover_dirs (maybe stored before the roots
@@ -1832,7 +1831,13 @@ def api_bulk_url_transform(sid):
     matched = 0; changed = 0; samples = []
     transforms = []  # (old_url, new_url) pairs to apply
     for url in list(runner.urls):  # snapshot — list mutated below
-        new_url, n = rgx.subn(replacement, url)
+        # sl-fix-r2 row 6: the replacement template is only parsed here; a bad
+        # group reference or escape is the caller's input -> 400, not a 500.
+        try:
+            new_url, n = rgx.subn(replacement, url)
+        except (re.error, IndexError) as e:
+            return jsonify({"ok": False,
+                            "error": f"invalid replacement: {e}"}), 400
         if n > 0:
             matched += 1
             if new_url != url:
