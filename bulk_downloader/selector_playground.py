@@ -304,6 +304,13 @@ def _fetch_playwright(url: str, *, timeout: int = 30,
             else:
                 route.abort()
         page.route("**/*", _guard_route)
+        # BD-SEC-3 residual (a): a route handler is never handed the redirect hop Chromium
+        # follows (Playwright 1.62, measured) -- a public page that 302s to the metadata address
+        # was fetched.  The outbound guard's browser-level backstop judges every hop.  Registered
+        # last, it judges first and passes an admitted request on to _guard_route.  An install
+        # failure fails the fetch (the except below): an unguarded browser does not fetch.
+        from . import outbound_guard as _og
+        _og.install_page_guard(page, _og.PUBLIC_ONLY, backend=backend)
 
         if headers:
             page.set_extra_http_headers(headers)
