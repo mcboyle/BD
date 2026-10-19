@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6708,
+  "edge_count": 6729,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3662,6 +3662,15 @@
     "tests/test_deep_detect_surface_lock.py": [
       "bulk_downloader/__init__.py"
     ],
+    "tests/test_deep_scheduler_cron.py": [
+      "bulk_downloader/app_bg.py",
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/capture_schedules.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/exports.py",
+      "bulk_downloader/migrations.py",
+      "bulk_downloader/scheduled_exports.py"
+    ],
     "tests/test_dependency_graph_fails_closed.py": [
       "tools/dependency_graph.py"
     ],
@@ -4434,6 +4443,22 @@
       "bulk_downloader/app_auth.py",
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/global_config.py"
+    ],
+    "tests/test_dva_vk_killswitch_api.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/vpn_kill_switch.py",
+      "bulk_downloader/vpn_leak_tests.py"
+    ],
+    "tests/test_dva_vk_tunnels_api.py": [
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py",
+      "bulk_downloader/vpn_kill_switch.py"
     ],
     "tests/test_e1_capture_events.py": [
       "bulk_downloader/plugins.py",
@@ -8171,6 +8196,10 @@
       "bulk_downloader/container_repair.py",
       "bulk_downloader/runner_integrity.py",
       "bulk_downloader/stream_verifier.py"
+    ],
+    "tests/test_stbai_f4a_f7_dry_run_config_and_bad_input_400.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/tool_bridge.py"
     ],
     "tests/test_stbfix_f2_dry_run_template_patterns_redacted.py": [
       "bulk_downloader/dry_run.py",
