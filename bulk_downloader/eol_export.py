@@ -36,6 +36,23 @@ from typing import Optional
 from .exports import csv_cells as _csv_cells
 
 
+def _open_private(path):
+    """``path`` opened for writing, readable by the owner only: created 0600,
+    and an existing file (a re-export into the same dir) is tightened to 0600
+    before anything is written."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+                 | getattr(os, "O_BINARY", 0), 0o600)
+    fh = os.fdopen(fd, "wb")
+    if hasattr(os, "fchmod"):
+        os.fchmod(fh.fileno(), 0o600)
+    return fh
+
+
+def _write_private(path, data: bytes) -> None:
+    with _open_private(path) as fh:
+        fh.write(data)
+
+
 def full_export(dest_dir: str, *,
                s_cfg: Optional[dict] = None,
                include_cookies: bool = False,
@@ -71,7 +88,7 @@ def full_export(dest_dir: str, *,
                 fname = _mp.bundle_to_filename(bundle)
                 path = tmpl_dir / fname
                 data = _mp.bundle_to_bytes(bundle)
-                path.write_bytes(data)
+                _write_private(path, data)
                 out["files_written"].append(str(path))
                 out["total_bytes"] += len(data)
         except Exception as e:
@@ -96,7 +113,7 @@ def full_export(dest_dir: str, *,
         for r in rows:
             w.writerow(_csv_cells([r[i] or "" for i in range(9)]))
         data = buf.getvalue().encode("utf-8")
-        path.write_bytes(data)
+        _write_private(path, data)
         out["files_written"].append(str(path))
         out["total_bytes"] += len(data)
         out["history_rows"] = len(rows)
@@ -122,7 +139,7 @@ def full_export(dest_dir: str, *,
         for r in rows:
             w.writerow(_csv_cells([r[i] or "" for i in range(7)]))
         data = buf.getvalue().encode("utf-8")
-        path.write_bytes(data)
+        _write_private(path, data)
         out["files_written"].append(str(path))
         out["total_bytes"] += len(data)
         out["provenance_rows"] = len(rows)
@@ -149,7 +166,7 @@ def full_export(dest_dir: str, *,
         path = Path(dest_dir) / "bd-state.json"
         data = json.dumps(state, indent=2, default=str,
                          ensure_ascii=False).encode("utf-8")
-        path.write_bytes(data)
+        _write_private(path, data)
         out["files_written"].append(str(path))
         out["total_bytes"] += len(data)
     except Exception as e:
@@ -162,7 +179,8 @@ def full_export(dest_dir: str, *,
             cookies_dir = Path(INSTALL_DIR) / "cookies"
             if cookies_dir.is_dir():
                 path = Path(dest_dir) / "cookies.tar"
-                with tarfile.open(path, "w") as tf:
+                with _open_private(path) as fh, \
+                        tarfile.open(path, mode="w", fileobj=fh) as tf:
                     tf.add(str(cookies_dir), arcname="cookies")
                 out["files_written"].append(str(path))
                 out["total_bytes"] += path.stat().st_size
@@ -191,7 +209,7 @@ def full_export(dest_dir: str, *,
         "  4. Manually replay any state from bd-state.json you care about\n"
     )
     path = Path(dest_dir) / "README.txt"
-    path.write_text(readme, encoding="utf-8")
+    _write_private(path, readme.encode("utf-8"))
     out["files_written"].append(str(path))
     return out
 
