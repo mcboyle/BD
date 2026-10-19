@@ -43,6 +43,7 @@ import sqlite3
 import tempfile
 import time
 import zipfile
+import zlib
 from pathlib import Path
 
 
@@ -222,6 +223,49 @@ def _derive_fernet_key(passphrase: str, salt: bytes,
     return base64.urlsafe_b64encode(kdf.derive(passphrase.encode("utf-8")))
 
 
+def _looks_like_fernet_token(token: bytes) -> bool:
+    """drr F9: structural check of a Fernet token (no key needed)."""
+    try:
+        raw = base64.urlsafe_b64decode(token)
+    except (ValueError, TypeError):
+        return False
+    return (len(raw) >= 57 + 16 and raw[0] == 0x80
+            and (len(raw) - 57) % 16 == 0)
+
+
+# drr F2: every Fernet token starts with these bytes (version 0x80 + a 64-bit
+# timestamp whose high bytes are zero), so a sensitive member that starts with
+# them is ciphertext whatever the manifest says.
+_FERNET_PREFIX = b"gAAAAA"
+
+
+# drr F7: present in a restore target while a restore is replacing files;
+# removed only once every member landed.
+RESTORE_INCOMPLETE_MARKER = ".bd-restore-incomplete.json"
+
+
+def _unlink_quiet(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _fernet_members(zf: zipfile.ZipFile):
+    """Yield sensitive members whose bytes are a Fernet token. An unreadable
+    member is skipped here; the restore's staging pass reports it."""
+    for name in zf.namelist():
+        if not _is_sensitive_arc(name):
+            continue
+        try:
+            with zf.open(name) as fp:
+                head = fp.read(len(_FERNET_PREFIX))
+        except (OSError, zipfile.BadZipFile, zlib.error, EOFError):
+            continue
+        if head == _FERNET_PREFIX:
+            yield name
+
+
 def _iter_files(target_root: Path, src: Path):
     """Yield (file_path, arcname_relative) for every regular file under
     src. Used to flatten directory targets into individual zip entries.
@@ -276,6 +320,11 @@ def create_backup(out_path: str | Path, base_dir: str | Path = ".",
     t0 = time.time()
     base = Path(base_dir)
     out = Path(out_path)
+    # drr F12: a base_dir that is not there is not "a fresh install with nothing
+    # yet" -- it is the wrong path, and an empty archive would read as a backup.
+    if not base.is_dir():
+        return {"ok": False, "error": f"base_dir not found: {base}",
+                "elapsed_ms": round((time.time() - t0) * 1000, 1)}
 
     # Build the zip in memory first so we can encrypt the whole thing
     # if a passphrase is supplied (zipfile.encryption is weak; we use
@@ -441,13 +490,20 @@ def create_backup(out_path: str | Path, base_dir: str | Path = ".",
     else:
         out_payload = payload
 
-    # Atomic write — same .tmp + replace pattern as everywhere else
+    # Atomic write — .tmp + replace. drr F11: the temp name is unique per call
+    # (a fixed <out>.tmp made concurrent creates to one path collide).
+    tmp = None
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = out.with_suffix(out.suffix + ".tmp")
-        tmp.write_bytes(out_payload)
+        fd, tmp_name = tempfile.mkstemp(dir=out.parent, prefix=f".{out.name}.",
+                                        suffix=".tmp")
+        tmp = Path(tmp_name)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(out_payload)
         tmp.replace(out)
     except OSError as e:
+        if tmp is not None:
+            _unlink_quiet(tmp)
         return {
             "ok": False,
             "error": f"write failed: {type(e).__name__}: {e}",
@@ -519,6 +575,15 @@ def restore_backup(backup_path: str | Path,
             from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
             salt = raw[4:20]
             encrypted_payload = raw[20:]
+            # drr F9: a short or mangled file is not a passphrase problem. Check
+            # the Fernet token's shape first (version byte 0x80, 57-byte header
+            # + HMAC around whole 16-byte blocks) so a correct passphrase is not
+            # sent back to the operator as the thing to retry.
+            if not _looks_like_fernet_token(encrypted_payload):
+                return {"ok": False,
+                        "error": "backup file is truncated or damaged "
+                                 "(not a complete encrypted backup)",
+                        "elapsed_ms": round((time.time() - t0) * 1000, 1)}
             kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32,
                               salt=salt, iterations=600_000)
             key = base64.urlsafe_b64encode(
@@ -526,7 +591,10 @@ def restore_backup(backup_path: str | Path,
             f = Fernet(key)
             payload = f.decrypt(encrypted_payload)
         except InvalidToken:
-            return {"ok": False, "error": "incorrect passphrase",
+            # drr F9: the HMAC check cannot tell a wrong passphrase from a
+            # flipped byte, so the message names both.
+            return {"ok": False,
+                     "error": "incorrect passphrase, or the backup file is damaged",
                      "elapsed_ms": round((time.time() - t0) * 1000, 1)}
         except ImportError:
             return {"ok": False,
@@ -550,6 +618,7 @@ def restore_backup(backup_path: str | Path,
     warnings = []
     refused: list = []
     db_refused: list = []  # r7: DB members the history guard refused to write
+    commit_failed: list = []  # drr F7: members whose final replace failed
     from .db import HistoryDBWriteRefused
     files_restored = 0
     files_skipped = 0
@@ -571,15 +640,42 @@ def restore_backup(backup_path: str | Path,
         # Read manifest first
         try:
             manifest = json.loads(zf.read("_manifest.json").decode("utf-8"))
-        except (KeyError, json.JSONDecodeError):
+        except (KeyError, json.JSONDecodeError, UnicodeDecodeError):
             warnings.append("_manifest.json missing or malformed; "
                             "proceeding with best-effort restore")
+        else:
+            # drr F8: valid JSON that is not an object ([], null, 123, "x") is
+            # no manifest either -- said so, never an AttributeError below.
+            if not isinstance(manifest, dict):
+                warnings.append("_manifest.json is not a JSON object "
+                                f"({type(manifest).__name__}); proceeding with "
+                                "best-effort restore")
+                manifest = None
         manifest_checksums = (manifest or {}).get("checksums") or {}
+        if not isinstance(manifest_checksums, dict):
+            manifest_checksums = {}
+
+        # drr F2: with the manifest gone the salt is gone, so a sensitive-scope
+        # member cannot be decrypted -- and writing its ciphertext over the live
+        # secrets is never a restore. Refuse before anything is written. An
+        # "encryption" block that is not an object loses the salt the same way.
+        _enc_raw = (manifest or {}).get("encryption")
+        if manifest is None or (_enc_raw and not isinstance(_enc_raw, dict)):
+            for _n in _fernet_members(zf):
+                return {"ok": False,
+                        "error": "backup has encrypted members but its "
+                                 "_manifest.json is missing, unreadable or "
+                                 "has a malformed encryption block; "
+                                 f"cannot decrypt {_n}, nothing restored",
+                        "encrypted": True, "warnings": warnings,
+                        "elapsed_ms": round((time.time() - t0) * 1000, 1)}
 
         # POS-1: sensitive-scope backups encrypt certain members in-place; set up
         # the decryption key from the manifest's salt (fail-closed on a missing/
         # wrong passphrase). enc_members names which members are ciphertext.
         _enc_meta = (manifest or {}).get("encryption") or {}
+        if not isinstance(_enc_meta, dict):
+            _enc_meta = {}
         _enc_members = set()
         _enc_fernet = None
         if _enc_meta.get("scope") == "sensitive":
@@ -594,6 +690,11 @@ def restore_backup(backup_path: str | Path,
                 _iters = int(_enc_meta.get("iterations", _KDF_ITERATIONS))
                 _enc_fernet = Fernet(_derive_fernet_key(passphrase, _salt, _iters))
                 _enc_members = set(_enc_meta.get("members") or [])
+                # drr F2: the member list is not authoritative -- an emptied or
+                # short list must not let ciphertext through as plaintext (nor
+                # skip the passphrase probe below). Sensitive members that ARE
+                # ciphertext join it; plaintext ones (older backups) do not.
+                _enc_members |= set(_fernet_members(zf))
                 # Fail-closed: validate the passphrase by decrypting ONE member
                 # up front, so a wrong passphrase aborts BEFORE any file is
                 # written (no partial restore). All members share the key.
@@ -626,9 +727,21 @@ def restore_backup(backup_path: str | Path,
                     "dry_run": dry_run,
                     "elapsed_ms": round((time.time() - t0) * 1000, 1)}
 
+        marker = target / RESTORE_INCOMPLETE_MARKER
         if not dry_run:
             target.mkdir(parents=True, exist_ok=True)
+            if marker.exists():
+                warnings.append(f"a previous restore into this directory did not "
+                                f"complete ({RESTORE_INCOMPLETE_MARKER} found); "
+                                "this restore rewrites the members it carries")
 
+        # drr F3/F6/F7: two passes. STAGE reads, decrypts and writes every member
+        # to its .bdtmp first; an unreadable member or a failed write aborts with
+        # nothing replaced and no .bdtmp left. COMMIT then replaces them under a
+        # marker that is removed only when every replace landed, so a restore
+        # killed or failed half-way says so on disk.
+        staged: list = []  # (name, tmp_dest, dest)
+        stage_failed = None  # (name, why)
         for name in zf.namelist():
             if name == "_manifest.json":
                 continue
@@ -693,31 +806,68 @@ def restore_backup(backup_path: str | Path,
                         checksum_failures.append(name)
                 continue
             dest = target / name
+            tmp_dest = dest.with_suffix(dest.suffix + ".bdtmp")
+            # Bounded read so a zip that lied about file_size still can't OOM us.
             try:
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                # Atomic-write to .tmp then replace. Use bounded read
-                # so a zip that lied about file_size still can't OOM us.
                 with zf.open(name) as src_fp:
                     data = src_fp.read(MAX_MEMBER_BYTES + 1)
                 if name in _enc_members and _enc_fernet is not None:
                     data = _enc_fernet.decrypt(data)  # POS-1: sensitive member
-                if len(data) > MAX_MEMBER_BYTES:
-                    warnings.append(
-                        f"skipped (member exceeded cap during read): {name}")
-                    files_skipped += 1
-                    continue
-                # CAP-4: verify integrity against the manifest checksum. A
-                # mismatch is surfaced (integrity_ok=False) but still restored --
-                # the operator explicitly asked to restore; the signal is theirs
-                # to act on. Run a dry_run first to check without writing.
-                expected = manifest_checksums.get(name)
-                if expected:
-                    if hashlib.sha256(data).hexdigest() != expected:
-                        checksum_failures.append(name)
-                    else:
-                        checksums_verified += 1
-                tmp_dest = dest.with_suffix(dest.suffix + ".bdtmp")
+            except Exception as e:  # noqa: BLE001 -- zlib.error, BadZipFile, InvalidToken, OSError
+                stage_failed = (name, f"is unreadable ({type(e).__name__})")
+                break
+            if len(data) > MAX_MEMBER_BYTES:
+                warnings.append(
+                    f"skipped (member exceeded cap during read): {name}")
+                files_skipped += 1
+                continue
+            # CAP-4: verify integrity against the manifest checksum. A
+            # mismatch is surfaced (integrity_ok=False) but still restored --
+            # the operator explicitly asked to restore; the signal is theirs
+            # to act on. Run a dry_run first to check without writing.
+            expected = manifest_checksums.get(name)
+            if expected:
+                if hashlib.sha256(data).hexdigest() != expected:
+                    checksum_failures.append(name)
+                else:
+                    checksums_verified += 1
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
                 tmp_dest.write_bytes(data)
+            except OSError as e:
+                _unlink_quiet(tmp_dest)
+                stage_failed = (name, f"could not be written ({type(e).__name__}: {e})")
+                break
+            # A name the zip carries twice shares one .bdtmp, which now holds the
+            # later bytes: the later member wins (as before staging), once.
+            staged = [s for s in staged if s[2] != dest]
+            staged.append((name, tmp_dest, dest))
+            total_bytes += len(data)
+
+        if stage_failed is None and staged:
+            try:
+                marker.write_text(json.dumps({
+                    "backup": str(bp), "started_at": time.time(),
+                    "members": [n for n, _t, _d in staged]}))
+            except OSError as e:
+                stage_failed = (RESTORE_INCOMPLETE_MARKER,
+                                f"could not be written ({type(e).__name__}: {e})")
+        if stage_failed is not None:
+            for _n, _tmp, _d in staged:
+                _unlink_quiet(_tmp)
+            _fname, _why = stage_failed
+            return {"ok": False,
+                    "error": f"restore aborted, nothing replaced: {_fname} {_why}",
+                    "files_restored": 0, "files_skipped": files_skipped,
+                    "manifest": manifest, "warnings": warnings,
+                    "refused": refused, "db_refused": [], "dry_run": dry_run,
+                    "integrity_ok": len(checksum_failures) == 0,
+                    "checksum_failures": checksum_failures,
+                    "checksums_verified": checksums_verified,
+                    "elapsed_ms": round((time.time() - t0) * 1000, 1)}
+
+        for name, tmp_dest, dest in staged:
+            try:
                 if name in _DB_MEMBERS:
                     try:
                         _warn = _restore_db(tmp_dest, dest)
@@ -731,15 +881,18 @@ def restore_backup(backup_path: str | Path,
                 else:
                     tmp_dest.replace(dest)
                 files_restored += 1
-                total_bytes += len(data)
             except OSError as e:
                 warnings.append(f"{name}: {type(e).__name__}: {e}")
+                commit_failed.append(name)
                 files_skipped += 1
+                _unlink_quiet(tmp_dest)
+        if staged and not commit_failed:
+            _unlink_quiet(marker)
     finally:
         zf.close()
 
     out = {
-        "ok": not db_refused,
+        "ok": not db_refused and not commit_failed,
         "files_restored": files_restored,
         "files_skipped": files_skipped,
         "manifest": manifest,
@@ -754,7 +907,11 @@ def restore_backup(backup_path: str | Path,
         "checksums_verified": checksums_verified,
         "elapsed_ms": round((time.time() - t0) * 1000, 1),
     }
-    if db_refused:
+    if commit_failed:
+        out["error"] = ("restore incomplete: could not replace "
+                        + ", ".join(commit_failed)
+                        + f"; {RESTORE_INCOMPLETE_MARKER} left in the target")
+    elif db_refused:
         out["error"] = "history guard refused to restore: " + ", ".join(db_refused)
     return out
 
@@ -838,7 +995,7 @@ def _read_corpus_manifest(zf: zipfile.ZipFile) -> tuple[dict, list[dict]]:
         raise ValueError("capture-corpus archive must contain exactly one manifest")
     try:
         manifest = json.loads(zf.read(_CORPUS_MANIFEST).decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile, zlib.error) as exc:
         raise ValueError("capture-corpus manifest is unreadable") from exc
     if not isinstance(manifest, dict) or manifest.get("format") != _CORPUS_FORMAT:
         raise ValueError("not a capture-corpus backup")
@@ -937,7 +1094,7 @@ def create_capture_corpus_backup(
             }
             zf.writestr(_CORPUS_MANIFEST, json.dumps(manifest, sort_keys=True))
         tmp.replace(out)
-    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+    except (OSError, ValueError, zipfile.BadZipFile, zlib.error) as exc:
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
@@ -1016,7 +1173,8 @@ def restore_capture_corpus_backup(
                     raise
             finally:
                 shutil.rmtree(staging, ignore_errors=True)
-    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+    # drr F13: zlib.error is what an undecodable deflate member raises.
+    except (OSError, ValueError, zipfile.BadZipFile, zlib.error) as exc:
         return {"ok": False, "error": f"capture-corpus restore failed: {exc}", **base_result}
     return {"ok": True, "source_corpus_state": manifest["source_corpus_state"],
             **base_result, "files_restored": len(records)}
