@@ -94,7 +94,8 @@ def test_token_reuse_across_repeated_sessions_captcha_relay(monkeypatch):
 
     cache = get_default_cache()
     cookie_payload = [{"name": "cf_clearance", "value": "solved-turnstile-token"}]
-    cache.set_clearance("198.51.100.5", "protected.test", cookie_payload, ttl_seconds=3600.0)
+    # sac-f9: the relay's scope is site AND egress, never the egress alone
+    cache.set_clearance("site=site1|egress=198.51.100.5", "protected.test", cookie_payload, ttl_seconds=3600.0)
 
     # Session start with cached clearance available (no egress_ip in the body: it is not the client's to say)
     res = client.post("/api/captcha/start_solve", json={"url": url})
@@ -232,7 +233,8 @@ def test_invalidation_on_401_and_dismiss():
 def test_routes_ignore_a_client_supplied_egress_ip_and_scope_by_the_servers_identity():
     """A caller naming another session's egress_ip in the JSON body must not
     read, write or invalidate that session's cached clearance: all three
-    routes key on egress_identity.egress_ip_for_site(pending.site_id)."""
+    routes key on egress_identity.clearance_scope_for_site(pending.site_id):
+    site=<id>|egress=<server-observed ip> (sac-f9)."""
     from flask import Flask
     app = Flask("test_app")
     app_captcha_relay.register_routes(app)
@@ -241,6 +243,7 @@ def test_routes_ignore_a_client_supplied_egress_ip_and_scope_by_the_servers_iden
     victim_ip, own_ip = "203.0.113.7", "198.51.100.9"
     victim = [{"name": "cf_clearance", "value": "victim-clearance"}]
     cache.set_clearance(victim_ip, "protected.test", victim, ttl_seconds=3600.0)
+    own_scope = f"site=site-own|egress={own_ip}"
 
     url = "https://protected.test/gallery"
     captcha_relay.mark_captcha_needed("site-own", url, "turnstile")
@@ -256,20 +259,20 @@ def test_routes_ignore_a_client_supplied_egress_ip_and_scope_by_the_servers_iden
     mine = [{"name": "cf_clearance", "value": "own-clearance"}]
     res = client.post("/api/captcha/resolved", json={"url": url, "clearance": mine, "egress_ip": victim_ip})
     assert res.status_code == 200
-    assert cache.get_clearance(own_ip, "protected.test") == mine
+    assert cache.get_clearance(own_scope, "protected.test") == mine
     assert cache.get_clearance(victim_ip, "protected.test") == victim          # untouched
 
     # INVALIDATE: dismiss with the victim's IP named clears only the server-scoped entry
     captcha_relay.mark_captcha_needed("site-own", url, "turnstile")
     res = client.post("/api/captcha/dismiss", json={"url": url, "egress_ip": victim_ip})
     assert res.status_code == 200
-    assert cache.get_clearance(own_ip, "protected.test") is None
+    assert cache.get_clearance(own_scope, "protected.test") is None
     assert cache.get_clearance(victim_ip, "protected.test") == victim          # still there
 
     # positive control: with the server's identity matching, the cached clearance IS served
-    cache.set_clearance(own_ip, "protected.test", mine, ttl_seconds=3600.0)
+    cache.set_clearance(own_scope, "protected.test", mine, ttl_seconds=3600.0)
     captcha_relay.mark_captcha_needed("site-own", url, "turnstile")
     res = client.post("/api/captcha/start_solve", json={"url": url})
     assert res.get_json().get("cached") is True and "own-clearance" not in res.get_data(as_text=True)  # F9: never echoed
-    # a URL with no pending record has no site: UNKNOWN identity, never a body value
-    assert app_captcha_relay._server_side_egress_ip("https://nowhere.test/x") == "UNKNOWN"
+    # a URL with no pending record has no site: no scope at all (nothing cached or served), never a body value
+    assert app_captcha_relay._clearance_scope("https://nowhere.test/x") is None

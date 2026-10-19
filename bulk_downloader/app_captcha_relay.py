@@ -62,19 +62,18 @@ def captcha_pending_one(url):
     return jsonify({"ok": True, "pending": p})
 
 
-def _server_side_egress_ip(url: str) -> str:
-    """The egress identity a clearance is scoped by, derived on the server:
-    the carrier the URL's pending site is bound to (egress_identity), never a
-    value from the request body -- a caller could otherwise read, write or
-    invalidate another session's cached clearance by naming its IP. Call it
-    BEFORE the pending record is resolved/dismissed."""
+def _clearance_scope(url: str):
+    """The cache scope a clearance for ``url`` is read, written and
+    invalidated under, derived on the server: the URL's pending site AND the
+    egress its carrier is bound to (egress_identity.clearance_scope_for_site),
+    never a value from the request body -- a caller could otherwise read,
+    write or invalidate another session's cached clearance by naming its IP.
+    None when the URL has no pending site: nothing is cached or served. Never
+    shared across sites (sac-f9). Call it BEFORE the pending record is
+    resolved/dismissed."""
     from . import captcha_relay
-    from .egress_identity import UNKNOWN_EGRESS, egress_ip_for_site
-    pending = captcha_relay.get_pending(url) or {}
-    site_id = pending.get("site_id")
-    if not site_id:
-        return UNKNOWN_EGRESS
-    return egress_ip_for_site(site_id)
+    from .egress_identity import clearance_scope_for_site
+    return clearance_scope_for_site((captcha_relay.get_pending(url) or {}).get("site_id"))
 
 
 @captcha_bp.route("/api/captcha/start_solve", methods=["POST"]) if captcha_bp else (lambda f: f)
@@ -88,14 +87,17 @@ def captcha_start_solve():
     if not url:
         return _err("body.url required")
 
+    if captcha_relay.get_pending(url) is None:
+        # hunt4: an unknown URL is refused whether or not a clearance is cached
+        return _err("url not pending", 404)
     domain = urlparse(url).netloc
-    egress_ip = _server_side_egress_ip(url)      # never data["egress_ip"]
+    scope = _clearance_scope(url)                # never data["egress_ip"]; None: no site, no cache
 
     try:
         from .login_impl.token_manager import get_default_cache
         cache = get_default_cache()
-        if not data.get("bypass_cache"):
-            cached_clearance = cache.get_clearance(egress_ip, domain)
+        if scope is not None and not data.get("bypass_cache"):
+            cached_clearance = cache.get_clearance(scope, domain)
             if cached_clearance is not None:
                 session_id = f"cached-{int(time.time())}"
                 if not captcha_relay.mark_resolved(url):
@@ -161,17 +163,17 @@ def captcha_resolved():
     if clearance and ttl is None:
         # Refused BEFORE mark_resolved: a bad ttl leaves the captcha pending.
         return _err(f"ttl_seconds must be a number in (0, {int(MAX_CLEARANCE_TTL_S)}]")
-    egress_ip = _server_side_egress_ip(url)      # from the pending record, before it is resolved
+    scope = _clearance_scope(url)                # from the pending record, before it is resolved
     ok = captcha_relay.mark_resolved(url)
     if not ok:
         return _err("url not pending", 404)
 
-    if clearance:
+    if clearance and scope is not None:
         try:
             from .login_impl.token_manager import get_default_cache
 
             domain = urlparse(url).netloc
-            get_default_cache().set_clearance(egress_ip, domain, clearance, ttl_seconds=ttl)
+            get_default_cache().set_clearance(scope, domain, clearance, ttl_seconds=ttl)
         except Exception:
             pass
 
@@ -187,18 +189,19 @@ def captcha_dismiss():
     url = (data.get("url") or "").strip()
     if not url:
         return _err("body.url required")
-    egress_ip = _server_side_egress_ip(url)      # from the pending record, before it is dismissed
+    scope = _clearance_scope(url)                # from the pending record, before it is dismissed
     ok = captcha_relay.mark_dismissed(url)
     if not ok:
         return _err("url not pending", 404)
 
-    try:
-        from .login_impl.token_manager import get_default_cache
+    if scope is not None:
+        try:
+            from .login_impl.token_manager import get_default_cache
 
-        domain = urlparse(url).netloc
-        get_default_cache().invalidate_clearance(egress_ip, domain)
-    except Exception:
-        pass
+            domain = urlparse(url).netloc
+            get_default_cache().invalidate_clearance(scope, domain)
+        except Exception:
+            pass
 
     return jsonify({"ok": True, "url": url})
 

@@ -81,3 +81,14 @@ def egress_ip_for_site(site_id) -> str:
         if str(site_id) not in _carrier_of_site:
             return UNKNOWN_EGRESS
         return _observed.get(_carrier_of_site[str(site_id)], UNKNOWN_EGRESS)
+
+
+def clearance_scope_for_site(site_id) -> Optional[str]:
+    """Scope a solved captcha clearance is cached under: the SITE and its
+    egress (``site=<id>|egress=<ip or UNKNOWN>``), or ``None`` when there is
+    no site -- such a clearance is never cached or served (sac-f9). Keying
+    by egress alone shared one site's clearance with every other site on the
+    same domain that was unbound (all UNKNOWN) or bound to the same tunnel."""
+    if not site_id:
+        return None
+    return f"site={site_id}|egress={egress_ip_for_site(site_id)}"
