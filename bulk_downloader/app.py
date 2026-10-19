@@ -7163,17 +7163,25 @@ def _start_not_armed(sid, runner):
 def _do_action_all(action):
     """Apply `action` to every runner. Returns aggregate result.
     Best-effort: per-site failures are collected and reported, the rest
-    still run. Rate-limit applies once per call (not per site)."""
+    still run. Rate-limit applies once per call (not per site).
+
+    dl-misc r3: ``applied_to`` counts EFFECTS, not attempts. pause(),
+    resume() and start() are state-gated and return quietly on a runner
+    they leave alone (an idle site, a download hold), so a runner counts
+    only when the action moved it: pause took it out of "running",
+    start/resume put it into "running". Every other runner is named in
+    ``unchanged`` with the state it was left in."""
     if not _rate_check(f"all_{action}"):
         return jsonify({"ok": False, "error": "rate limited",
                         "retry_after": RATE_LIMIT_WINDOW}), 429
-    results = {"ok": 0, "errors": []}
+    results = {"ok": 0, "errors": [], "unchanged": []}
     for sid, runner in list(runners.items()):
         try:
             method = getattr(runner, action, None)
             if method is None or not callable(method):
                 results["errors"].append({"sid": sid, "error": f"unknown action: {action}"})
                 continue
+            before = getattr(runner, "_state", None)
             outcome = method()
             if (action == "start"
                     and outcome is StartOutcome.TEARDOWN_PENDING):
@@ -7183,14 +7191,24 @@ def _do_action_all(action):
                     "blocked_by": StartOutcome.TEARDOWN_PENDING.value,
                 })
                 continue
-            results["ok"] += 1
+            after = getattr(runner, "_state", None)
+            if action == "pause":
+                moved = before == "running" and after != "running"
+            else:
+                moved = before != "running" and after == "running"
+            if moved:
+                results["ok"] += 1
+            else:
+                results["unchanged"].append({
+                    "sid": sid, "state": None if after is None else str(after)})
         except Exception as e:
             results["errors"].append({"sid": sid, "error": str(e)[:200]})
     teardown_refused = any(
         item.get("blocked_by") == StartOutcome.TEARDOWN_PENDING.value
         for item in results["errors"])
     return jsonify({"ok": not teardown_refused, "applied_to": results["ok"],
-                    "total_sites": len(runners), "errors": results["errors"]})
+                    "total_sites": len(runners), "errors": results["errors"],
+                    "unchanged": results["unchanged"]})
 
 # /api/pause_all -> app_pause_all.py (Phase 4 thin-core-shell extraction)
 # /api/resume_all -> app_resume_all.py (Phase 4 thin-core-shell extraction)

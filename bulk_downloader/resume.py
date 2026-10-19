@@ -162,7 +162,8 @@ def incomplete_chunks(checkpoint: dict) -> list[dict]:
             start = int(c["start"])
             end = int(c["end"])
             done = int(c.get("done_bytes", 0))
-        except (KeyError, ValueError, TypeError):
+        except (KeyError, ValueError, TypeError, OverflowError):
+            # json.load accepts Infinity: int(inf) is an OverflowError.
             continue
         expected = end - start + 1
         if done < expected:
@@ -331,7 +332,12 @@ def reconcile_with_disk(checkpoint: dict, final_path: str | Path) -> bool:
         size = pp.stat().st_size
     except OSError:
         return False
-    total = int(checkpoint.get("total") or 0)
+    try:
+        total = int(checkpoint.get("total") or 0)
+    except (TypeError, ValueError, OverflowError):
+        # A corrupt total (text, list, Infinity, NaN) cannot be reconciled
+        # with the .part size: not resumable, restart from byte 0.
+        return False
     if size < total:
         # Pre-allocation was incomplete — could be a crash during init.
         # Safer to restart than to assume the chunks line up correctly.

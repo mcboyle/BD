@@ -1138,8 +1138,12 @@ def test_bulk_start_api_excludes_and_surfaces_teardown_refusal(
     class Runner:
         def __init__(self, outcome):
             self.outcome = outcome
+            self._state = "idle"
 
         def start(self):
+            # dl-misc r3: applied_to counts runners start() armed.
+            if self.outcome is None:
+                self._state = "running"
             return self.outcome
 
     runners["ready"] = Runner(None)
