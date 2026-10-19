@@ -20,7 +20,6 @@ browser SKIPS.
 from __future__ import annotations
 
 import os
-import re
 from contextlib import contextmanager
 
 import pytest
@@ -253,13 +252,23 @@ def test_do_login_clears_the_challenge_before_the_gate_walk_and_username_search(
     import inspect
     from bulk_downloader.login_impl import submit
     src = inspect.getsource(submit.do_login)
-    m_call = re.search(r"clear_cloudflare_challenge\(page\)", src)
-    assert m_call, "do_login no longer clears a Cloudflare challenge page"
-    m_goto = re.search(r"page\.goto\(url,", src)
-    m_gates = re.search(r"_pre_form_gate_actions = _dismiss_page_gates\(", src)
-    m_user = re.search(r'_try_fill\(page,uf_candidates,username,"username"\)', src)
-    assert m_goto and m_gates and m_user
-    assert m_goto.start() < m_call.start() < m_gates.start() < m_user.start(), (
+    import ast
+
+    tree = ast.parse(src)
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    clear = min(node.lineno for node in calls
+                if isinstance(node.func, ast.Name)
+                and node.func.id == "clear_cloudflare_challenge")
+    goto = min(node.lineno for node in calls
+               if isinstance(node.func, ast.Attribute) and node.func.attr == "goto"
+               and isinstance(node.func.value, ast.Name) and node.func.value.id == "page")
+    gates = min(node.lineno for node in ast.walk(tree) if isinstance(node, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id == "_pre_form_gate_actions"
+                        for target in node.targets))
+    user = min(node.lineno for node in calls if isinstance(node.func, ast.Name)
+               and node.func.id == "_try_fill" and len(node.args) >= 4
+               and isinstance(node.args[3], ast.Constant) and node.args[3].value == "username")
+    assert goto < clear < gates < user, (
         "clear_cloudflare_challenge must run after goto and BEFORE the "
         "page-gate walk and the username search")
 

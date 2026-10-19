@@ -460,10 +460,12 @@ def _search_field_reason(loc):
     return _is_search_field(loc)[1]
 
 
-def _try_fill(page,selectors,value,what):
+def _try_fill(page,selectors,value,what,refusal=None):
     """Walk the candidate list; fill the first visible, non-honeypot
     element, return (True, used_selector). On total failure return
     (False, summary_error) that lists which selectors were tried.
+    An optional refusal callback returns a reason to stop the whole fill;
+    it is rechecked after waits and focus operations, before field writes.
 
     Row 770: a selector can match MORE than one element in DOM order — a
     decoy field planted ahead of the real one — so each selector's full
@@ -478,6 +480,12 @@ def _try_fill(page,selectors,value,what):
     don't. Many enterprise WAFs key on this gap exclusively. Row 1049: the
     per-keystroke delays now come from the synthetic input scheduler
     (_type_field_value)."""
+    def refused():
+        try:
+            return refusal() if refusal is not None else None
+        except Exception:
+            return "cross-origin prefill refused: could not verify the current page"
+
     tried=[]
     skipped=[]
     searches=[]
@@ -508,17 +516,29 @@ def _try_fill(page,selectors,value,what):
                     searches.append(f"{sel}[{idx}]:{why}")
                     continue
                 _wait_visible(loc)
+                why=refused()
+                if why:
+                    return False,why
                 # Clear any existing value, then click to focus, then type.
                 # We use loc.fill('') for the clear (DOM-set is fine for blanking)
                 # and only switch to keyboard.type for the new value.
                 try: loc.fill('')
                 except Exception: pass
+                why=refused()
+                if why:
+                    return False,why
                 try: loc.click(timeout=1500)
                 except Exception:
                     # Fallback: just call fill if click is intercepted (e.g.
                     # sneaky overlay). Less stealthy but the login still works.
+                    why=refused()
+                    if why:
+                        return False,why
                     loc.fill(value)
                     return True,sel
+                why=refused()
+                if why:
+                    return False,why
                 # Type with per-character delay drawn from a uniform distribution.
                 # Real human typing has ~80-200ms gaps; we land in the middle of
                 # that range. v3.65.2: keyboard.type's `delay` parameter is sampled

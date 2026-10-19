@@ -117,7 +117,7 @@ def login(monkeypatch, tmp_path):
     monkeypatch.setattr(submit, "clear_cloudflare_challenge",
                         functools.partial(submit.clear_cloudflare_challenge, wait=1.5))
 
-    def fill(page, candidates, value, label):
+    def fill(page, candidates, value, label, refusal=None):
         fills.append(label)
         return False, "fixture: no field"
 

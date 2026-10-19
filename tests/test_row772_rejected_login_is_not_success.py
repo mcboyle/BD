@@ -51,7 +51,7 @@ def _drive(monkeypatch, tmp_path, *, final_url, html, content_raises=None,
     monkeypatch.setattr(submit, "_fire_login_trigger_if_needed", lambda *args, **kwargs: (False, False, ""))
     monkeypatch.setattr(submit, "_wait_captcha_tokens", lambda *args, **kwargs: (None, 0))
     monkeypatch.setattr(submit, "_try_check_remember_me", lambda page: None)
-    monkeypatch.setattr(submit, "_try_fill", lambda *args: (True, "fixture field"))
+    monkeypatch.setattr(submit, "_try_fill", lambda *args, **kwargs: (True, "fixture field"))
 
     def submit_form(*args):
         calls["submit"] += 1

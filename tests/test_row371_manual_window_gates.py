@@ -1412,7 +1412,7 @@ def _patch_login_runtime(monkeypatch, page, *, fill_ok):
         lambda _page, _cfg: {"ran": False},
     )
 
-    def _fill(_page, _selectors, _value, what):
+    def _fill(_page, _selectors, _value, what, refusal=None):
         fill_states.append((what, list(page.clicked)))
         return fill_ok, ("fixture field" if fill_ok else "fixture has no field")
 
@@ -1566,7 +1566,7 @@ def test_do_login_auto_submit_gate_unknown_stops_before_submit_retry(
     submit, browser, fill_states, submit_calls = _patch_login_runtime(
         monkeypatch, page, fill_ok=True)
 
-    def _fill_and_auto_submit(_page, _selectors, _value, what):
+    def _fill_and_auto_submit(_page, _selectors, _value, what, refusal=None):
         fill_states.append((what, list(page.clicked)))
         if what == "password":
             page.layers = (
@@ -1617,7 +1617,7 @@ def test_do_login_clears_gate_even_when_fill_already_reached_success_url(
     submit, browser, fill_states, submit_calls = _patch_login_runtime(
         monkeypatch, page, fill_ok=True)
 
-    def _fill_and_reach_success(_page, _selectors, _value, what):
+    def _fill_and_reach_success(_page, _selectors, _value, what, refusal=None):
         fill_states.append((what, list(page.clicked)))
         if what == "password":
             page.layers = ((

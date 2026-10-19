@@ -63,6 +63,31 @@ def _same_brand_origin(login_url, landed_url):
     return bool(da) and "." in da and da == db
 
 
+def _prefill_origin_refusal(page, login_url, success_url):
+    """o1698: may do_login type the configured credentials into `page`?
+    Row 774's predicate, applied BEFORE the fill instead of after the submit
+    (by then the password has left): the page must be on the login page's
+    origin, a declared success_url origin, or the same brand (row 722). A
+    login_url that redirects to an unrelated host gets the refusal reason,
+    never a keystroke.  None when the fill may go ahead; fails closed on an
+    unreadable page URL (r2 F2: a None/non-str url is refused, not a
+    TypeError).  Ask it again before EVERY credential fill: the page can move
+    between the username and the password, and on a staged second screen."""
+    try:
+        cur = page.url
+    except Exception:  # noqa: BLE001 -- unreadable: refused below, never a crash
+        cur = ""
+    if not isinstance(cur, str):
+        cur = ""
+    cur_origin = _origin(cur)
+    declared = {o for o in (_origin(login_url), _origin(success_url or "")) if o}
+    if cur_origin is not None and (cur_origin in declared
+                                   or _same_brand_origin(login_url, cur)):
+        return None
+    return (f"cross-origin navigation refused before fill: login page "
+            f"{_origin(login_url)} landed on {cur_origin or cur[:80]!r}")
+
+
 def _no_nav_verdict(page, config, cookies, why, phase, hard_close):
     """Row 708: decide a login that fired NO navigation.
 
@@ -92,7 +117,7 @@ def _no_nav_verdict(page, config, cookies, why, phase, hard_close):
             info, cookies)
 
 
-def _staged_password_retry(page, sb_candidates, pf_candidates, password):
+def _staged_password_retry(page, sb_candidates, pf_candidates, password, refusal=None):
     """Two-step (staged) login recovery. Returns (ok, info).
 
     A comprehensive password-selector list — which includes the catch-all
@@ -114,6 +139,11 @@ def _staged_password_retry(page, sb_candidates, pf_candidates, password):
 
     Factored out of ``login()`` so the orchestration is unit-testable with a
     fake page (the live fill itself needs a real browser).
+
+    o1698 r2: the Continue click can navigate anywhere. ``refusal`` (do_login
+    passes its prefill origin check) is asked once the next screen has
+    rendered, immediately before the password is typed; a reason returns
+    (False, reason) and nothing is typed.
     """
     cont_ok, cont_info = _try_click(page, sb_candidates, "continue (staged login)")
     if not cont_ok:
@@ -128,7 +158,11 @@ def _staged_password_retry(page, sb_candidates, pf_candidates, password):
             state="visible", timeout=6000)
     except Exception:
         pass
-    return _try_fill(page, pf_candidates, password, "password (after continue)")
+    why = refusal() if refusal is not None else None
+    if why:
+        return False, why
+    return _try_fill(page, pf_candidates, password, "password (after continue)",
+                     refusal=refusal)
 
 
 # dl95-kellymadisonmedia-1: do_login's verdict when the login page never loads.
@@ -2604,10 +2638,32 @@ def do_login(config, allow_manual_takeover=False):
                 f"(fired={trigger_fired})\n"
             )
 
+        _fill_refused=[]
+        def _fill_refusal():
+            try:
+                why=None if _flow_ran else _prefill_origin_refusal(page, url, success)
+            except Exception:
+                why="cross-origin prefill refused: could not verify the current page"
+            if why:
+                _fill_refused.append(why)
+            return why
+
         # ── Try to fill username. If we can't even find the username field,
         # the form might be entirely custom — but the page IS loaded, so
         # the user can drive it manually if they want.
-        ok,info=_try_fill(page,uf_candidates,username,"username")
+        # o1698: never on a page the login_url redirected to an unrelated
+        # host -- unless the captured multi-step flow (v3.66.302) put it there.
+        _prefill_why=None if _flow_ran else _prefill_origin_refusal(page, url, success)
+        if _prefill_why:
+            sys.stderr.write(f"  {site_tag()}login: {_prefill_why}\n")
+            if allow_manual_takeover:
+                return _hand_off(_prefill_why)
+            _hard_close(); return False,_prefill_why,[]
+        ok,info=_try_fill(page,uf_candidates,username,"username",refusal=_fill_refusal)
+        if _fill_refused:
+            if allow_manual_takeover:
+                return _hand_off(_fill_refused[0])
+            _hard_close(); return False,_fill_refused[0],[]
         if not ok:
             _lockout = _login_lockout_phrase(page)
             if _lockout:
@@ -2629,16 +2685,39 @@ def do_login(config, allow_manual_takeover=False):
         # inter-field delay supplies it.
         _inter_field_pause()
 
-        ok,info=_try_fill(page,pf_candidates,password,"password")
+        # o1698 r2 (F1b): the page can move after the username is typed.
+        _prefill_why=None if _flow_ran else _prefill_origin_refusal(page, url, success)
+        if _prefill_why:
+            sys.stderr.write(f"  {site_tag()}login: {_prefill_why}\n")
+            if allow_manual_takeover:
+                return _hand_off(_prefill_why)
+            _hard_close(); return False,_prefill_why,[]
+        ok,info=_try_fill(page,pf_candidates,password,"password",refusal=_fill_refusal)
+        if _fill_refused:
+            if allow_manual_takeover:
+                return _hand_off(_fill_refused[0])
+            _hard_close(); return False,_fill_refused[0],[]
         if not ok:
             # Staged-login recovery: the password field may be on a second
             # screen reached only after a Continue/Next click (two-step login).
             # Try once to advance and re-fill before giving up to manual.
+            # o1698 r2 (F1): ... and the Continue click can move it anywhere.
+            _stg_refused=[]
+            def _stg_refusal():
+                why=None if _flow_ran else _prefill_origin_refusal(page, url, success)
+                if why:
+                    _stg_refused.append(why)
+                return why
             try:
                 s_ok,s_info=_staged_password_retry(
-                    page,sb_candidates,pf_candidates,password)
+                    page,sb_candidates,pf_candidates,password,refusal=_stg_refusal)
             except Exception as _stg_e:
                 s_ok,s_info=False,f"staged retry errored: {_stg_e}"
+            if _stg_refused:
+                sys.stderr.write(f"  {site_tag()}login: {_stg_refused[0]}\n")
+                if allow_manual_takeover:
+                    return _hand_off(_stg_refused[0])
+                _hard_close(); return False,_stg_refused[0],[]
             if s_ok:
                 ok,info=True,s_info
             else:
@@ -3077,11 +3156,24 @@ def do_login(config, allow_manual_takeover=False):
                 # clearance cookie now lets the POST through.
                 try: _form_back=page.locator("input[type=password]:visible").count()>0
                 except Exception: _form_back=False
-                if _form_back:
+                _prefill_why=None if _flow_ran else _prefill_origin_refusal(page, url, success)
+                if _form_back and _prefill_why:
+                    # o1698: the challenge cleared onto an unrelated origin;
+                    # row 774 below refuses the landing without a re-fill.
+                    sys.stderr.write(f"  {site_tag()}login: re-submit skipped: {_prefill_why}\n")
+                elif _form_back:
                     sys.stderr.write(f"  {site_tag()}login: challenge cleared but the login form is "
                                      "back; re-submitting once\n")
-                    _ok_u,_=_try_fill(page,uf_candidates,username,"username (re-submit)")
-                    _ok_p,_=_try_fill(page,pf_candidates,password,"password (re-submit)")
+                    _ok_u,_=_try_fill(page,uf_candidates,username,"username (re-submit)",refusal=_fill_refusal)
+                    if _fill_refused:
+                        if allow_manual_takeover:
+                            return _hand_off(_fill_refused[0])
+                        _hard_close(); return False,_fill_refused[0],[]
+                    _ok_p,_=_try_fill(page,pf_candidates,password,"password (re-submit)",refusal=_fill_refusal)
+                    if _fill_refused:
+                        if allow_manual_takeover:
+                            return _hand_off(_fill_refused[0])
+                        _hard_close(); return False,_fill_refused[0],[]
                     if _ok_u and _ok_p:
                         _ok2,_m2=_submit_login(page,sb_candidates,pf_candidates)
                         sys.stderr.write(f"  {site_tag()}login: re-submit -> {_ok2} ({_m2})\n")

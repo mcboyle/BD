@@ -66,7 +66,7 @@ def drive(monkeypatch, tmp_path, *, final_html="<p>Members</p>",
     monkeypatch.setattr(submit, "_fire_login_trigger_if_needed", lambda *args, **kwargs: (False, False, ""))
     monkeypatch.setattr(submit, "_wait_captcha_tokens", lambda *args, **kwargs: (None, 0))
     monkeypatch.setattr(submit, "_try_check_remember_me", lambda *_args: None)
-    monkeypatch.setattr(submit, "_try_fill", lambda *args: (True, "synthetic field"))
+    monkeypatch.setattr(submit, "_try_fill", lambda *args, **kwargs: (True, "synthetic field"))
     monkeypatch.setattr(submit, "write_login_evidence", evidence, raising=False)
 
     def form(*args):

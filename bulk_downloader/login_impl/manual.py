@@ -520,12 +520,14 @@ class ManualLoginSession:
                 # verification page, not the form; the session thread keeps
                 # the credentials (never logged) and fills the form on its
                 # idle tick once it appears (_autofill_tick).
-                from urllib.parse import urlsplit as _urlsplit
                 self._autofill_creds = [username, password]
-                self._autofill_hosts = {
-                    h for h in (_urlsplit(url).hostname, _urlsplit(page.url).hostname) if h}
-                filled = _autofilled_label(page.evaluate(_TAKEOVER_AUTOFILL_JS, self._autofill_creds))
-                if filled:
+                self._autofill_origins = (url, config.get("success_url"))
+                why = self._autofill_refusal(page)
+                filled = "" if why else _autofilled_label(
+                    page.evaluate(_TAKEOVER_AUTOFILL_JS, self._autofill_creds))
+                if why:
+                    sys.stderr.write(f"  manual_login: autofill withheld -- {why}\n")
+                elif filled:
                     sys.stderr.write(
                         f"  manual_login: autofilled {filled} for "
                         f"{config.get('name','?')}\n")
@@ -537,17 +539,27 @@ class ManualLoginSession:
             sys.stderr.write(f"  manual_login: autofill failed: {e}\n")
         return browser, ctx, page, used_pw
 
+    def _autofill_refusal(self, pg):
+        """o1698 r2 (A3): the autofill admitted the host the login_url
+        REDIRECTED to, so a login_url that landed on an unrelated host got the
+        vault credentials written into that host's form. A page is filled only
+        where do_login would type them: the login_url origin, a declared
+        success_url origin, or the same brand. The reason, or None."""
+        from .submit import _prefill_origin_refusal  # lazy: submit imports manual
+        login_url, success_url = self._autofill_origins
+        return _prefill_origin_refusal(pg, login_url, success_url)
+
     def _autofill_tick(self, ctx):
         """fx-takeover-autofill: fill the login form in any page of this
         takeover that shows one now (idle tick, session thread). Only on the
-        hosts the takeover was opened for; each field at most once."""
+        origins do_login would fill (_autofill_refusal); each field at most
+        once."""
         creds = getattr(self, "_autofill_creds", None)
         if not creds:
             return
-        from urllib.parse import urlsplit as _urlsplit
         for pg in list(ctx.pages):
             try:
-                if _urlsplit(pg.url).hostname not in self._autofill_hosts:
+                if self._autofill_refusal(pg):
                     continue
                 filled = _autofilled_label(pg.evaluate(_TAKEOVER_AUTOFILL_JS, creds))
             except Exception:

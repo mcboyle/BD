@@ -75,7 +75,7 @@ def _drive(monkeypatch, tmp_path, *, method=SPA_METHOD, member_indicator=INDICAT
     monkeypatch.setattr(submit, "_fire_login_trigger_if_needed", lambda *a, **kw: (False, False, ""))
     monkeypatch.setattr(submit, "_wait_captcha_tokens", lambda *a, **kw: (None, 0))
     monkeypatch.setattr(submit, "_try_check_remember_me", lambda page: None)
-    monkeypatch.setattr(submit, "_try_fill", lambda page, selectors, value, role: (True, "fixture field"))
+    monkeypatch.setattr(submit, "_try_fill", lambda page, selectors, value, role, refusal=None: (True, "fixture field"))
 
     def submit_form(page, selectors, password_selectors):
         calls["submit"] += 1
