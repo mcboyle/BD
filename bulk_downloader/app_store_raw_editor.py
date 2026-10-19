@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
@@ -138,10 +139,18 @@ def _tunnel_id_guard(data) -> str | None:
 
 
 def _atomic_write(path: Path, text: str) -> None:
+    """Temp + os.replace through a UNIQUE temp name: <store>.json.tmp is the
+    store module's own save() temp, and sharing it made the loser of a
+    concurrent save os.replace a vanished file (500, ss-fix F2)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 @store_raw_editor_bp.route("/api/settings/store-raw", methods=["GET"])
@@ -197,10 +206,12 @@ def api_store_raw_post():
                             f"({type(e).__name__}); a tunnel secret cannot "
                             "be moved out of tunnels.json",
                             "note": "no write performed"}), 503
-    # (d) atomic write of the normalized JSON, then (e) cache-invalidate
+    # (d) atomic write of the normalized JSON, then (e) cache-invalidate, both
+    # under the store module's lock so no in-module mutation interleaves.
     try:
-        _atomic_write(_path_for(store), json.dumps(data, indent=2))
-        _invalidate(store)
+        with _store_modules()[store]._lock:
+            _atomic_write(_path_for(store), json.dumps(data, indent=2))
+            _invalidate(store)
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": f"write failed: {str(e)[:160]}"}), 500
     return jsonify({"ok": True, "store": store, "path": str(_path_for(store)),
