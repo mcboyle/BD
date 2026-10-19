@@ -359,13 +359,19 @@ def template_dry_run(url: str, html: str = "",
                                             site_config=site_config)
         hit_counts = _selector_hit_counts(template, html)
 
+    # stb-fix F2: template_summary echoes raw network_patterns; surface only
+    # the redacted form, same as the top-level "network_patterns".
+    redacted = _redact_patterns(template)
+    summary = template_summary(template)
+    summary["patterns"] = list(redacted)
+
     return {
         "ok": True,
         "url": url,
         "host": _host(url),
         "template_matched": template is not None,
-        "template": template_summary(template),
-        "network_patterns": _redact_patterns(template),
+        "template": summary,
+        "network_patterns": redacted,
         "lint_warnings": [i.to_dict() for i in lint_issues],
         "has_blocking_lint": sl.has_blocking_issues(lint_issues),
         "selector_hit_counts": hit_counts,
