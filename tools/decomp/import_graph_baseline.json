@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6823,
+  "edge_count": 6827,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4471,6 +4471,12 @@
       "bulk_downloader/app.py",
       "bulk_downloader/capture_schedules.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_dscs_f08_numeric_config.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/takeover_vnc.py"
     ],
     "tests/test_dsq_batch_ops.py": [
       "bulk_downloader/app.py",
