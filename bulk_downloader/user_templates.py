@@ -113,7 +113,10 @@ def _load() -> list[dict]:
     # Defensive filter — drop any non-dict entries
     # BD-SEC-5 H1: config_defaults are cut to the safe allowlist on read too, so a
     # template stored before the import filter can never apply a command/path key.
-    return [_safe_config(t) for t in templates if isinstance(t, dict) and "id" in t]
+    # data-writes L2: secrets are stripped on read too, so a row stored before F11
+    # is served by GET /api/user_templates exactly as /export serves it.
+    return [_strip_secrets(_safe_config(t)) for t in templates
+            if isinstance(t, dict) and "id" in t]
 
 
 def _save(templates: list[dict]) -> None:
@@ -273,12 +276,9 @@ def save_user_template(
     # Enforce selector safety at the teach→save create flow: a learned block
     # with generic/nav row selectors (a, [href], nav a, …) would over-match at
     # runtime. lint_learned flags those as errors — refuse rather than store one.
-    from .selector_lint import lint_learned, has_blocking_issues
-    _dl = (learned or {}).get("download") if isinstance(learned, dict) else None
-    _issues = lint_learned(_dl or {})
-    if has_blocking_issues(_issues):
-        _msgs = "; ".join(i.message for i in _issues if i.level == "error")
-        return False, f"unsafe selectors — refine before saving: {_msgs}"[:200]
+    _lint = _lint_error(learned)
+    if _lint:
+        return False, _lint
 
     with _STORE_LOCK:
         _save_locked(template, tid)
@@ -293,6 +293,23 @@ def save_user_template(
         pass
 
     return True, template
+
+
+def _lint_error(learned) -> str:
+    """Selector-safety refusal for a learned block, or "" (save and import, L4)."""
+    from .selector_lint import lint_learned, has_blocking_issues
+    _dl = (learned or {}).get("download") if isinstance(learned, dict) else None
+    # lint_learned iterates both lists: a non-list (trigger_selectors: 5) is a
+    # per-template refusal, never a TypeError that aborts the whole import.
+    for _k in ("row_selectors", "trigger_selectors"):
+        _v = _dl.get(_k) if isinstance(_dl, dict) else None
+        if _v and not isinstance(_v, (list, tuple)):
+            return f"learned.download.{_k} must be a list"
+    _issues = lint_learned(_dl or {})
+    if has_blocking_issues(_issues):
+        _msgs = "; ".join(i.message for i in _issues if i.level == "error")
+        return f"unsafe selectors — refine before saving: {_msgs}"[:200]
+    return ""
 
 
 def _save_locked(template: dict, tid: str | None) -> None:
@@ -409,7 +426,16 @@ def _import_id_error(t) -> str:
     """F13: an imported template must carry a non-empty string id -- the store
     and GET drop id-less rows, so one would be reported added yet never listed."""
     tid = t.get("id") if isinstance(t, dict) else None
-    return "" if isinstance(tid, str) and tid.strip() else "missing id"
+    if not (isinstance(tid, str) and tid.strip()):
+        return "missing id"
+    # data-writes L3: the create route's dtr-fix F4 rule -- a hand-written
+    # built-in id is refused; only the seeded O1517 user_ built-ins may be
+    # overridden. data-writes L4: the selector lint save_user_template runs.
+    from .site_templates import SEEDED_BUILTIN_IDS, TEMPLATES
+    if tid in {b["id"] for b in TEMPLATES} - SEEDED_BUILTIN_IDS:
+        return (f"id {tid!r} is a built-in template id; user template ids "
+                "are namespaced user_...")
+    return _lint_error(t.get("learned"))
 
 
 def _import_locked(incoming: list, merge: bool) -> tuple[int, int, list[str]]:
@@ -552,6 +578,18 @@ def _secret_keys_in(t) -> list[str]:
     return sorted(found)
 
 
+def _strip_url_userinfo(value: str) -> str:
+    """``value`` with any URL userinfo (https://user:pw@host) removed (L6)."""
+    scheme, slashes, rest = value.partition("://")
+    if not slashes:
+        return value
+    end = min([i for i in (rest.find(c) for c in "/?#") if i >= 0] or [len(rest)])
+    netloc = rest[:end]
+    if "@" not in netloc:
+        return value
+    return f"{scheme}{slashes}{netloc.rpartition('@')[2]}{rest[end:]}"
+
+
 def _strip_secrets(t):
     """Return a copy of template ``t`` with all secret keys removed. v3.66.557
     (F-CORE_BD10-01): a portable user template must never carry credentials, and the
@@ -563,7 +601,12 @@ def _strip_secrets(t):
         if depth > 500:
             return {}
         if isinstance(value, dict):
-            return {k: walk(v, depth + 1) for k, v in value.items()
+            # data-writes L6: an allowlisted *_url key (login_url, ...) keeps
+            # its URL but never its userinfo.
+            return {k: (_strip_url_userinfo(v)
+                        if isinstance(v, str) and str(k).endswith("_url")
+                        else walk(v, depth + 1))
+                    for k, v in value.items()
                     if not _is_template_secret_key(k)}
         if isinstance(value, list):
             return [walk(v, depth + 1) for v in value]
