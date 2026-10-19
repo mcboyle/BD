@@ -112,6 +112,7 @@ def register(name: str, fn: Callable, *, interval_seconds: int,
             "fn": fn,
             "interval": int(interval_seconds),
             "last_run": existing.get("last_run", 0.0),
+            "last_run_mono": existing.get("last_run_mono"),
             "last_status": existing.get("last_status", "pending"),
             "last_error": existing.get("last_error", ""),
             "last_duration": existing.get("last_duration", 0.0),
@@ -174,28 +175,47 @@ def _run_one(name: str, task: dict):
         sys.stderr.write(f"[bg] task {name} raised: {e}\n")
     finally:
         task["last_run"] = time.time()
+        task["last_run_mono"] = time.monotonic()
         task["last_duration"] = task["last_run"] - started
         task["run_count"] = task.get("run_count", 0) + 1
         _mark_activity()   # a task firing keeps the cadence active (no self-wake)
 
 
-def _loop():
-    """Coordinator thread body. Polls every 30s, fires due tasks."""
-    while not _stop_event.is_set():
+def _is_due(t: dict, mono: float) -> bool:
+    """Interval elapsed? Judged on the monotonic clock: a wall clock stepped
+    back (NTP, manual set) made now - last_run negative and froze every task
+    until the clock caught up. A task this process has not run yet falls back
+    to the wall-clock record (0.0 = never run = due now)."""
+    last = t.get("last_run_mono")
+    if last is None:
+        return (time.time() - t["last_run"]) >= t["interval"]
+    return (mono - last) >= t["interval"]
+
+
+def _loop(stop_event: Optional[threading.Event] = None):
+    """Coordinator thread body. Polls every 30s, fires due tasks.
+
+    ``stop_event`` is this thread's own: start() after a stop() that timed
+    out makes a new one, so the old thread still sees its stop and exits
+    after the task it is running instead of polling beside the new thread."""
+    ev = _stop_event if stop_event is None else stop_event
+    while not ev.is_set():
         try:
-            now = time.time()
+            mono = time.monotonic()
             with _lock:
                 # Snapshot the task dict to avoid holding lock during run
                 snapshot = [
                     (name, t) for name, t in _tasks.items()
-                    if t["enabled"] and (now - t["last_run"]) >= t["interval"]
+                    if t["enabled"] and _is_due(t, mono)
                 ]
             for name, task in snapshot:
-                if _stop_event.is_set():
+                if ev.is_set():
                     break
                 _run_one(name, task)
         except Exception as e:
             sys.stderr.write(f"[bg] loop error: {e}\n")
+        if ev.is_set():
+            break   # stopped mid-task: exit now, not after a wait whose wake a newer thread cleared
         # F6 idle scaling: poll fast while active, back off while idle. The
         # wait breaks immediately on note_activity() (new work) or stop().
         interval = idle_poll_interval(_last_activity, time.time())
@@ -205,15 +225,18 @@ def _loop():
 def start():
     """Spin up the coordinator thread. Idempotent — second call is a
     no-op. Safe to call from BD startup."""
-    global _thread, _started
+    global _thread, _started, _stop_event
     if _started:
         return
     # r5 hub-db-rootcause (PM 05:55Z): the scheduler's tasks write the history DB, so it does not start on a host
     # that must not write it. Raises HistoryDBWriteRefused before any thread exists.
     from .db import refuse_history_writer_boot
     refuse_history_writer_boot("bg_scheduler.start")
-    _stop_event.clear()
-    _thread = threading.Thread(target=_loop, daemon=True, name="bd-bg-scheduler")
+    # A fresh event, never clear(): a coordinator that outlived stop()'s join
+    # keeps its set event and exits instead of resuming beside this one.
+    _stop_event = threading.Event()
+    _thread = threading.Thread(target=_loop, args=(_stop_event,), daemon=True,
+                               name="bd-bg-scheduler")
     _thread.start()
     _started = True
 

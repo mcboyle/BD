@@ -33,9 +33,17 @@ def api_bg_status():
 def api_bg_enable(name):
     _check_csrf()
     body = request.json or {}
+    # bool("false") is True: a string flag enabled the task it meant to stop.
+    flag = body.get("enabled", True) if isinstance(body, dict) else None
+    if isinstance(flag, str):
+        flag = {"true": True, "1": True, "false": False, "0": False}.get(flag.strip().lower())
+    elif not isinstance(flag, bool) and flag in (0, 1):
+        flag = bool(flag)
+    if not isinstance(flag, bool):
+        return jsonify({"ok": False, "error": "body must be {\"enabled\": true|false}"}), 400
     try:
         from . import bg_scheduler as _bg
-        ok = _bg.set_enabled(name, bool(body.get("enabled", True)))
+        ok = _bg.set_enabled(name, flag)
         return jsonify({"ok": ok})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500

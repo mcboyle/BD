@@ -21,6 +21,7 @@ import os
 import re
 import stat
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -328,6 +329,11 @@ def _own_export_name(schedule: dict):
 
 _skip_logged: set = set()
 
+# Schedule ids an export sweep in this process is running right now: a bg
+# tick and POST run_now that overlap must not export one schedule twice.
+_inflight: set = set()
+_inflight_lock = threading.Lock()
+
 
 def _skip_not_allowed(schedule: dict) -> dict:
     """A due schedule whose destination is not under an export root or allowed
@@ -548,7 +554,19 @@ def _run_one(schedule: dict, *, s_cfg: Optional[dict] = None) -> dict:
         else:
             return {"ok": False, "error": f"unknown format: {fmt}"}
         path = os.path.join(dest_dir, f"bd-{fmt}-{run_tag}.{ext}")
-        Path(path).write_bytes(body)
+        # Written under a temp name, then renamed into place: a write that
+        # failed half-way (ENOSPC) left a truncated file under the final name,
+        # indistinguishable from a complete export and kept by retention.
+        tmp = os.path.join(dest_dir, f".bd-{fmt}-{run_tag}.{ext}.part")
+        try:
+            Path(tmp).write_bytes(body)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
         return {"ok": True, "file": path, "size_bytes": len(body)}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
@@ -633,23 +651,42 @@ def run_due_exports(*, s_cfg: Optional[dict] = None,
                 _skip_not_allowed(sched))
             continue
         _skip_logged.discard(sched.get("id"))
-        out["checked"] += 1
         # Advance next_run_ts BEFORE exporting: if that write fails the
         # schedule stays due, so exporting anyway would repeat on every tick.
+        # The advance is the claim: it only lands on a row that is still
+        # enabled and still holds the next_run_ts this sweep read, so a sweep
+        # that overlaps another (tick + run_now), or a schedule removed or
+        # disabled since the SELECT, is skipped rather than exported again.
+        with _inflight_lock:
+            if sched["id"] in _inflight:
+                out.setdefault("skipped_in_progress", []).append(sched["id"])
+                continue
+            try:
+                from . import db as _db
+                next_run = time.time() + (sched["cadence_hours"] * 3600)
+                with _db.db_conn() as cx:
+                    claimed = cx.execute(
+                        """UPDATE scheduled_exports SET next_run_ts = ?
+                           WHERE id = ? AND enabled = 1 AND next_run_ts IS ?""",
+                        (next_run, sched["id"], sched.get("next_run_ts"))).rowcount > 0
+            except Exception as e:
+                sys.stderr.write(f"[scheduled_exports] schedule {sched['id']}: "
+                                 f"next_run_ts update failed, export skipped: {e}\n")
+                out["checked"] += 1
+                out["results"].append({**sched, "ok": False,
+                                       "error": f"next_run_ts update failed: {e}"[:200]})
+                out["errors"] += 1
+                continue
+            if not claimed:
+                out.setdefault("skipped_in_progress", []).append(sched["id"])
+                continue
+            _inflight.add(sched["id"])
+        out["checked"] += 1
         try:
-            from . import db as _db
-            next_run = time.time() + (sched["cadence_hours"] * 3600)
-            with _db.db_conn() as cx:
-                cx.execute("""UPDATE scheduled_exports SET next_run_ts = ?
-                              WHERE id = ?""", (next_run, sched["id"]))
-        except Exception as e:
-            sys.stderr.write(f"[scheduled_exports] schedule {sched['id']}: "
-                             f"next_run_ts update failed, export skipped: {e}\n")
-            out["results"].append({**sched, "ok": False,
-                                   "error": f"next_run_ts update failed: {e}"[:200]})
-            out["errors"] += 1
-            continue
-        result = _run_one(sched, s_cfg=s_cfg)
+            result = _run_one(sched, s_cfg=s_cfg)
+        finally:
+            with _inflight_lock:
+                _inflight.discard(sched["id"])
         # Record the outcome
         try:
             with _db.db_conn() as cx:
