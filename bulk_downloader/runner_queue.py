@@ -692,12 +692,22 @@ class QueueMixin:
             self.log.warning("reorder persist failed: %s", e)
     def set_priority(self,url,priority):
         with self._lock:
-            if url in self.jobs:
+            live = url in self.jobs
+            if live:
                 self.jobs[url]["priority"]=priority
                 if priority=="high":
                     if url in self.urls: self.urls.remove(url)
                     self.urls.insert(0,url)
-        try: queue_upsert(self.site_id,url,priority=priority)
+                order = {u: i for i, u in enumerate(self.urls)}
+        # dqb F2: only a live job is persisted, and by UPDATE -- an upsert gave
+        # a never-queued or just-deleted URL a row the next restart rehydrated.
+        if not live:
+            return
+        try:
+            queue_set_priority(self.site_id, [url], priority)
+            # dqb F9: the front-load is an order change; persist it too.
+            if priority=="high":
+                queue_reorder(self.site_id, order)
         except sqlite3.Error as e:
             self.log.warning("set_priority persist failed: %s", e)
     def bulk_priority(self,urls,priority):
@@ -714,10 +724,23 @@ class QueueMixin:
                         if u in self.urls: self.urls.remove(u)
                         promote.append(u)
             for u in reversed(promote): self.urls.insert(0,u)
+            order = {u: i for i, u in enumerate(self.urls)} if promote else None
         try:
             queue_set_priority(self.site_id, applied, priority)
+            # dqb F9: without the ord rewrite a restart restores the old order.
+            if order:
+                queue_reorder(self.site_id, order)
         except Exception: pass
         return len(urls)
+    def _mark_deleted(self, urls):
+        """dqb F4: remember URLs the operator deleted, so a worker still holding
+        one cannot re-create the job (and its row) by publishing its result.
+        Caller holds the jobs lock. A URL queued again is a job again: the
+        guard in _update_job_current only refuses a URL absent from self.jobs."""
+        deleted = getattr(self, "_deleted_urls", None)
+        if deleted is None:
+            deleted = self._deleted_urls = set()
+        deleted.update(urls)
     def bulk_delete(self,urls):
         """Remove URLs from the queue and the job map. Does NOT touch
         history (those rows persist). Returns the count actually removed.
@@ -735,6 +758,7 @@ class QueueMixin:
                         skipped_review+=1
                     del self.jobs[u]; removed+=1
             self.urls[:]=[u for u in self.urls if u not in urls]
+            self._mark_deleted(urls)
             if removed:
                 mark_status_changed()
         # dl-f4: deleting the teach target must not strand parked URLs.
