@@ -1093,15 +1093,15 @@ Schema version: 2
 - L0437 `_is_search_field` `[private]` — Return ``(is_search, reason)`` for a Playwright input locator.
 - L0455 `_search_field_reason` `[private]` — dl95-eporner-4 (main's name): why ``loc`` is a site SEARCH input, or
 - L0463 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
-- L0574 `get_input_scheduler` — Access the synthetic user input scheduler.
-- L0580 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
-- L0603 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
-- L0614 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
-- L0711 `_forced_click_hit_test` `[private]` — {state: clear|covered|no-box|offscreen|no-hit|error, [hit, cover|error]} for a forced click on loc.
-- L0718 `_forced_click_refusal` `[private]` — One refusal line: a covered control names its cover; any other state says the centre was not hit.
-- L0727 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
-- L0794 `_css_escape_for_id` `[private]`
-- L0803 `_ms_since` `[private]`
+- L0576 `get_input_scheduler` — Access the synthetic user input scheduler.
+- L0582 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
+- L0617 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
+- L0628 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
+- L0725 `_forced_click_hit_test` `[private]` — {state: clear|covered|no-box|offscreen|no-hit|error, [hit, cover|error]} for a forced click on loc.
+- L0732 `_forced_click_refusal` `[private]` — One refusal line: a covered control names its cover; any other state says the centre was not hit.
+- L0741 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
+- L0808 `_css_escape_for_id` `[private]`
+- L0817 `_ms_since` `[private]`
 ```
 
 
