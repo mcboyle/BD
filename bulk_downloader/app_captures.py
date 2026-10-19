@@ -193,9 +193,26 @@ def api_captures_allowlist_add():
         return jsonify({"ok": True, "allowlist": before})  # idempotent
     after = before + [p]
     _app_cfg["path_allowlist"] = after
-    _save_app_config()
     actor = (request.cookies.get("bd_session", "")[:8]
              or request.remote_addr or "unknown")
+    try:
+        _save_app_config()
+    except Exception as e:
+        # dscs r2 S1: a refused or failed save (AppConfigNotSaved -> 500) must not
+        # leave the widening live in memory, where every path check honours it and
+        # a retry would answer the idempotent 200. Put the list back, record the
+        # failed attempt, then let the 500 through.
+        _app_cfg["path_allowlist"] = before
+        try:
+            from . import audit as _audit
+            _audit.audit_log(source="api", action="add_failed",
+                             target="path_allowlist", before=before,
+                             after={"outcome": "failed", "attempted": after,
+                                    "error": type(e).__name__},
+                             actor=actor)
+        except Exception:
+            pass  # audit failures must never mask the save failure
+        raise
     try:
         from . import audit as _audit
         _audit.audit_log(source="api", action="add", target="path_allowlist",

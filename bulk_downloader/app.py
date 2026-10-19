@@ -597,6 +597,17 @@ def _on_sites_config_refused(e):
     return jsonify({"ok": False, "error": str(e)}), 400
 
 
+class AppConfigNotSaved(RuntimeError):
+    """dscs F01: _save_app_config refused to replace an unreadable app_config.json,
+    or its write failed. Nothing was written; the handler below answers 500 so a
+    caller never reports a save that did not happen."""
+
+
+@app.errorhandler(AppConfigNotSaved)
+def _on_app_config_not_saved(e):
+    return jsonify({"ok": False, "error": str(e)}), 500
+
+
 from .dev_metrics import RequestBudgetExceeded as _RequestBudgetExceeded
 
 @app.errorhandler(_RequestBudgetExceeded)
@@ -3053,18 +3064,21 @@ def _save_app_config():
             # merge direction, so the two writers now agree.
             merged: dict = {}
             _disk = {}
-            try:
-                if APP_CFG_FILE.exists():
+            # dscs F01: a file that exists but cannot be read as a JSON object is
+            # REFUSED, never replaced. Writing what we hold over it erased every
+            # foreign key (api_auth_token_secret) -- the loss item 41 fixed for the
+            # readable case. set_config refuses the same store the same way.
+            if APP_CFG_FILE.exists():
+                try:
                     _disk = json.loads(APP_CFG_FILE.read_text(encoding="utf-8"))
-                    if isinstance(_disk, dict):
-                        merged.update(_disk)
-                    else:
-                        _disk = {}
-            except Exception:
-                # An unreadable or malformed file is not a reason to refuse to
-                # save; fall back to writing what we hold rather than losing it.
-                merged = {}
-                _disk = {}
+                except Exception as e:
+                    raise AppConfigNotSaved(
+                        "app config store could not be read; nothing was written "
+                        f"({type(e).__name__})") from e
+                if not isinstance(_disk, dict):
+                    raise AppConfigNotSaved(
+                        "app config store is not a JSON object; nothing was written")
+                merged.update(_disk)
             # dss-token-rotate F1: a key another writer changed on disk since we
             # last saw it, while _app_cfg still holds the value we saw, is that
             # writer's value, not ours to put back (rotate_token.py rotates
@@ -3088,9 +3102,15 @@ def _save_app_config():
             tmp.replace(APP_CFG_FILE)
             _APP_CFG_DISK_SEEN.clear()
             _APP_CFG_DISK_SEEN.update(merged)
+    except AppConfigNotSaved:
+        raise
     except Exception as e:
         from . import log as _log
         _log.get_logger(__name__).error("app_config save failed: %s", e)
+        # dscs F01: a failed write is a failed save -- the caller must not answer
+        # 200. tmp + replace left the original file intact.
+        raise AppConfigNotSaved(
+            f"app config could not be written; nothing was saved ({type(e).__name__})") from e
 _load_app_config()
 
 # v3.43.80 Phase 155: apply any pending schema migrations on boot.
