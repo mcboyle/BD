@@ -81,7 +81,11 @@ def api_pair_redeem():
     SESSION_IDLE_TTL = _app_SESSION_IDLE_TTL()
     _pairing_lock = _app__pairing_lock()
     _pairing_tokens = _app__pairing_tokens()
-    body = request.json or {}
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    if not isinstance(body, dict) or not isinstance(body.get("token") or "", str):
+        return jsonify({"ok": False, "error": "body must be a JSON object with a string token"}), 400
     token = (body.get("token") or "").strip()
     if not token:
         return jsonify({"ok": False, "error": "token required"}), 400
@@ -158,7 +162,12 @@ def api_pair():
             lan_ip = host_hdr
         else:
             lan_ip = _lan_ip_guess()
-    port = int(_app_cfg.get("pair_port") or 5555)
+    try:
+        port = int(_app_cfg.get("pair_port") or 5555)
+    except (TypeError, ValueError):
+        port = 5555   # a bad operator config value is the default port, not a 500
+    if not 0 < port < 65536:
+        port = 5555
     url = f"http://{lan_ip}:{port}/"
     # One-time token: random hex. Future work could exchange this for a
     # session via /api/pair/redeem. For now it's purely informational.

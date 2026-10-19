@@ -147,6 +147,8 @@ def create_token(*, scope: str, label: str = "",
     if scope in RESERVED_SCOPES:
         return {"ok": False,
                 "error": f"scope '{scope}' is reserved and cannot be minted"}
+    if isinstance(ttl_hours, bool):   # float(True) is 1.0: a JSON true is not an hour
+        return {"ok": False, "error": "ttl_hours must be a number"}
     try:
         ttl = None if ttl_hours is None or ttl_hours == "" else float(ttl_hours)
         if ttl is not None and (not math.isfinite(ttl) or ttl <= 0):

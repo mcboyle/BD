@@ -136,6 +136,8 @@ def api_auth_login():
     username = username.strip()
     if not username or not password:
         return jsonify({"ok": False, "error": "missing username or password"}), 400
+    if len(password) > _ua.PASSWORD_MAX_LEN:
+        return _bad(_ua.PW_TOO_LONG)
     # Checked and counted before the PBKDF2 verify: a throttled guess costs no hash.
     labels = _login_labels(username)
     per_user = labels[1]

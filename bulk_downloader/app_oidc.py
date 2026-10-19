@@ -12,6 +12,7 @@ does not apply; state is bound to the Flask session to defend against forgery.
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 
 from flask import Blueprint, current_app, jsonify, request, redirect, session
 
@@ -81,7 +82,7 @@ def api_oidc_callback():
     from . import oidc as _o
     from . import user_accounts as _ua
     if request.args.get("error"):
-        return redirect("/?sso_error=" + request.args.get("error", "error"), code=302)
+        return redirect("/?sso_error=" + quote(request.args.get("error", "error")[:200], safe=""), code=302)
     code = request.args.get("code", "")
     state = request.args.get("state", "")
     if not code or not state or state != session.get("oidc_state"):
