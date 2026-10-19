@@ -249,8 +249,10 @@ def api_priority(sid):
 def api_bulk_priority(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    data=request.json or {}
-    urls=_job_keys(runners[sid], data.get("urls",[]) or [])
+    data=request.get_json(silent=True) or {}
+    ok, urls_or_err = _validate_bulk_urls(data)
+    if not ok: return jsonify(urls_or_err), 400
+    urls=_job_keys(runners[sid], urls_or_err)
     pri=data.get("priority","normal")
     if pri not in ("normal","high"): return jsonify({"error":"bad priority"}),400
     n=runners[sid].bulk_priority(urls,pri)
@@ -261,7 +263,9 @@ def api_bulk_priority(sid):
 def api_bulk_delete(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    urls=_job_keys(runners[sid], (request.json or {}).get("urls",[]) or [])
+    ok, urls_or_err = _validate_bulk_urls(request.get_json(silent=True) or {})
+    if not ok: return jsonify(urls_or_err), 400
+    urls=_job_keys(runners[sid], urls_or_err)
     n=runners[sid].bulk_delete(urls)
     return jsonify({"ok":True,"removed":n})
 
@@ -270,7 +274,9 @@ def api_bulk_delete(sid):
 def api_bulk_approve(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    urls=_job_keys(runners[sid], (request.json or {}).get("urls",[]) or [])
+    ok, urls_or_err = _validate_bulk_urls(request.get_json(silent=True) or {})
+    if not ok: return jsonify(urls_or_err), 400
+    urls=_job_keys(runners[sid], urls_or_err)
     n=runners[sid].bulk_approve(urls)
     return jsonify({"ok":True,"approved":n})
 
@@ -279,7 +285,9 @@ def api_bulk_approve(sid):
 def api_bulk_pause(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}), 404
-    urls = _job_keys(runners[sid], (request.json or {}).get("urls", []) or [])
+    ok, urls_or_err = _validate_bulk_urls(request.get_json(silent=True) or {})
+    if not ok: return jsonify(urls_or_err), 400
+    urls = _job_keys(runners[sid], urls_or_err)
     n = runners[sid].bulk_pause(urls)
     return jsonify({"ok": True, "paused": n})
 
@@ -288,7 +296,9 @@ def api_bulk_pause(sid):
 def api_bulk_resume(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}), 404
-    urls = _job_keys(runners[sid], (request.json or {}).get("urls", []) or [])
+    ok, urls_or_err = _validate_bulk_urls(request.get_json(silent=True) or {})
+    if not ok: return jsonify(urls_or_err), 400
+    urls = _job_keys(runners[sid], urls_or_err)
     n = runners[sid].bulk_resume(urls)
     return jsonify({"ok": True, "resumed": n})
 
@@ -297,7 +307,9 @@ def api_bulk_resume(sid):
 def api_bulk_retry(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}), 404
-    urls = _job_keys(runners[sid], (request.json or {}).get("urls", []) or [])
+    ok, urls_or_err = _validate_bulk_urls(request.get_json(silent=True) or {})
+    if not ok: return jsonify(urls_or_err), 400
+    urls = _job_keys(runners[sid], urls_or_err)
     n = runners[sid].bulk_retry(urls)
     return jsonify({"ok": True, "retried": n})
 
@@ -838,26 +850,45 @@ def api_jobs_bulk_mark(sid):
     # Update in-memory job state under the runner's lock — this is what
     # the live UI reads from. Persist to SQLite outside the lock.
     affected = 0
+    marked = []
     with runner._lock:
         for u in urls:
             if u not in runner.jobs:
                 continue
             j = runner.jobs[u]
+            # dqb F8: the worker owns a running job, as a source too.
+            if j.get("status") == "running":
+                continue
             # O1826 M020: a write since any in-flight single mark of u --
             # that mark's failed persist must not restore over it.
             _mark_tokens.pop((sid, u), None)
+            # dqb F8: moving a user-paused job retires the pause identity
+            # (_paused_by_user, and the "Paused by user" message _restore_queue
+            # reads it back from); any other message stays (v3.49 contract).
+            paused = (j.get("_paused_by_user")
+                      or (j.get("status") == "stopped"
+                          and j.get("message") == "Paused by user"))
+            retire = bool(paused) and status != "stopped"
             j["status"] = status
-            if message:
-                j["message"] = message
+            row_message = message or (f"Marked {status}" if retire else "")
+            if row_message:
+                j["message"] = row_message
+            if retire:
+                j.pop("_paused_by_user", None)
             j["ts"] = _ts()
             j["ts_iso"] = _ts_iso()   # CUT #41, as above
             if status in ("failed", "done"):
                 j["next_auto_retry_at"] = 0
+            marked.append((u, row_message))
             affected += 1
-    # DB-side bulk update — same urls list, single transaction
+    # DB-side bulk update -- only the jobs marked above, one call per message
     try:
         from .db import queue_bulk_mark
-        queue_bulk_mark(sid, urls, status, message=message)
+        by_message = {}
+        for u, row_message in marked:
+            by_message.setdefault(row_message, []).append(u)
+        for row_message, group in by_message.items():
+            queue_bulk_mark(sid, group, status, message=row_message)
     except Exception as e:
         sys.stderr.write(f"  bulk_mark DB persist failed: {e}\n")
     runner.log_event(
@@ -974,6 +1005,9 @@ def api_jobs_bulk_delete(sid):
                     cleanup_count += _cleanup_job_partials(runner, fn)
                 del runner.jobs[u]
                 affected += 1
+        mark_deleted = getattr(runner, "_mark_deleted", None)
+        if mark_deleted is not None:
+            mark_deleted(urls)   # dqb F4: no in-flight write re-creates them
     # DB-side bulk delete
     try:
         from .db import queue_bulk_delete

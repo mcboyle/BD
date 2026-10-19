@@ -3967,6 +3967,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     and status not in _RUN_TERMINAL_STATUSES
                     and not _memory_already_updated and url in self.jobs):
                 released_run_id = self.jobs[url].pop("_run_id", None)
+            # dqb F4: a URL the operator deleted (QueueMixin._mark_deleted) stays
+            # deleted -- the in-flight worker's trailing write must not re-create
+            # the job here, nor its row in the persist below.
+            if url not in self.jobs and url in getattr(self, "_deleted_urls", ()):
+                return False
             # v3.43.80: auto-create entry for unknown URL so stale retry_one isn't a no-op.
             if url not in self.jobs:
                 self.jobs[url] = {"last_progress_at": now}
