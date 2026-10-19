@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import random
 import time
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 
 class InputProfile(str, Enum):
@@ -223,13 +223,25 @@ class SyntheticInputScheduler:
         schedule: InputSchedule,
         *,
         real_time_sleep: bool = False,
+        refusal: Optional[Callable[[], Optional[str]]] = None,
     ) -> Dict[str, Any]:
-        """Execute scheduled actions against a real or mock Playwright page."""
+        """Execute actions, stopping on a refusal before any page mutation."""
+        def refused():
+            try:
+                return refusal() if refusal is not None else None
+            except Exception:
+                return "input refused: could not verify the current page"
+
         start_time = time.monotonic()
         executed = 0
         chars_typed = 0
+        why = None
 
         for act in schedule.actions:
+            if act.action_type != InputActionType.PAUSE:
+                why = refused()
+                if why:
+                    break
             if act.action_type == InputActionType.CLICK:
                 if act.selector and hasattr(page, "locator"):
                     loc = page.locator(act.selector)
@@ -255,14 +267,20 @@ class SyntheticInputScheduler:
 
             executed += 1
 
+        # The last key/click can navigate too; do not report a completed fill
+        # and let the caller submit or continue on that new document.
+        why = why or refused()
         elapsed_ms = (time.monotonic() - start_time) * 1000.0
-        return {
-            "ok": True,
+        report: Dict[str, Any] = {
+            "ok": not bool(why),
             "actions_executed": executed,
             "characters_typed": chars_typed,
             "elapsed_ms": round(elapsed_ms, 2),
             "estimated_ms": round(schedule.total_estimated_duration_ms, 2),
         }
+        if why:
+            report["refusal"] = why
+        return report
 
 
 def schedule_synthetic_form_input(
