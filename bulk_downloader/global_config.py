@@ -595,6 +595,51 @@ GLOBAL_CONFIG_SCHEMA: dict = {
     "netns_isolation":             {"type": (bool, dict), "safety": False, "safe_default": False},
 }
 
+# dscs-f08: the str-typed keys above that hold a number (safe_default parses;
+# the read sites cast). The type check alone let 'not-a-number' and '-999'
+# through POST /api/global_config. key -> (cast, min, max); max None = no cap.
+# "" stays valid: it means unset (env seed / default at the read site).
+NUMERIC_STR_RANGES: dict = {
+    "challenge_wait_s":                (float, 0, None),   # 0 disables the wait
+    "hls_input_timeout_us":            (int, 1, None),
+    "hls_max_runtime_s":               (int, 0, None),     # <=0 -> default at read
+    "hls_progress_poll_s":             (float, 0.01, None),
+    "live_poll_interval_s":            (int, 1, None),
+    "live_disconnect_tolerance_s":     (int, 0, None),
+    "live_max_active_recordings":      (int, 0, None),
+    "live_launch_timeout_s":           (int, 1, None),
+    "captcha_pending_timeout_s":       (int, 1, None),
+    "captcha_push_dedupe_s":           (int, 0, None),
+    "captcha_takeover_max_concurrent": (int, 1, None),
+    "captcha_takeover_idle_timeout_s": (int, 1, None),
+    "captcha_vnc_websocket_port":      (int, 1, 65535),
+    # "" safe_default, numeric at the read site (cast + clamp there):
+    "honeypot_score_threshold":        (float, 0, 1),      # <=0 -> no threshold
+    "auth_throttle_free":              (int, 0, None),
+    "auth_throttle_base":              (float, 0, None),
+    "auth_throttle_max":               (float, 0, None),
+    "secrets_audit_max_bytes":         (int, 0, None),     # 0 -> rotation off
+    "held_out_stale_days":             (int, 1, None),
+    "lib_reconcile_missing_days":      (int, 1, None),
+}
+
+
+def numeric_str_error(key: str, value: Any) -> Optional[str]:
+    """Why `value` is not a valid NUMERIC_STR_RANGES value for `key`, else None."""
+    rng = NUMERIC_STR_RANGES.get(key)
+    if rng is None or not isinstance(value, str) or not value.strip():
+        return None
+    cast, lo, hi = rng
+    kind = "a whole number" if cast is int else "a number"
+    bounds = f">= {lo}" if hi is None else f"in [{lo}, {hi}]"
+    try:
+        n = cast(value.strip())
+    except (TypeError, ValueError, OverflowError):
+        return f"{key} must be {kind} {bounds}"
+    if n != n or n in (float("inf"), float("-inf")) or n < lo or (hi is not None and n > hi):
+        return f"{key} must be {kind} {bounds}"
+    return None
+
 # Top-level keys that are LEGITIMATELY dicts — not the flat-lookup footgun.
 KNOWN_NESTED: tuple = ("tunnels", "global_settings", "automation_policy")
 
