@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6802,
+  "edge_count": 6811,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4354,6 +4354,13 @@
       "bulk_downloader/resume.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_dl_retry_writer.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/retry_policy.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_scheduler.py",
+      "bulk_downloader/runner_transport.py"
+    ],
     "tests/test_dl_runner_bughunt_fixes.py": [
       "bulk_downloader/app_runners.py",
       "bulk_downloader/db.py",
@@ -5779,6 +5786,14 @@
       "bulk_downloader/app_data_layer.py",
       "bulk_downloader/dom_capture.py",
       "bulk_downloader/dom_recorder.py"
+    ],
+    "tests/test_o1789_drb_fix_r2_backup_api.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_backup.py"
+    ],
+    "tests/test_o1789_drb_fix_r4_restore.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_backup.py"
     ],
     "tests/test_o1789_embed_viewport_fix.py": [
       "bulk_downloader/embeddings.py",
