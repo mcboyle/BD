@@ -286,11 +286,6 @@ def bulk_move(filter_dict: dict, *, target_dir: str,
     to the new path on success. Preserves the basename."""
     if not target_dir:
         return {"ok": False, "error": "target_dir required"}
-    if not os.path.isdir(target_dir):
-        try:
-            os.makedirs(target_dir, exist_ok=True)
-        except OSError as e:
-            return {"ok": False, "error": f"can't create target: {e}"}
     rows = _matching_rows(filter_dict or {})
     rows = [r for r in rows if r.get("filename") and os.path.isfile(r["filename"])]
     out = {"ok": True, "candidates_matched": len(rows),
@@ -301,6 +296,13 @@ def bulk_move(filter_dict: dict, *, target_dir: str,
                           "to": os.path.join(target_dir, os.path.basename(r["filename"]))}
                          for r in rows[:10]]
         return out
+    # data-writes L1: created only for a real move -- the dry_run preview has no
+    # side effect on disk.
+    if not os.path.isdir(target_dir):
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+        except OSError as e:
+            return {"ok": False, "error": f"can't create target: {e}"}
     for r in rows:
         src = r["filename"]
         dst = os.path.join(target_dir, os.path.basename(src))
