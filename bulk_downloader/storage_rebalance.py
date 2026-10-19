@@ -29,13 +29,21 @@ from pathlib import Path
 from typing import Optional
 
 
-def inventory(paths: list) -> list:
+def inventory(paths: list, *, roots_bound: bool = False) -> list:
     """Snapshot capacity + current usage per path.
 
     Returns list of {path, total_gb, free_gb, used_gb, mount_id,
-                     file_count, total_known_bytes}."""
+                     file_count, total_known_bytes}.
+
+    roots_bound=True (every HTTP route): a path outside every configured
+    download root is never stat'd, and it gets one answer whether or not it
+    exists -- a request-named path is not a host existence oracle."""
+    from .paths import within_download_roots
     out = []
     for p in paths:
+        if roots_bound and not within_download_roots(p):
+            out.append({"path": p, "error": "outside the download roots"})
+            continue
         if not p or not os.path.isdir(p):
             out.append({"path": p, "error": "missing"})
             continue
@@ -77,10 +85,10 @@ def inventory(paths: list) -> list:
 
 
 def plan_rebalance(paths: list, strategy: str = "even_fill",
-                  *, max_moves: int = 100) -> dict:
+                  *, max_moves: int = 100, roots_bound: bool = False) -> dict:
     """Compute a rebalance plan. Returns {strategy, moves: [{from, to,
-    filename, size_bytes, reason}], summary}."""
-    inv = inventory(paths)
+    filename, size_bytes, reason}], summary}. roots_bound: as inventory()."""
+    inv = inventory(paths, roots_bound=roots_bound)
     available = [i for i in inv if "error" not in i]
     if len(available) < 2:
         return {"strategy": strategy, "moves": [],
