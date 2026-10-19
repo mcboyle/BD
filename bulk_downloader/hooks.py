@@ -845,6 +845,15 @@ def _dispatch(event, site_config, vars, job):
     if webhook_urls and event in subscribed:
         payload = dict(vars)
         payload["job"] = {k: v for k, v in (job or {}).items() if k != "screenshot"}
+        # D13: the free-text failure fields can carry a signed media URL
+        # (?token=...&sig=...); the receiver gets them redacted. Only these
+        # fields: filename/path are structure the receiver needs verbatim.
+        from .capture_artifact_redact import redact_value  # lazy: avoid import at module load
+        if isinstance(payload.get("message"), str):
+            payload["message"] = redact_value(payload["message"])
+        for k in ("message", "error"):
+            if isinstance(payload["job"].get(k), str):
+                payload["job"][k] = redact_value(payload["job"][k])
         for url in webhook_urls:
             url = _render_template(url, vars, url_quote=True).strip()
             if not url: continue

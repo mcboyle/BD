@@ -501,6 +501,11 @@ def _can_flush(size, max_wait) -> bool:
         return False
 
 
+def _one_line(s: str) -> str:
+    """D15: fold CR/LF so one batched item renders as exactly one line."""
+    return s.replace("\r", " ").replace("\n", " ")
+
+
 # ─── Batching dispatcher ────────────────────────────────────────────
 
 
@@ -663,8 +668,10 @@ class NotificationDispatcher:
         # Body: one line per item, truncated
         lines: list = []
         for it in batch.items[:20]:  # cap at 20 to keep msg short
-            t = (it.get("title") or "")[:80]
-            b = (it.get("body") or "")[:120]
+            # D15: one item is one line -- a CR/LF in a filename/body must not
+            # forge another item's line in the combined body.
+            t = _one_line(it.get("title") or "")[:80]
+            b = _one_line(it.get("body") or "")[:120]
             if t and b:
                 lines.append(f"- {t}: {b}")
             else:
@@ -672,27 +679,66 @@ class NotificationDispatcher:
         if n > 20:
             lines.append(f"  ... and {n - 20} more")
         body = "\n".join(lines)
-        self._fire(title, body, tag=event_type)
+        if self._fire(title, body, tag=event_type, retry=False) is not False:
+            return
+        # D14: a failed flush is re-queued once (it goes out on the next flush,
+        # after the batch's own wait); an item that already had its retry is
+        # dropped. Bounded per item, so it holds when new items join meanwhile.
+        retry = [dict(it, attempts=1) for it in batch.items if not it.get("attempts")]
+        dropped = n - len(retry)
+        if dropped:
+            log.info("apprise: batch retry failed, dropped %d %s", dropped, event_type)
+        if not retry:
+            return
+        if self._stop_event.is_set():
+            # Shutting down: a re-queue would restart the stopped timer.
+            log.info("apprise: batch send failed on shutdown, dropped %d %s", len(retry), event_type)
+            return
+        with self._lock:
+            if not self._enabled:
+                return
+            pending = self._pending.get(event_type)
+            if pending is None:
+                pending = _PendingBatch(
+                    event_type=event_type, started_at=time.monotonic(),
+                )
+                self._pending[event_type] = pending
+            pending.items[:0] = retry
+            self._maybe_start_timer()
+        log.info("apprise: batch send failed, re-queued %d %s", len(retry), event_type)
 
-    def _fire(self, title: str, body: str, *, tag: str = "") -> None:
+    def _fire(self, title: str, body: str, *, tag: str = "",
+              retry: bool = True) -> bool:
         """Actually dispatch via apprise.send. Captured in its own
-        method so it can be unit-tested via mock."""
+        method so it can be unit-tested via mock. Returns False when the
+        send reached no target. D14: with `retry`, a send that reached no
+        target is resent once."""
         try:
             urls = list(self._urls)
         except Exception:
-            return
+            return True
         if not urls:
-            return
-        try:
-            result = send(urls, title=title, body=body, tag=tag)
-            if result.failed_count > 0:
-                log.info(
-                    "apprise: %s — sent %d, failed %d, errors %s",
-                    tag, result.sent_count, result.failed_count,
-                    result.errors[:3],
-                )
-        except Exception as e:
-            log.debug("apprise: _fire raised: %s", e)
+            return True
+        for attempt in range(2 if retry else 1):
+            try:
+                result = send(urls, title=title, body=body, tag=tag)
+                if result.failed_count > 0:
+                    log.info(
+                        "apprise: %s — sent %d, failed %d, errors %s",
+                        tag, result.sent_count, result.failed_count,
+                        result.errors[:3],
+                    )
+                # Partial failure is not resent: it would duplicate to the
+                # targets that already got it.
+                if result.sent_count > 0 or result.failed_count == 0:
+                    return True
+            except Exception as e:
+                log.debug("apprise: _fire raised: %s", e)
+            if retry and attempt == 0:
+                log.info("apprise: %s — send failed, retrying once", tag)
+        if retry:
+            log.info("apprise: retry failed, dropped (%s)", tag)
+        return False
 
     def flush_all(self) -> None:
         """Flush every pending batch immediately. Call on shutdown."""

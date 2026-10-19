@@ -81,6 +81,7 @@ disabled or unreachable, BD keeps running normally. Local commands
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections import deque
@@ -150,6 +151,11 @@ def _is_httpx_available() -> bool:
         return False
 
 
+def _mask_tg_url(url: str) -> str:
+    """D16: the API path segment is bot<TOKEN>; a log line gets it masked."""
+    return re.sub(r"/bot[^/]+", "/bot<redacted>", str(url or ""))[:120]
+
+
 def _http_get_json(url: str, timeout_s: float = _DIRECT_API_TIMEOUT_S) -> Optional[dict]:
     """GET a Telegram API URL, parse the response as JSON. Returns the
     `result` key on success, None on any failure. Never raises."""
@@ -162,7 +168,7 @@ def _http_get_json(url: str, timeout_s: float = _DIRECT_API_TIMEOUT_S) -> Option
         with httpx.Client(timeout=timeout_s, transport=guarded_transport(PINNED)) as client:
             r = client.get(url)
         if r.status_code != 200:
-            log.debug("tg_bot: GET %s -> %d", url[:60], r.status_code)
+            log.debug("tg_bot: GET %s -> %d", _mask_tg_url(url), r.status_code)
             return None
         data = r.json()
         if not isinstance(data, dict) or not data.get("ok"):
@@ -185,7 +191,7 @@ def _http_post_json(url: str, payload: dict,
         with httpx.Client(timeout=timeout_s, transport=guarded_transport(PINNED)) as client:
             r = client.post(url, json=payload)
         if r.status_code != 200:
-            log.debug("tg_bot: POST %s -> %d", url[:60], r.status_code)
+            log.debug("tg_bot: POST %s -> %d", _mask_tg_url(url), r.status_code)
             return None
         data = r.json()
         if not isinstance(data, dict) or not data.get("ok"):
