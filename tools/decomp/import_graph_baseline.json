@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6780,
+  "edge_count": 6798,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1544,6 +1544,7 @@
       "bulk_downloader/global_config.py"
     ],
     "bulk_downloader/hooks.py": [
+      "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/push.py",
       "bulk_downloader/urllib_ssrf.py"
     ],
@@ -2594,6 +2595,7 @@
       "bulk_downloader/redaction_profile.py"
     ],
     "bulk_downloader/webhooks.py": [
+      "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/db.py",
       "bulk_downloader/deep_http.py",
       "bulk_downloader/hooks.py"
@@ -3124,6 +3126,12 @@
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
       "bulk_downloader/migrations.py"
+    ],
+    "tests/test_bughunt_ssqh_f5.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_bughunt_widgets_fix.py": [
       "bulk_downloader/widgets_config.py"
@@ -4353,6 +4361,15 @@
       "bulk_downloader/global_config.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/task_drain_engine.py"
+    ],
+    "tests/test_dn_d13_d16_notification_hardening.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/notify_apprise.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/tg_bot.py",
+      "bulk_downloader/webhooks.py"
     ],
     "tests/test_dn_fix_webhook_delivery.py": [
       "bulk_downloader/db.py",
@@ -5692,6 +5709,10 @@
     ],
     "tests/test_o1713_wheelhouse_version_sort.py": [
       "tools/local_wheelhouse.py"
+    ],
+    "tests/test_o1789_ai_provider_key_redaction.py": [
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/aiassist.py"
     ],
     "tests/test_o1789_app_core_health_fix.py": [
       "bulk_downloader/app.py",
@@ -8094,6 +8115,11 @@
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_secrets_export_edges_e2.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/eol_export.py"
     ],
     "tests/test_secrets_store.py": [
       "bulk_downloader/secrets_store.py"
