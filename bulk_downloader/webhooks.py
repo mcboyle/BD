@@ -129,7 +129,7 @@ def add_subscription(*, url: str, events: list,
     # webhook policy from v3.66.553 (rejects cloud-metadata/link-local/CGNAT/
     # multicast/unspecified + non-http schemes; ALLOWS RFC1918 LAN + loopback +
     # public -- Plex/Jellyfin/Home Assistant receivers legitimately live on LAN).
-    from .hooks import _validate_webhook_url  # lazy: no static import edge
+    from .hooks import _validate_webhook_url  # lazy: avoid import at module load
     _ok, _why = _validate_webhook_url(url.strip())
     if not _ok:
         return None
@@ -189,6 +189,10 @@ def fire(event_name: str, payload: dict):
     drain worker."""
     if not event_name:
         return
+    # D13: a failure message can carry a signed media URL; queue it redacted.
+    if isinstance((payload or {}).get("message"), str):
+        from .capture_artifact_redact import redact_value  # lazy: avoid import at module load
+        payload = dict(payload, message=redact_value(payload["message"]))
     _ensure_tables()
     try:
         from . import db as _db
@@ -262,7 +266,7 @@ def _deliver_one(item: dict) -> dict:
     # F-CBD12-01: re-validate the stored URL at delivery time -- defends against
     # DNS rebinding between registration and delivery, and against a hand-edited
     # or pre-guard subscription row. Same operator-chosen v3.66.553 policy.
-    from .hooks import _validate_webhook_url  # lazy: no static import edge
+    from .hooks import _validate_webhook_url  # lazy: avoid import at module load
     _ok, _why = _validate_webhook_url(url)
     if not _ok:
         return {"ok": False, "error": f"blocked url: {_why}", "permanent": True}
@@ -286,13 +290,13 @@ def _deliver_one(item: dict) -> dict:
             # Rebind pin: the address connected to is judged at connect time
             # (link-local / cloud metadata, CGNAT refused; LAN as validated).
             # The pinned session stands in for the requests module below.
-            from . import deep_http as _dh  # lazy: no static import edge
+            from . import deep_http as _dh  # lazy: avoid import at module load
             session = requests = _dh.pinned_session(_dh.hook_address_allowed)
         r = requests.post(url, data=body_bytes, headers=headers,
                          timeout=10, allow_redirects=False)
         if r.status_code < 300:
             return {"ok": True, "status": r.status_code}
-        from .hooks import _http_status_retryable, _retry_after_seconds  # lazy: no static import edge
+        from .hooks import _http_status_retryable, _retry_after_seconds  # lazy: avoid import at module load
         # 4xx is permanent, except 408/429: the receiver asks us to come back
         if not _http_status_retryable(r.status_code):
             return {"ok": False, "status": r.status_code,
