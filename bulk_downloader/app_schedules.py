@@ -40,6 +40,8 @@ def api_schedules_add():
     (site_id, cadence_hours) to absorb a double-submit."""
     _check_csrf()
     body = request.json or {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
     try:
         from . import capture_schedules as _cs
         rid = _cs.add_schedule(
@@ -74,6 +76,8 @@ def api_schedules_update(sid):
     schedule for the same site (the add-side double-fire guard)."""
     _check_csrf()
     body = request.json or {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
     try:
         from . import capture_schedules as _cs
         res = _cs.update_schedule(
