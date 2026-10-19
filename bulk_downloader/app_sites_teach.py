@@ -632,7 +632,7 @@ def api_template_dry_run(sid):
     try:
         from .dry_run import template_dry_run
         url = body.get("url") or _site_primary_url(cfg) or ""
-        return jsonify(template_dry_run(url, html=html))
+        return jsonify(template_dry_run(url, html=html, site_config=cfg))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 

@@ -76,7 +76,10 @@ def api_setup_site():
     """
     s_cfg = _app_s_cfg()
     from . import secrets_store as ss
-    data = dict(request.json or {})
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    data = dict(data)
     name = (data.get("name") or "").strip()
     login_url = (data.get("login_url") or "").strip()
     if not name or not login_url:
