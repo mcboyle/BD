@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6754,
+  "edge_count": 6767,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -165,7 +165,8 @@
       "bulk_downloader/account_health.py"
     ],
     "bulk_downloader/app_activity.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/exports.py"
     ],
     "bulk_downloader/app_ai.py": [
       "bulk_downloader/ai_boot_status.py",
@@ -806,6 +807,9 @@
     "bulk_downloader/app_thumbnail_sheets.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/thumbnail_sheets.py"
+    ],
+    "bulk_downloader/app_thumbnails.py": [
+      "bulk_downloader/app_thumbs.py"
     ],
     "bulk_downloader/app_thumbs.py": [
       "bulk_downloader/thumbnail_sheets.py"
@@ -1887,7 +1891,8 @@
       "bulk_downloader/ytdlp_updater.py"
     ],
     "bulk_downloader/push.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/deep_http.py"
     ],
     "bulk_downloader/qb_bridge.py": [
       "bulk_downloader/ssrf_transport.py"
@@ -5290,6 +5295,18 @@
     "tests/test_mirror_probe_ssrf.py": [
       "bulk_downloader/runner_telemetry.py"
     ],
+    "tests/test_misc_surface_c1_thumbnails_regenerate_confine.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_misc_surface_c2_c6.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/deep_http.py",
+      "bulk_downloader/federation.py",
+      "bulk_downloader/marketplace.py",
+      "bulk_downloader/push.py",
+      "bulk_downloader/template_registry.py"
+    ],
     "tests/test_mod1_c10_netns_config_gui.py": [
       "bulk_downloader/app_global_config.py",
       "bulk_downloader/global_config.py",
@@ -8170,6 +8187,10 @@
       "bulk_downloader/app.py",
       "bulk_downloader/app_sites_lifecycle.py",
       "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_sl_fix_r2_clone_secrets_and_transform_re_error.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/site_editor.py"
     ],
     "tests/test_sl_lock_per_site.py": [
       "bulk_downloader/app.py",
