@@ -70,8 +70,8 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     isDark: false,
     vars: {
       bg: "#eaeef3", surface: "#ffffff", "surface-2": "#f6f9fc",
-      ink: "#0a2540", "ink-2": "#4b5563", "ink-3": "#6b7280",
-      primary: "#635bff", "primary-soft": "#f0effe",
+      ink: "#0a2540", "ink-2": "#4b5563", "ink-3": "#5f6673",
+      primary: "#564ef0", "primary-soft": "#f0effe",
       green: "#059669", "green-soft": "#d1fae5",
       amber: "#d97706", "amber-soft": "#fef3c7",
       red: "#dc2626", "red-soft": "#fee2e2",
