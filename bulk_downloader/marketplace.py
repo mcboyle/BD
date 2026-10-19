@@ -115,12 +115,18 @@ def _redact(cfg: dict) -> dict:
         if k in _LOCAL_PATH_KEYS:
             out[k] = ""  # operator fills in on import
             continue
-        if isinstance(v, dict):
-            # Recursively redact nested dicts
-            out[k] = _redact(v)
-        else:
-            out[k] = v
+        out[k] = _redact_value(v)
     return out
+
+
+def _redact_value(v):
+    """Recursively redact nested dicts, including dicts inside lists
+    (e.g. an accounts list of {username, password} entries)."""
+    if isinstance(v, dict):
+        return _redact(v)
+    if isinstance(v, list):
+        return [_redact_value(x) for x in v]
+    return v
 
 
 # ─── Sign / Verify ────────────────────────────────────────────────────
@@ -278,6 +284,9 @@ def import_template(
     if not v["ok"]:
         return {**out, "errors": v["errors"]}
     sig_check = verify_signature(bundle, secret=verify_with or "")
+    if verify_with and not sig_check["signed"]:
+        return {**out, "errors": ["unsigned bundle refused"],
+                "signature_check": sig_check}
     if not sig_check["ok"]:
         return {**out, "errors": ["signature verification failed"],
                 "signature_check": sig_check}
@@ -333,6 +342,9 @@ def preview_import_template(
         return out
     sig_check = verify_signature(bundle, secret=verify_with or "")
     out["signature_check"] = sig_check
+    if verify_with and not sig_check["signed"]:
+        out["errors"] = ["unsigned bundle refused"]
+        return out
     if not sig_check["ok"]:
         out["errors"] = ["signature verification failed"]
         return out

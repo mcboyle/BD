@@ -16,12 +16,15 @@ points at Apple's APNs gateway which proxies to the device. The
 subscription is bound to the home-screen instance, not Safari.
 """
 import base64
+import ipaddress
 import json
 import os
+import socket
 import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import db as _db
 
@@ -156,6 +159,77 @@ def is_available():
     return bool(vapid_public_key())
 
 
+_ENDPOINT_MAX_LEN = 2048
+_SEND_TIMEOUT_S = 10
+
+
+def _endpoint_ok(endpoint):
+    """A push endpoint is a browser vendor's public https push service.
+    Refuse anything that would make send_push POST to a non-https scheme,
+    a credentialed URL, an IP literal / localhost / single-label host
+    (the internal network), or an oversized string."""
+    if not isinstance(endpoint, str) or not endpoint or len(endpoint) > _ENDPOINT_MAX_LEN:
+        return False
+    try:
+        parts = urlsplit(endpoint)
+        host = parts.hostname or ""
+    except ValueError:
+        return False
+    if parts.scheme != "https" or not host or "@" in parts.netloc:
+        return False
+    # r2 (security F1): "localhost." is localhost -- drop the root dot first.
+    host = host.rstrip(".")
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    # r2 (F1): the resolver also takes non-canonical IPv4 (127.1, 0x7f.0.0.1,
+    # 0177.0.0.1, 10.1) that ipaddress refuses; anything inet_aton parses is an
+    # address literal, never a push-service name.
+    try:
+        socket.inet_aton(host)
+        return False
+    except (OSError, ValueError):
+        pass
+    if host == "localhost" or host.endswith(".localhost") or "." not in host:
+        return False
+    # r2 (F1/A1): judge where the name actually points -- every answer must be
+    # a global address (a name resolving internal is the internal network).
+    # A name that does not resolve here cannot reach anything yet: it is not
+    # refused (offline install, operator check endpoints), because the send
+    # re-runs this check and connects only through _push_session, which
+    # resolves again at connect time and refuses any non-public answer.
+    try:
+        port = parts.port or 443
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return True
+    except ValueError:
+        return False
+    addrs = [info[4][0] for info in infos
+             if info[0] in (socket.AF_INET, socket.AF_INET6)]
+    for addr in addrs:
+        try:
+            if not ipaddress.ip_address(addr.split("%", 1)[0]).is_global:
+                return False
+        except ValueError:
+            return False
+    return True
+
+
+def _push_session():
+    """r2 (A1): the requests session webpush posts through. Its connects go only
+    to an address judged public at connect time (deep_http rebind pin), and it
+    follows no redirect (a 3xx to an internal host is a failure, not a hop)."""
+    from . import deep_http as _dh  # lazy: no static import edge
+    session = _dh.pinned_session(_dh.public_address_allowed)
+    session.max_redirects = 0
+    return session
+
+
 def add_subscription(sub_dict, user_agent=""):
     """Store a PushSubscription. sub_dict is what JS sends — typically
     {endpoint, keys: {p256dh, auth}}. Idempotent on endpoint.
@@ -179,6 +253,8 @@ def add_subscription(sub_dict, user_agent=""):
     for v in (endpoint, p256dh, auth):
         if not isinstance(v, str) or not v:
             return False
+    if not _endpoint_ok(endpoint):
+        return False
     with _conn() as cx:
         cx.execute("""INSERT OR REPLACE INTO push_subscriptions
             (endpoint, p256dh, auth, user_agent, created_at, last_sent_at)
@@ -242,6 +318,11 @@ def send_push(title, body, url=None, tag=None, throttle_seconds=60):
     for r in rows:
         if (now - (r["last_sent_at"] or 0)) < throttle_seconds:
             throttled += 1; continue
+        if not _endpoint_ok(r["endpoint"]):
+            # Stored before endpoint validation existed: never POST to it.
+            failed += 1
+            sys.stderr.write("[push] refusing invalid stored endpoint\n")
+            continue
         try:
             webpush(
                 subscription_info={"endpoint": r["endpoint"],
@@ -250,6 +331,8 @@ def send_push(title, body, url=None, tag=None, throttle_seconds=60):
                 vapid_private_key=priv,
                 vapid_claims={"sub": _admin_email()},
                 ttl=600,  # 10 minutes — drop if device offline that long
+                timeout=_SEND_TIMEOUT_S,
+                requests_session=_push_session(),  # r2 (A1): rebind pin, no redirects
             )
             sent += 1
             # Update last_sent_at so subsequent calls within 60s skip

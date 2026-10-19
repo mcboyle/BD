@@ -142,6 +142,7 @@ def api_activity_v2_export_csv():
     import csv
     import io
     import sqlite3 as _sqlite3
+    from .exports import csv_cells  # lazy, as app_sites_queue's history CSV
     window = (request.args.get("window") or "24h").lower()
     q = (request.args.get("q") or "").strip()
     window_days = {"24h": 1, "7d": 7, "30d": 30, "all": None}.get(window)
@@ -171,12 +172,12 @@ def api_activity_v2_export_csv():
             sid = r.get("site_id") or ""
             cfg = s_cfg.get(sid, {}) or {}
             name = cfg.get("name") or sid
-            w.writerow([
+            w.writerow(csv_cells([
                 r.get("id"), r.get("ts"), sid, name,
                 r.get("filename"), r.get("status"),
                 r.get("file_size") or 0,
                 (r.get("message") or "")[:500],
-            ])
+            ]))
         body = buf.getvalue()
         import time as _t
         fname = f"bulkdl-activity-{window}-{int(_t.time())}.csv"
