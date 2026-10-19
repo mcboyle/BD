@@ -2616,12 +2616,18 @@ const PAGES={};
 PAGES.home=async()=>{
   // Home (redesign): release strip + posture + recommended-next-step + KPI/debt
   // cards + Next actions. All values from existing safe endpoints; nothing invented.
-  const [debt,tasks,health]=await Promise.all([api('/api/debt'),api('/api/tasks'),apiRoot('/api/health').catch(()=>({}))]);
+  // /api/health answers 503 + {ok:false} when degraded and apiRoot throws on non-2xx, so a
+  // .catch(()=>({})) here painted "Health OK" exactly when it was not (scs-fix-r2 F3). Keep
+  // the HTTP outcome: non-2xx or ok/db_ok false -> FAIL; no answer or no JSON -> unknown.
+  const [debt,tasks,health]=await Promise.all([api('/api/debt'),api('/api/tasks'),
+    fetch('/api/health').then(async r=>{let b=null;try{b=await r.json();}catch(e){}return {http_ok:r.ok,body:b};}).catch(()=>({http_ok:null,body:null}))]);
   const running=tasks.tasks.filter(t=>t.status==='running').length;
   const failed=tasks.tasks.filter(t=>t.status==='failed').length;
   const corr=Number(debt.correction||0), cap=Number(debt.capability||0), val=Number(debt.validation||0);
-  const ver=health.version?('v'+health.version):'—';
-  const healthy=(health.ok!==false)&&(health.db_ok!==false);
+  const hobj=!!health.body&&typeof health.body==='object', hb=hobj?health.body:{};
+  const ver=hb.version?('v'+hb.version):'—';
+  const hstate=health.http_ok===null?'unknown':!health.http_ok?'FAIL':!hobj?'unknown':(hb.ok!==false&&hb.db_ok!==false)?'OK':'FAIL';
+  const healthy=hstate==='OK';
   const stamp=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
   // recommended next step (priority order; safe generic fallback)
   let rec;
@@ -2635,7 +2641,7 @@ PAGES.home=async()=>{
   return `<div class="main-inner">
   <div class="hrel">
     <span class="dot ${healthy?'':'bad'}"></span><span>Live <b>${ver}</b></span><span class="sep">·</span>
-    <span>Health <b>${healthy?'OK':'check'}</b></span>
+    <span>Health <b>${hstate}</b></span>
     <span class="stamp">UI updated ${stamp}</span>
   </div>
   <h1>Home</h1><p class="sub">What matters right now — authorized local operations.</p>
