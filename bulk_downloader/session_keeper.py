@@ -61,7 +61,9 @@ Public surface:
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import random
 import re
 import sqlite3
@@ -1339,10 +1341,21 @@ class SessionKeeper:
             # this module: profiles/<sid>/keepalive_<idx>. Distinct
             # from worker profiles (profiles/<sid>/worker_*) to avoid
             # contention with concurrent downloads.
-            profile_dir = Path("profiles") / self.site_id / f"keepalive_{self.account_idx}"
+            profile_dir = self._keepalive_profile_dir()
             first_launch = not profile_dir.exists() or not any(
                 profile_dir.iterdir()) if profile_dir.exists() else True
             profile_dir.mkdir(parents=True, exist_ok=True)
+            # O1789 session-auth-capture F4: a jar written by someone other
+            # than this profile's keeper (auto-relogin, takeover, manual
+            # login) since the profile last synced with it is newer than
+            # the profile's session -> reseed. A profile with no record yet
+            # adopts the current jar as its baseline (no reseed).
+            jar_digest = self._jar_digest()
+            jar_seen = self._jar_seen(profile_dir)
+            reseed = (not first_launch and bool(jar_digest)
+                      and jar_seen is not None and jar_digest != jar_seen)
+            if not first_launch and jar_seen is None:
+                self._mark_jar_seen(profile_dir, jar_digest)
 
             # Headless, minimal flags. We're not pretending to be a real
             # user here — we're just refreshing a session.
@@ -1394,18 +1407,27 @@ class SessionKeeper:
             # re-inject on every launch we'd lose any cookies the
             # site set between heartbeats — the exact bug this fix
             # closes.)
-            if first_launch:
+            if first_launch or reseed:
                 cookies = self._load_cookies_as_playwright()
                 if cookies:
                     try:
                         self._ctx.add_cookies(cookies)
+                        self._mark_jar_seen(profile_dir, jar_digest)
                         sys.stderr.write(
                             f"  keepalive[{self.site_id}/{self.account_idx}]: "
-                            f"seeded {len(cookies)} cookies into fresh profile\n")
+                            + (f"seeded {len(cookies)} cookies into fresh profile\n"
+                               if first_launch else
+                               f"reseeded {len(cookies)} cookies from a jar "
+                               f"written since this profile last synced\n"))
                     except Exception as e:
                         sys.stderr.write(
                             f"  keepalive[{self.site_id}/{self.account_idx}]: "
                             f"first-launch cookie seed failed: {e}\n")
+            if first_launch and self._jar_seen(profile_dir) is None:
+                # Nothing seeded (no jar yet, or the seed failed): record that,
+                # so the next launch reseeds instead of taking this profile
+                # for a pre-record one and adopting the jar as its baseline.
+                self._mark_jar_seen(profile_dir, "unseeded")
             # `launch_persistent_context` opens with a blank page by
             # default. Reuse it if present so we don't accumulate
             # about:blank tabs.
@@ -1452,6 +1474,38 @@ class SessionKeeper:
             return False
         finally:
             lock.release()
+
+    # O1789 session-auth-capture F4: sha256 of the jar this keepalive profile
+    # last synced with (seeded from or persisted to), kept in the profile dir.
+    _JAR_SEEN_NAME = ".bd_jar_seen"
+
+    def _keepalive_profile_dir(self) -> Path:
+        return Path("profiles") / self.site_id / f"keepalive_{self.account_idx}"
+
+    def _jar_digest(self) -> str:
+        from .cookies import cookie_jar_path
+        try:
+            return hashlib.sha256(cookie_jar_path(
+                self.site_id, self.account_idx, self.config).read_bytes()).hexdigest()
+        except OSError:
+            return ""
+
+    def _jar_seen(self, profile_dir: Path):
+        try:
+            return (profile_dir / self._JAR_SEEN_NAME).read_text(
+                encoding="utf-8").strip()
+        except OSError:
+            return None
+
+    def _mark_jar_seen(self, profile_dir: Path, digest: str) -> None:
+        if not digest:
+            return
+        try:
+            (profile_dir / self._JAR_SEEN_NAME).write_text(digest, encoding="utf-8")
+        except OSError as e:
+            sys.stderr.write(
+                f"  keepalive[{self.site_id}/{self.account_idx}]: "
+                f"jar sync record write failed: {e}\n")
 
     def _teardown_browser(self):
         """Best-effort browser cleanup. Each step is wrapped because the
@@ -1555,6 +1609,13 @@ class SessionKeeper:
             try:
                 save_cookies_to_file(cookie_path, cookies,
                                      account_idx=self.account_idx)
+                profile_dir = self._keepalive_profile_dir()
+                if profile_dir.is_dir():
+                    # digest the text this save wrote (text mode: \n ->
+                    # os.linesep), never a re-read a concurrent writer won
+                    written = json.dumps(cookies, indent=2, ensure_ascii=False)
+                    self._mark_jar_seen(profile_dir, hashlib.sha256(
+                        written.replace("\n", os.linesep).encode("utf-8")).hexdigest())
             except CookieRoundTripError as e:
                 # Round-trip failed — the .tmp+replace may have left a
                 # corrupted file at the destination. Log loudly so the
@@ -1707,7 +1768,39 @@ class SessionKeeper:
             if 300 <= resp.status_code < 400:
                 loc = resp.headers.get("location", "")
                 if _LOGIN_URL_RE.search(loc):
-                    return DEAD, f"redirected to login: {loc[:80]}"
+                    # O1789 session-auth-capture F12-edge: this reason lands
+                    # in session_history. A Location may be relative (the
+                    # credential redactor only sees http(s) URLs) and carry a
+                    # token under any name: withhold its query and fragment.
+                    # A scheme-relative or backslash authority ("//u:p@h",
+                    # "\\u:p@h") is one the redactor does not see: mask its
+                    # userinfo here, whatever the slashes. As a browser does
+                    # (WHATWG): drop tab/CR/LF, trim C0/space, take %2F/%5C
+                    # as slashes; after a scheme any slash count (0+) can
+                    # reach the authority, without one it takes 2+. The
+                    # authority runs to the first / ? or #, and for a special
+                    # scheme (or none: the base is https) also to the first
+                    # \, so an "@" in a query or fragment is not userinfo but
+                    # one after a "\" of a non-special scheme ("foo:") is:
+                    # mask before the cut.
+                    from .login_impl.replay import redact_url_credentials
+                    loc = re.sub(r"[\t\n\r]", "", loc).strip(
+                        "".join(map(chr, range(33))))
+                    scheme = re.match(r"[a-z][a-z0-9+.-]*:", loc, flags=re.I)
+                    userinfo = (r"[^\\/?#]*@" if not scheme or scheme.group(0).lower()
+                                in ("http:", "https:", "ws:", "wss:", "ftp:", "file:")
+                                else r"[^/?#]*@")
+                    shown = re.sub(
+                        r"^(?:([a-z][a-z0-9+.-]*:)((?:[\\/]|%2f|%5c)*)"
+                        r"|((?:[\\/]|%2f|%5c){2,}))(" + userinfo + r")?",
+                        lambda m: m.group(0) if not any(m.group(2, 3, 4))
+                        else (m.group(1) or "") + "//"
+                        + ("<REDACTED>@" if m.group(4) else ""),
+                        loc, count=1, flags=re.I)
+                    head = re.split(r"[?#]", shown, maxsplit=1)[0]
+                    shown = head + ("?<REDACTED>" if head != shown else "")
+                    return DEAD, (f"redirected to login: "
+                                  f"{redact_url_credentials(shown)[:80]}")
             if resp.status_code in (401, 403):
                 return DEAD, f"server returned {resp.status_code}"
             if resp.status_code == 200:
