@@ -658,7 +658,9 @@ def _expected_token():
     if env: return env.strip()
     try:
         from . import app as _app
-        return (getattr(_app, "_app_config", {}) or {}).get("auth_token", "") or ""
+        # aac F8d: the app_config dict is _app_cfg. "_app_config" named nothing,
+        # so the getattr default {} made this documented fallback dead.
+        return (getattr(_app, "_app_cfg", {}) or {}).get("auth_token", "") or ""
     except Exception:
         return ""
 
@@ -1057,6 +1059,18 @@ SESSION_ABSOLUTE_TTL = 24 * 3600
 
 
 
+def _session_expired(rec: dict, now: float) -> bool:
+    """aac F8c: the ONE expiry rule (idle TTL, absolute TTL, a record with no
+    numeric "created"), shared by _session_valid and the _session_create sweep
+    so the two cannot drift."""
+    created = rec.get("created")
+    last_used = rec.get("last_used")
+    return (not isinstance(last_used, (int, float))
+            or now - last_used > SESSION_IDLE_TTL
+            or not isinstance(created, (int, float))
+            or now - created > SESSION_ABSOLUTE_TTL)
+
+
 def _session_valid(token: str) -> bool:
     """True iff the session exists and hasn't expired (idle TTL, and the
     absolute SESSION_ABSOLUTE_TTL since it was created)."""
@@ -1064,11 +1078,7 @@ def _session_valid(token: str) -> bool:
     with _session_lock:
         rec = _sessions.get(token)
         if not rec: return False
-        now = time.time()
-        created = rec.get("created")
-        if (now - rec["last_used"] > SESSION_IDLE_TTL
-                or not isinstance(created, (int, float))
-                or now - created > SESSION_ABSOLUTE_TTL):
+        if _session_expired(rec, time.time()):
             del _sessions[token]
             return False
         return True
@@ -1105,6 +1115,12 @@ def _session_create(source: str = "manual") -> str:
     token = secrets.token_urlsafe(32)
     now = time.time()
     with _session_lock:
+        # aac F8c: expired sessions were dropped only when their own cookie
+        # came back, so every cookie-less GET / (a csrf_bootstrap session)
+        # grew _sessions for the life of the process. Sweep on creation; the
+        # sweep is bounded by the store it shrinks.
+        for _k in [k for k, r in _sessions.items() if _session_expired(r, now)]:
+            del _sessions[_k]
         _sessions[token] = {"created": now, "last_used": now, "source": source}
     return token
 
@@ -1173,17 +1189,66 @@ def csrf_fires_for(method: str, path: str) -> bool:
     return True
 
 
+def _origin_names_host(origin: str, host: str) -> bool:
+    """True iff an Origin header names this request's own Host (default port
+    80/443 stripped). Malformed Origin -> False: not provably ours."""
+    try:
+        from urllib.parse import urlparse
+        o = urlparse(origin)
+        o_netloc = (o.hostname or "").lower()
+        # Keep an explicit non-default port; strip the default (80/443) so
+        # "host:80"/"host:443" match a bare "host".
+        if o.port and not ((o.scheme == "http" and o.port == 80)
+                           or (o.scheme == "https" and o.port == 443)):
+            o_netloc = f"{o_netloc}:{o.port}"
+        return bool(host and o_netloc and o_netloc == host.lower())
+    except Exception:
+        return False
+
+
+# aac C2: the dev console. Its GET routes have side effects (file opens via
+# ?path=, provider probes) and a loopback peer reaches them with no token, so a
+# page in a browser ON the box could fire them blind. Only these GETs are
+# origin-checked; every other GET stays exempt.
+DEV_CONSOLE_PREFIX = "/api/dev/"
+# Sec-Fetch-Site values that are the app itself or the user (typed URL,
+# bookmark). "same-site" is refused: another port on the same host is a
+# different origin.
+_DEV_GET_FETCH_SITES = frozenset({"same-origin", "none"})
+
+
+def _dev_console_cross_site_get() -> bool:
+    """True iff this GET/HEAD to a dev-console route came from another origin:
+    a Sec-Fetch-Site the browser set to cross-site/same-site, or (a browser
+    without Fetch Metadata) an Origin that does not name this Host. A request
+    carrying neither header (curl, bdctl, the test client) is not a browser's
+    blind cross-site request and passes on to _dev_mode_guard."""
+    site = request.headers.get("Sec-Fetch-Site", "").strip().lower()
+    if site:
+        return site not in _DEV_GET_FETCH_SITES
+    origin = request.headers.get("Origin", "")
+    return bool(origin) and not _origin_names_host(origin, request.headers.get("Host", ""))
+
+
 @app.before_request
 def _check_csrf():
     """For state-changing requests (POST/PUT/PATCH/DELETE) under /api/,
     require X-CSRF-Token to match the derived CSRF for the session.
+    A GET/HEAD to a dev-console route (DEV_CONSOLE_PREFIX) is refused when it
+    is cross-origin (_dev_console_cross_site_get, aac C2).
     Skip when:
-      - The route is GET or OPTIONS (read-only / preflight)
-      - The request has a valid Bearer token (CLI usage)
+      - The route is GET or OPTIONS (read-only / preflight), dev console aside
+      - The request has a valid Bearer token (CLI usage) or a scoped
+        X-BD-API-Token (aac F8e)
       - No session cookie is present (legacy / unauthenticated requests
         are already handled by _check_token; this layer is only for
         cookie-based browser sessions)
     """
+    if (request.method in ("GET", "HEAD")
+            and (request.path or "").startswith(DEV_CONSOLE_PREFIX)
+            and _dev_console_cross_site_get()):
+        return jsonify({"error": "cross-origin request refused",
+                        "hint": "dev console requests must be same-origin"}), 403
     if request.method in ("GET", "OPTIONS", "HEAD"): return None
     path = request.path or ""
     # v3.66.748: the guarded-prefix rule is CSRF_GUARDED_PREFIXES, above — the
@@ -1194,6 +1259,10 @@ def _check_csrf():
     # attacker doesn't have, so there's no cross-origin attack to defend
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "): return None
+    # aac F8e: a scoped api token may come as X-BD-API-Token instead of Bearer
+    # (_check_token reads both). Same reasoning as Bearer: a custom header a
+    # cross-site page cannot send without a preflight no CORS grant answers.
+    if request.headers.get("X-BD-API-Token", "").strip().startswith("bdapi_"): return None
     # ext-bridge F1: the extension's URL-queue calls send X-BD-Token, not
     # Bearer, from Origin chrome-extension://<id>. A VALID X-BD-Token (the
     # same _token_eq over every accepted token as _check_token) is the
@@ -1223,21 +1292,7 @@ def _check_csrf():
     # pages send their real Origin (Referrer-Policy strict-origin-when-cross-origin).
     origin = request.headers.get("Origin", "")
     if origin:
-        host = request.headers.get("Host", "")
-        same_origin = False
-        try:
-            from urllib.parse import urlparse
-            o = urlparse(origin)
-            o_netloc = (o.hostname or "").lower()
-            # Keep an explicit non-default port; strip the default (80/443) so
-            # "host:80"/"host:443" match a bare "host".
-            if o.port and not ((o.scheme == "http" and o.port == 80)
-                               or (o.scheme == "https" and o.port == 443)):
-                o_netloc = f"{o_netloc}:{o.port}"
-            same_origin = bool(host and o_netloc and o_netloc == host.lower())
-        except Exception:
-            same_origin = False   # malformed Origin: not provably ours
-        if not same_origin:
+        if not _origin_names_host(origin, request.headers.get("Host", "")):
             return jsonify({"error": "cross-origin request refused",
                             "hint": "state-changing /api/ requests must be "
                                     "same-origin"}), 403

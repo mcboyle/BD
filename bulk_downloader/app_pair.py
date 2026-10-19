@@ -16,6 +16,12 @@ from bulk_downloader import request_peer
 
 pair_bp = Blueprint("pair", __name__)
 
+# aac F8f: the most pairing codes outstanding at once. Expired ones are swept
+# on every mint, but within PAIRING_TTL nothing bounded the store: each GET
+# /api/pair added one. Past the cap the oldest code is dropped (redeeming it
+# then answers "unknown or already-redeemed").
+PAIRING_TOKENS_MAX = 32
+
 def _csrf_token_for(*_a, **_k):
     """Delegate to app._csrf_token_for at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -139,6 +145,29 @@ def _pair_mint_authorized() -> bool:
     return False
 
 
+def _pair_host_from_header(host: str) -> str:
+    """aac F8a: the LAN host a pairing URL names, from a Host header, or ""
+    for a loopback / unparseable one (the caller then guesses the LAN IP).
+    `host.split(":")[0]` cut an IPv6 Host "[fd00::5]:5555" to "[" and built
+    "http://[:5555/"; urlsplit understands the brackets. An IPv6 literal comes
+    back re-bracketed so it can sit in front of ":<port>" in a URL."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    try:
+        name = urlsplit("//" + host).hostname or ""
+    except ValueError:
+        return ""
+    if not name or name.startswith("localhost"):
+        return ""
+    try:
+        ip = ipaddress.ip_address(name)
+    except ValueError:
+        return name
+    if ip.is_loopback or (ip.version == 6 and ip.ipv4_mapped and ip.ipv4_mapped.is_loopback):
+        return ""
+    return f"[{name}]" if ip.version == 6 else name
+
+
 @pair_bp.route("/api/pair")
 def api_pair():
     """Return data for the QR pairing modal: the LAN URL, an optional
@@ -157,11 +186,7 @@ def api_pair():
     # LAN IP. The explicit override is useful in multi-NIC setups.
     lan_ip = (_app_cfg.get("pair_lan_ip") or "").strip()
     if not lan_ip:
-        host_hdr = (request.host or "").split(":")[0]
-        if host_hdr and not host_hdr.startswith(("127.", "localhost")):
-            lan_ip = host_hdr
-        else:
-            lan_ip = _lan_ip_guess()
+        lan_ip = _pair_host_from_header(request.host or "") or _lan_ip_guess()
     try:
         port = int(_app_cfg.get("pair_port") or 5555)
     except (TypeError, ValueError):
@@ -182,6 +207,10 @@ def api_pair():
         # a dedicated cleanup thread
         expired = [k for k, v in _pairing_tokens.items() if v["expires_at"] < now]
         for k in expired: del _pairing_tokens[k]
+        excess = len(_pairing_tokens) - PAIRING_TOKENS_MAX
+        if excess > 0:
+            oldest = sorted(_pairing_tokens, key=lambda k: _pairing_tokens[k]["created"])
+            for k in oldest[:excess]: del _pairing_tokens[k]
     full_url = f"{url}?t={_up.quote(token)}"
 
     # Try to render the QR as SVG. The qrcode package is OPTIONAL; if
