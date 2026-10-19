@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 167,
+    "total": 170,
     "version": 1,
-    "count_dict": 166,
-    "test_files_scanned": 2857,
+    "count_dict": 169,
+    "test_files_scanned": 2861,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -32,6 +32,7 @@
       "tests/test_ct1_corpus_validation.py": 1,
       "tests/test_cut_quality_permits.py": 1,
       "tests/test_daily_digest.py": 2,
+      "tests/test_deep_scheduler_cron.py": 3,
       "tests/test_dev_console_lows.py": 2,
       "tests/test_differential_oracle_frontend.py": 4,
       "tests/test_dl95_site_ma_brazzers_2_stop_persists_job_status.py": 3,
@@ -239,6 +240,36 @@
         "x": 3
       },
       "gates_what": "test_compute_delta_and_zero_detection"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_deep_scheduler_cron.py",
+      "line": 74,
+      "value": {
+        "fast": 1,
+        "daily": 1
+      },
+      "gates_what": "test_d1_a_backward_clock_step_does_not_freeze_the_tasks"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_deep_scheduler_cron.py",
+      "line": 78,
+      "value": {
+        "fast": 3,
+        "daily": 1
+      },
+      "gates_what": "test_d1_a_backward_clock_step_does_not_freeze_the_tasks"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_deep_scheduler_cron.py",
+      "line": 83,
+      "value": {
+        "fast": 6,
+        "daily": 1
+      },
+      "gates_what": "test_d1_a_backward_clock_step_does_not_freeze_the_tasks"
     },
     {
       "form": "count_dict",
