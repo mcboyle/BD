@@ -337,6 +337,7 @@ def _targets_self(base_url: str) -> bool:
     (fail closed)."""
     import ipaddress
     import socket
+    from .outbound_guard import bound_here
     try:
         host = (urlsplit(base_url).hostname or "").rstrip(".").casefold()
     except ValueError:
@@ -349,23 +350,16 @@ def _targets_self(base_url: str) -> bool:
         infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
     except (OSError, UnicodeError):
         return True
-    for fam, _t, _p, _c, sa in infos:
+    for _f, _t, _p, _c, sa in infos:
         try:
             ip = ipaddress.ip_address(sa[0].split("%")[0])
         except ValueError:
             return True
-        mapped = getattr(ip, "ipv4_mapped", None)
-        if mapped is not None:
-            ip = mapped
-            fam = socket.AF_INET
+        ip = getattr(ip, "ipv4_mapped", None) or ip
         if ip.is_loopback or ip.is_unspecified:
             return True
-        try:
-            with socket.socket(fam, socket.SOCK_STREAM) as so:
-                so.bind((str(ip), 0))
+        if bound_here(ip):
             return True       # bindable here = a local interface address
-        except OSError:
-            pass
     return False
 
 
@@ -506,9 +500,12 @@ def replay(request_id: str, *, base_url: str = "http://127.0.0.1:5555",
         # SSRF policy r2 (F1): without the master token every pinned address is
         # judged too (internal refused), so a name that resolves public for the
         # gates and internal for the connect is refused before the socket opens.
+        # rcr-dnsrebind-loopback: and this box (loopback, a local interface
+        # address) and NAT64 / IPv4-compatible spellings of either are refused
+        # there too -- a rebind to self needs the master token, as the gate says.
         from . import outbound_guard as _outbound_guard
         policy = (_outbound_guard.LAN_OK if _caller_has_master_token()
-                  else _outbound_guard.LOOPBACK_OR_PUBLIC)
+                  else _outbound_guard.PUBLIC_NOT_SELF)
         with _outbound_guard.urlopen(req, policy=policy, timeout=t_f,
                                      hop_gate=_self_hop_gate) as resp:
             out["replay_status"] = resp.status

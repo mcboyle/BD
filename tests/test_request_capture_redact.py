@@ -632,23 +632,55 @@ def test_replay_to_this_box_needs_master_token(flags, monkeypatch):
     assert not is_self("http://192.0.2.1:5000"), "RCR-CONTROL TEST-NET address read as self"
 
 
+REMOTE_FRONT = "93.184.216.35"
+
+
+def _remote_front(monkeypatch, rx):
+    """A fake network: remote.test resolves to the public REMOTE_FRONT, and a
+    connect to REMOTE_FRONT lands on the loopback receiver ``rx``, so a no-token
+    first hop is a genuinely remote target for every gate and the pin (a pin
+    without the token refuses loopback). Any other non-loopback connect is
+    recorded and stubbed: nothing leaves the box. Returns that record."""
+    import ipaddress
+    import socket
+    real_gai, real_cc = socket.getaddrinfo, socket.create_connection
+    tried = []
+
+    def _gai(host, port, *a, **kw):
+        if host != "remote.test":
+            return real_gai(host, port, *a, **kw)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (REMOTE_FRONT, port or 0))]
+
+    def _cc(addr, *a, **kw):
+        if addr[0] == REMOTE_FRONT:
+            return real_cc(("127.0.0.1", rx.srv.server_port), *a, **kw)
+        if not ipaddress.ip_address(addr[0]).is_loopback:
+            tried.append(addr[0])
+            raise OSError("RCR-STUB no network")
+        return real_cc(addr, *a, **kw)
+    monkeypatch.setattr(socket, "getaddrinfo", _gai)
+    monkeypatch.setattr(socket, "create_connection", _cc)
+    return tried
+
+
 def test_replay_redirect_to_this_box_needs_master_token(flags, monkeypatch):
     """F2b: a redirect is a new target; one pointing at this box needs the master
-    token too (the first hop is treated as remote here)."""
+    token too (the first hop is remote: _remote_front)."""
     rr = _mod("request_replay")
     mt = _canary("mt")
     a = _auth(monkeypatch, mt)
-    monkeypatch.setattr(rr, "_targets_self", lambda u: "localhost" in u, raising=False)
     _mod("feature_flags").set_flag("request_capture", True)
     inner = _Receiver()
     outer = _Receiver(redirect_to=inner.base.replace("127.0.0.1", "localhost"))
+    _remote_front(monkeypatch, outer)
+    front = f"http://remote.test:{outer.srv.server_port}"
     rid = rr.record(method="GET", path="/api/x", query="", status=200, request_headers={},
                     request_body="", response_body="", duration_ms=1.0)
     try:
-        bare = rr.replay(rid, base_url=outer.base, timeout=5)
+        bare = rr.replay(rid, base_url=front, timeout=5)
         heard = len(inner.seen)
         with _master_ctx(a, mt):
-            ok = rr.replay(rid, base_url=outer.base, timeout=5)
+            ok = rr.replay(rid, base_url=front, timeout=5)
     finally:
         outer.close()
         inner.close()
@@ -703,30 +735,22 @@ def test_replay_to_internal_target_needs_master_token(flags, monkeypatch):
 
 def test_replay_redirect_to_internal_target_needs_master_token(flags, monkeypatch):
     """A redirect from an admitted first hop to an internal target needs the master
-    token too. Non-loopback connects are stubbed: nothing leaves the box."""
-    import ipaddress
-    import socket
+    token too. The first hop is remote (_remote_front); other non-loopback
+    connects are stubbed: nothing leaves the box."""
     rr = _mod("request_replay")
     mt = _canary("mt")
     a = _auth(monkeypatch, mt)
-    monkeypatch.setattr(rr, "_targets_self", lambda u: False, raising=False)
-    real, tried = socket.create_connection, []
-
-    def _loopback_only(addr, *args, **kw):
-        if not ipaddress.ip_address(addr[0]).is_loopback:
-            tried.append(addr[0])
-            raise OSError("RCR-STUB no network")
-        return real(addr, *args, **kw)
-    monkeypatch.setattr(socket, "create_connection", _loopback_only)
     _mod("feature_flags").set_flag("request_capture", True)
     outer = _Receiver(redirect_to="http://10.255.255.1:1")
+    tried = _remote_front(monkeypatch, outer)
+    front = f"http://remote.test:{outer.srv.server_port}"
     rid = rr.record(method="GET", path="/api/x", query="", status=200, request_headers={},
                     request_body="", response_body="", duration_ms=1.0)
     try:
-        bare = rr.replay(rid, base_url=outer.base, timeout=1)
+        bare = rr.replay(rid, base_url=front, timeout=1)
         tried_bare = list(tried)
         with _master_ctx(a, mt):
-            rr.replay(rid, base_url=outer.base, timeout=1)
+            rr.replay(rid, base_url=front, timeout=1)
     finally:
         outer.close()
     assert not tried_bare and "redirected to an internal target" in str(bare.get("error")), \
@@ -796,6 +820,112 @@ def test_replay_rebind_after_gate_never_connects_internal(flags, monkeypatch, fl
     assert tried == [] and not out.get("ok"), \
         f"SECLEG-REBIND no-token replay connected to {tried} after gate saw {REBIND_PUBLIC} " \
         f"(lookups={len(calls)} error={out.get('error')})"
+
+
+def _in_pin():
+    import inspect
+    return any(f.function == "pin_request" and f.filename.endswith("urllib_ssrf.py")
+               for f in inspect.stack())
+
+
+def _pin_rig(monkeypatch, at_pin):
+    """Fake resolver for rebind.test keyed on the CALLER: every gate's lookup
+    answers REBIND_PUBLIC, the pin's lookup answers ``at_pin`` (so the flip lands
+    on the pin whatever the lookup count). EVERY connect -- loopback included --
+    is recorded and stubbed: nothing is reached, on or off the box."""
+    import socket
+    real_gai = socket.getaddrinfo
+    tried = []
+
+    def _gai(host, port, *a, **kw):
+        if host != "rebind.test":
+            return real_gai(host, port, *a, **kw)
+        ip = at_pin if _in_pin() else REBIND_PUBLIC
+        if ":" in ip:
+            return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (ip, port or 0, 0, 0))]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port or 0))]
+
+    def _cc(addr, *a, **kw):
+        tried.append(addr[0])
+        raise OSError("RCR-STUB no connect")
+    monkeypatch.setattr(socket, "getaddrinfo", _gai)
+    monkeypatch.setattr(socket, "create_connection", _cc)
+    return tried
+
+
+def _local_iface_addr():
+    """This box's outbound interface IPv4 (a UDP connect sends nothing), or None."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as so:
+        try:
+            so.connect(("192.0.2.1", 9))
+            ip = so.getsockname()[0]
+        except OSError:
+            return None
+    return None if ip.startswith("127.") or ip == "0.0.0.0" else ip
+
+
+PIN_SELF_OR_EMBEDDED = ["127.0.0.1", "::1", "::ffff:127.0.0.1", "64:ff9b::7f00:1",
+                        "64:ff9b::a00:1", "::a00:1", "local-iface"]
+
+
+@pytest.mark.parametrize("target", PIN_SELF_OR_EMBEDDED)
+def test_replay_no_token_pin_refuses_self_and_embedded_internal(flags, monkeypatch, target):
+    """rcr-dnsrebind-loopback A1/A2: the gates see a public answer, the pin's own
+    lookup answers this box (loopback, a local interface address) or an IPv6 that
+    carries an internal IPv4 (NAT64 64:ff9b::/96, IPv4-compatible ::/96). Without
+    the master token the pin refuses and nothing is connected; with it (LAN_OK)
+    the same pin answer is connected to (the rig sees the connect)."""
+    import ipaddress
+    if target == "local-iface":
+        target = _local_iface_addr()
+        if target is None:
+            pytest.skip("no non-loopback interface address on this box")
+    want = str(ipaddress.ip_address(target))
+    rr = _mod("request_replay")
+    mt = _canary("mt")
+    a = _auth(monkeypatch, mt)
+    _mod("feature_flags").set_flag("request_capture", True)
+    rid = rr.record(method="GET", path="/api/x", query="", status=200, request_headers={},
+                    request_body="", response_body="", duration_ms=1.0)
+    tried = _pin_rig(monkeypatch, target)
+    bare = rr.replay(rid, base_url="http://rebind.test:5000", timeout=1)
+    tried_bare = list(tried)
+    with _master_ctx(a, mt):
+        rr.replay(rid, base_url="http://rebind.test:5000", timeout=1)
+    assert tried_bare == [] and "outbound refused" in str(bare.get("error")), \
+        f"RCR-DNSREBIND-PIN no-token replay connected to {tried_bare} after the gates saw " \
+        f"{REBIND_PUBLIC} (pin answered {target}; error={bare.get('error')})"
+    assert tried == [want], f"RCR-CONTROL master-token replay never reached the pin's {want}: tried={tried}"
+
+
+def test_replay_no_token_pin_refuses_global_address_bound_here(flags, monkeypatch):
+    """A1: a public address bound on one of this box's interfaces is this box too.
+    The kernel's answer is faked (a bind to REMOTE_FRONT succeeds, as on a box that
+    holds that public address); the gates see REBIND_PUBLIC, the pin REMOTE_FRONT."""
+    import socket
+    real_socket = socket.socket
+
+    class _Sock(real_socket):
+        def bind(self, address):
+            if address[0] == REMOTE_FRONT:
+                return None
+            return super().bind(address)
+    rr = _mod("request_replay")
+    _auth(monkeypatch, _canary("mt"))
+    _mod("feature_flags").set_flag("request_capture", True)
+    rid = rr.record(method="GET", path="/api/x", query="", status=200, request_headers={},
+                    request_body="", response_body="", duration_ms=1.0)
+    tried = _pin_rig(monkeypatch, REBIND_PUBLIC)
+    rr.replay(rid, base_url="http://rebind.test:5000", timeout=1)
+    assert tried == [REBIND_PUBLIC], f"RCR-CONTROL public pin answer refused without the token: tried={tried}"
+    del tried[:]
+    tried = _pin_rig(monkeypatch, REMOTE_FRONT)
+    monkeypatch.setattr(socket, "socket", _Sock)
+    out = rr.replay(rid, base_url="http://rebind.test:5000", timeout=1)
+    assert tried == [] and "outbound refused" in str(out.get("error")), \
+        f"RCR-DNSREBIND-IFACE no-token replay connected to {tried}, an address bound " \
+        f"here (error={out.get('error')})"
 
 
 def test_x_auth_headers_masked_x_auth_user_kept(flags):
