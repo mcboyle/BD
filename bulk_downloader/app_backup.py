@@ -6,10 +6,25 @@ routing surface is byte-identical (test_route_map_invariant diffs empty).
 """
 from __future__ import annotations
 
+import json
+import re
+import threading
+
 from flask import Blueprint, jsonify, request
 from pathlib import Path
 
 backup_bp = Blueprint("backup", __name__)
+
+# drb-fix r4 F-SEC-1b: one restore at a time from its write of
+# sites_config.json through the refusal check and _load_sites_config. Two
+# overlapping restores let the loader re-read a file the other had just
+# written after this one's check passed (check-then-reread), so a refused
+# site id went live.
+_RESTORE_LOCK = threading.Lock()
+# drb-fix r4 F4: the app-wide 4 MB body cap (app.py) refused the app's own
+# backups past 4 MB. A restore upload may be as large as restore_backup will
+# extract (its MAX_TOTAL_BYTES, 10 GiB); its member/total caps still apply.
+_RESTORE_UPLOAD_MAX = 10 * 1024 * 1024 * 1024
 
 def _check_csrf(*_a, **_k):
     """Delegate to app._check_csrf at call time (lazy; avoids an import cycle)."""
@@ -127,14 +142,19 @@ def api_backup_create():
     Content-Disposition header so the browser saves it."""
     from bulk_downloader import backup as bd_backup
     data = request.get_json(silent=True) or {}
-    passphrase = data.get("passphrase") or None
+    passphrase, refusal = _passphrase_from(data)
+    if refusal:
+        return refusal
     include_db = data.get("include_db", True)
     # POS-1: operator-selectable encryption scope. "all" (default) whole-wraps;
-    # "sensitive" encrypts only secret/session members in-place. Ignored without
-    # a passphrase (opt-in). Any other value falls back to "all".
+    # "sensitive" encrypts only secret/session members in-place. Any other value
+    # falls back to "all". drb-fix F10: "sensitive" without a passphrase is
+    # refused -- it used to return a plain zip with secrets.json and cookies.
     encrypt_scope = data.get("encrypt_scope") or "all"
     if encrypt_scope not in ("all", "sensitive"):
         encrypt_scope = "all"
+    if encrypt_scope == "sensitive" and not passphrase:
+        return _sensitive_needs_passphrase()
 
     # Build into a temp file then stream — keeps the in-memory zip
     # path consistent with the create_backup atomicity guarantees.
@@ -190,11 +210,15 @@ def api_backup_preview():
     # svam-fix F6: preview the archive the same body would CREATE (include_db,
     # passphrase, encrypt_scope read exactly as api_backup_create reads them).
     data = request.get_json(silent=True) or {}
-    passphrase = data.get("passphrase") or None
+    passphrase, refusal = _passphrase_from(data)
+    if refusal:
+        return refusal
     include_db = data.get("include_db", True)
     encrypt_scope = data.get("encrypt_scope") or "all"
     if encrypt_scope not in ("all", "sensitive"):
         encrypt_scope = "all"
+    if encrypt_scope == "sensitive" and not passphrase:
+        return _sensitive_needs_passphrase()
     tmpdir = tempfile.mkdtemp(prefix="bdback_preview_")
     try:
         out_path = Path(tmpdir) / "preview.zip"
@@ -212,6 +236,8 @@ def api_backup_restore():
     backup zip) and optional `passphrase` form field. The dry_run
     flag previews without writing."""
     from bulk_downloader import backup as bd_backup
+    # Before request.files: the body is parsed against this request's cap.
+    request.max_content_length = _RESTORE_UPLOAD_MAX
     if "file" not in request.files:
         return jsonify({"ok": False, "error": "no file uploaded"}), 400
     f = request.files["file"]
@@ -221,19 +247,138 @@ def api_backup_restore():
     # Save to temp + restore from that path. Streaming directly from
     # the Flask file handle to restore_backup would require teaching
     # restore_backup to accept a file-like; saving to temp is simpler
-    # and the zips are bounded (~10-50 MB typical).
+    # and the zips are bounded (_RESTORE_UPLOAD_MAX).
     import tempfile, shutil
     tmpdir = tempfile.mkdtemp(prefix="bdrestore_")
     try:
         tmp_path = Path(tmpdir) / "upload.zip"
         f.save(str(tmp_path))
-        result = bd_backup.restore_backup(
-            tmp_path, target_dir=_data_dir(), passphrase=passphrase, dry_run=dry_run,
-        )
+        target = _data_dir()
+        with _RESTORE_LOCK:
+            before = _stat_sig(target / "sites_config.json")
+            result = bd_backup.restore_backup(
+                tmp_path, target_dir=target, passphrase=passphrase, dry_run=dry_run,
+            )
+            if result.get("ok") and not dry_run:
+                result.update(_apply_restored_sites(target / "sites_config.json", before))
         return jsonify(result)
     finally:
         try: shutil.rmtree(tmpdir)
         except Exception: pass
+
+def _passphrase_from(data):
+    """(passphrase or None, 400 response or None) for a create/preview body.
+    Absent or falsy is "no passphrase", as before. drb-fix r3: a non-string
+    (123, true, [1]) used to reach the encryptor and 500 after the temp dir
+    was made; a blank one ("   ") encrypted with whitespace. Both are 400."""
+    passphrase = data.get("passphrase") or None
+    if passphrase is None:
+        return None, None
+    if not isinstance(passphrase, str):
+        return None, (jsonify({"ok": False,
+                               "error": "passphrase must be a string"}), 400)
+    if not passphrase.strip():
+        return None, (jsonify({"ok": False,
+                               "error": "passphrase must not be blank"}), 400)
+    return passphrase, None
+
+
+def _sensitive_needs_passphrase():
+    return jsonify({"ok": False, "error": (
+        "encrypt_scope 'sensitive' needs a passphrase: without one the "
+        "secrets and cookies would be written in plaintext")}), 400
+
+
+def _stat_sig(path: Path):
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_ino, st.st_size, st.st_mtime_ns)
+
+
+def _apply_restored_sites(restored: Path, before) -> dict:
+    """drb-fix F1: make a restored sites_config.json the app's live config.
+
+    The route used to write files only; the running app kept its in-memory
+    sites, so the next config save rewrote the file and undid the restore.
+    _load_sites_config is the boot loader and is only safe on empty site state
+    (it publishes new runners without retiring old ones), so it runs only when
+    no site is loaded and it reads the file the restore wrote. Otherwise the
+    caller is told to restart before saving any config."""
+    if _stat_sig(restored) == before:
+        return {"reloaded": False, "restart_required": False}
+    import importlib
+    app_mod = importlib.import_module("bulk_downloader.app")
+    try:
+        same_file = Path(app_mod.SITES_FILE).resolve() == restored.resolve()
+    except OSError:
+        same_file = False
+    if (not same_file or app_mod._SITE_RUNTIME_RETIRING
+            or app_mod.s_cfg or app_mod.s_meta or app_mod.runners):
+        return {"reloaded": False, "restart_required": True}
+    # drb-fix r3 F-SEC-1: restored content has not been through the write
+    # routes (uuid site ids, path checks), so it goes live on demand only if
+    # it would pass them; a site id like "../../x" made runner dirs outside
+    # the data root.
+    refused = _restored_sites_refusal(app_mod, restored)
+    if refused:
+        return {"reloaded": False, "restart_required": True,
+                "reload_refused": refused[:200]}
+    try:
+        app_mod._load_sites_config()
+    except Exception as e:
+        # Same all-or-nothing rollback as boot: never leave a partial live set.
+        if app_mod._retire_configured_runtime_runners():
+            app_mod._clear_configured_runtime_state()
+        return {"reloaded": False, "restart_required": True,
+                "reload_error": f"{type(e).__name__}: {e}"[:200]}
+    # Boot starts these after the load; both skip what is already running.
+    for start in (app_mod._start_session_keepers, app_mod._start_watch_folder_threads):
+        try:
+            start()
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"  backup restore: {start.__name__} failed: {e}\n")
+    return {"reloaded": True, "restart_required": False}
+
+
+_PLAIN_SITE_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
+
+
+def _restored_sites_refusal(app_mod, restored: Path) -> str:
+    """Why the restored sites_config.json must not be loaded live, or "".
+
+    Site ids must be plain tokens (they name runner dirs); download_dir,
+    spillover_dirs and every cookie_file must pass the checks the site write
+    routes apply (_validate_config_paths, _validate_cookie_files). As in
+    _sites_config_path_gate, the cookie path the app fills in itself
+    (<BD_HOME>/cookies/<sid>.json) is accepted."""
+    try:
+        sites = json.loads(restored.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return f"sites_config.json is not readable JSON ({type(e).__name__})"
+    if not isinstance(sites, dict):
+        return "sites_config.json is not a JSON object of sites"
+    import os
+    cookie_dir = Path(os.environ.get("BD_HOME") or ".").resolve() / "cookies"
+    for sid, entry in sites.items():
+        if not _PLAIN_SITE_ID.fullmatch(sid):
+            return f"site id {sid[:60]!r} is not a plain token"
+        if not isinstance(entry, dict):
+            continue
+        ok, msg = app_mod._validate_config_paths(
+            {k: entry.get(k) for k in ("download_dir", "spillover_dirs")})
+        if ok:
+            default = str(cookie_dir / f"{sid}.json")
+            ok, msg = app_mod._validate_cookie_files(
+                {"cookie_file": None if entry.get("cookie_file") == default
+                 else entry.get("cookie_file"),
+                 "accounts": entry.get("accounts")})
+        if not ok:
+            return f"site {sid}: {msg}"
+    return ""
+
 
 def register_routes(app) -> int:
     app.register_blueprint(backup_bp)

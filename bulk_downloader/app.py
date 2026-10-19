@@ -552,11 +552,14 @@ def _on_method_not_allowed(e):
 # upload if they hit it.
 @app.errorhandler(413)
 def _on_request_too_large(e):
-    limit_mb = app.config.get("MAX_CONTENT_LENGTH", 0) / (1024 * 1024)
+    # drb-fix r4 F4: a route may raise its own cap (/api/backup/restore);
+    # report the limit this request was held to.
+    limit = request.max_content_length or app.config.get("MAX_CONTENT_LENGTH") or 0
+    limit_mb = limit / (1024 * 1024)
     if request.path.startswith("/api/"):
         return _json_error(413,
                            f"request body exceeds {limit_mb:.0f} MB limit",
-                           limit_bytes=app.config.get("MAX_CONTENT_LENGTH"))
+                           limit_bytes=limit)
     return e
 
 # q-misc L7 (O1789 bughunt): request.json on a non-JSON Content-Type raises werkzeug's 415, whose
