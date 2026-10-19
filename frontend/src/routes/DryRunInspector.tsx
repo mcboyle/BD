@@ -225,8 +225,16 @@ function TemplatePanel({ res }: { res: TemplateDryRunResult }) {
   );
 }
 
+// stbai F4b: react-router reuses this element when only :siteId changes, so
+// the mutations (and the pasted HTML) would carry siteA's result onto siteB.
+// Keying the body by siteId gives each site a fresh inspector, like a fresh
+// visit; a siteA request still in flight lands on the unmounted instance.
 export function DryRunInspector() {
   const { siteId = "" } = useParams<{ siteId: string }>();
+  return <DryRunInspectorBody key={siteId} siteId={siteId} />;
+}
+
+function DryRunInspectorBody({ siteId }: { siteId: string }) {
   const [html, setHtml] = useState("");
   const [last, setLast] = useState<"inspect" | "template" | null>(null);
 
