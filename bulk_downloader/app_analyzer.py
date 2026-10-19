@@ -72,11 +72,14 @@ def api_analyzer_tree():
     if not name:
         return jsonify({"ok": False, "error": "capture required"}), 400
     try:
+        max_depth = int(body.get("max_depth") or 200)
+        max_children = int(body.get("max_children") or 0)
+    except (TypeError, ValueError, OverflowError):  # 1e999 parses as inf
+        return jsonify({"ok": False,
+                        "error": "max_depth and max_children must be integers"}), 400
+    try:
         from . import dom_analyzer as _da
-        res = _da.tree_view(
-            name,
-            max_depth=int(body.get("max_depth") or 200),
-            max_children=int(body.get("max_children") or 0))
+        res = _da.tree_view(name, max_depth=max_depth, max_children=max_children)
         if not res.get("ok") and res.get("error") == "unknown capture":
             return jsonify(res), 404
         return jsonify(res)

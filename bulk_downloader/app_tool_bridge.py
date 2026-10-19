@@ -37,7 +37,9 @@ def api_tools_run():
 
     data = request.get_json(silent=True) or {}
     tool = data.get("tool")
-    flags = data.get("flags") or {}
+    flags = data.get("flags")
+    if flags is None:  # absent / null = no flags; [] "" 0 false are not an object
+        flags = {}
     if not isinstance(tool, str) or not isinstance(flags, dict):
         return jsonify({"ok": False, "error": "tool (str) and flags (object) required"}), 400
 

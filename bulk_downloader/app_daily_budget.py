@@ -62,8 +62,11 @@ def api_daily_budget_history(sid=None):
         if not sid:
             return jsonify({"error": "site query parameter required"}), 400
     try:
-        from . import daily_budget as _db_budget
         days = min(365, max(1, int(request.args.get("days", 30))))
+    except ValueError:
+        return jsonify({"error": "days must be an integer"}), 400
+    try:
+        from . import daily_budget as _db_budget
         return jsonify({"site_id": sid,
                         "history": _db_budget.history(sid, days=days)})
     except Exception as e:
