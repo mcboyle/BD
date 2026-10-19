@@ -34,7 +34,7 @@ def api_rebalance_inventory():
     })
     try:
         from . import storage_rebalance as _sr
-        return jsonify({"inventory": _sr.inventory(paths)})
+        return jsonify({"inventory": _sr.inventory(paths, roots_bound=True)})
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -46,11 +46,16 @@ def api_rebalance_plan():
     if not paths:
         return jsonify({"error": "paths required"}), 400
     try:
+        max_moves = int(body.get("max_moves", 100))
+    except (TypeError, ValueError, OverflowError):
+        return jsonify({"error": "max_moves must be an integer"}), 400
+    try:
         from . import storage_rebalance as _sr
         return jsonify(_sr.plan_rebalance(
             paths,
             strategy=body.get("strategy", "even_fill"),
-            max_moves=int(body.get("max_moves", 100)),
+            max_moves=max_moves,
+            roots_bound=True,
         ))
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500

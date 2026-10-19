@@ -87,6 +87,11 @@ def test_helper_filesystem_root():
 
 
 def test_helper_default_roots_from_site_config(tmp_path, monkeypatch):
+    # The blank-download_dir site makes download_roots import bulk_downloader.app.
+    # Import it BEFORE patching app_state.s_cfg: a first import under the patch
+    # binds app.s_cfg to the throwaway dict for the rest of the session, and
+    # every later route test that seeds bd_app.s_cfg then reads an empty config.
+    from bulk_downloader import app as _bd_app  # noqa: F401
     from bulk_downloader import app_state
     lib = tmp_path / "lib1"
     lib.mkdir()
