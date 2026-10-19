@@ -87,7 +87,10 @@ def main(argv=None) -> int:
     if not new.is_absolute():
         print(f"ERROR: --to must be an absolute path (got {args.new_root!r})", file=sys.stderr)
         return 2
-    new.mkdir(parents=True, exist_ok=True)
+    if args.dry_run:
+        print(f"DRY-RUN mkdir {new}")
+    else:
+        new.mkdir(parents=True, exist_ok=True)
 
     res = relocate(args.old_root, args.new_root, dry_run=args.dry_run)
     print(f"{'DRY-RUN ' if res['dry_run'] else ''}relocate capture store: {res['from']} -> {res['to']}")
