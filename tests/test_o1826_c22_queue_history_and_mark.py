@@ -261,7 +261,7 @@ def _worker_write_inside_failing_persist(registered, monkeypatch, worker_message
     from bulk_downloader.runner import SiteRunner
     real = asq.queue_upsert
     r = SiteRunner(_SID, {"name": _SID})
-    r.jobs[_JOB] = {"status": "running", "message": "Downloading", "ts": "00:00:01"}
+    r.jobs[_JOB] = {"status": "pending", "message": "", "ts": "00:00:01"}
     registered(r)
 
     def _upsert(sid, url, **k):
