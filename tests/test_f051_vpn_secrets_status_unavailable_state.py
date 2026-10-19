@@ -26,7 +26,7 @@ VPN_URL = "/api/data/vpn_status"
 SEC_URL = "/api/data/secrets_status"
 DASH = "—"
 UNAVAILABLE = "unavailable"
-SECRET_MARKER = "SYNTHETIC_SECRET_F051_8391"
+CANARY_MARKER = "SYNTHETIC_SECRET_F051_8391"
 
 VPN_OK = {"available": True, "tunnel_count": 2, "provider_count": 1,
           "providers": ["Mullvad"], "system_killswitch_available": False,
@@ -148,13 +148,13 @@ def test_collector_exception_text_never_reaches_the_page(monkeypatch):
     from bulk_downloader import secrets_store
 
     def boom(*a, **k):
-        raise RuntimeError("backend rejected token=" + SECRET_MARKER)
+        raise RuntimeError("backend rejected token=" + CANARY_MARKER)
     monkeypatch.setattr(secrets_store, "get_backend", boom)
     data = DL.collect_secrets_status()
     assert data["available"] is False
-    assert SECRET_MARKER in data["error"], "seam: the collector must carry the marker"
+    assert CANARY_MARKER in data["error"], "seam: the collector must carry the marker"
     out = _render(_ok(VPN_OK), _ok(data))
-    assert SECRET_MARKER not in json.dumps(out), (
+    assert CANARY_MARKER not in json.dumps(out), (
         "F051-R2 secret marker reached rendered report")
     assert out["sec"] == [["status", UNAVAILABLE]]
     assert len(out["vpn"]) == 6, "the healthy panel must be unaffected"
