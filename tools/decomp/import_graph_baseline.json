@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6736,
+  "edge_count": 6751,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3656,6 +3656,24 @@
     "tests/test_decomp_regen.py": [
       "tools/decomp_regen.py"
     ],
+    "tests/test_deep_api_auth_csrf_f3f7.py": [
+      "bulk_downloader/api_tokens.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_api_tokens.py",
+      "bulk_downloader/app_auth.py",
+      "bulk_downloader/app_oidc.py",
+      "bulk_downloader/app_pair.py",
+      "bulk_downloader/app_shares.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/oidc.py",
+      "bulk_downloader/shares.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/user_accounts.py"
+    ],
+    "tests/test_deep_api_auth_csrf_r2_jwks.py": [
+      "bulk_downloader/oidc.py",
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "tests/test_deep_detect_redos.py": [
       "bulk_downloader/dom_honeypot.py"
     ],
@@ -6435,6 +6453,9 @@
     ],
     "tests/test_recognizer_scorecard.py": [
       "tools/recognizer_scorecard.py"
+    ],
+    "tests/test_recovery_retention_residuals.py": [
+      "bulk_downloader/app_state.py"
     ],
     "tests/test_redact_sot_config_unify.py": [
       "bulk_downloader/app_settings_center.py",
