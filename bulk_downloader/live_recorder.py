@@ -670,8 +670,15 @@ def _build_output_path(output_dir: str, site: str, room: str) -> str:
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
-    name = f"{site}__{room}__{ts}.ts"
-    return str(out_dir / name)
+    path = out_dir / f"{site}__{room}__{ts}.ts"
+    # F5: never hand a backend an existing file -- neither streamlink nor
+    # ffmpeg (no --force/-y, stdin DEVNULL) overwrites it; both exit 0
+    # having written nothing.
+    n = 1
+    while os.path.lexists(path):
+        path = out_dir / f"{site}__{room}__{ts}_{n}.ts"
+        n += 1
+    return str(path)
 
 
 def unwatch(recording_id: str) -> dict:
@@ -847,16 +854,23 @@ def _check_recording_health(rid: str, rec: Recording) -> None:
         # Subprocess exited. ret==0 is clean (stream ended). Non-zero
         # might be a real failure or just the stream going offline.
         # For cam sites both look the same to streamlink, so we treat
-        # 0 and 1 as clean and others as failure.
+        # 0 and 1 as clean and others as failure. F5: a clean exit that
+        # wrote nothing is not a recording -- _spawn_recording hands the
+        # backend a path that did not exist, so any bytes there are new.
         with _lock:
             _subprocesses.pop(rid, None)
             carrier = _egress_carriers.pop(rid, None)
             rec.bytes_written = _safe_file_size(rec.output_path)
-            if ret in (0, 1):
+            empty = ret in (0, 1) and rec.bytes_written == 0
+            if ret in (0, 1) and not empty:
                 rec.state = "finished"
             else:
                 rec.state = "failed"
-                rec.last_error = f"exit code {ret}"
+                rec.last_error = (
+                    f"exit code {ret} with no new bytes in {rec.output_path}"
+                    if empty else f"exit code {ret}")
+        if empty:
+            sys.stderr.write(f"[live-recorder] {rid}: {rec.last_error}\n")
         if carrier is not None:
             carrier.close()
         _save_state()
@@ -1021,6 +1035,15 @@ def _spawn_recording(rid: str, rec: Recording,
                 rec.last_error = f"egress_refused: {exc}"
             _save_state()
             return
+    # F5: a respawn (e.g. a watch re-armed by _load_state after a restart
+    # mid-recording) still carries the path the previous process wrote.
+    # Record into a fresh file, and measure growth from that file, not from
+    # the previous one's persisted bytes_written.
+    if os.path.lexists(rec.output_path):
+        fresh = _build_output_path(str(Path(rec.output_path).parent),
+                                   rec.site, rec.room)
+        with _lock:
+            rec.output_path = fresh
     cmd = _build_cmd(backend, rec, proxy_url=prepared.proxy_url)
     if cmd is None:
         # Resolved BEFORE taking _lock: _refusal_reason consults the backend
@@ -1066,6 +1089,7 @@ def _spawn_recording(rid: str, rec: Recording,
         _egress_carriers[rid] = prepared
         rec.backend = backend
         rec.pid = proc.pid
+        rec.bytes_written = 0
         rec.state = "recording"
         rec.last_live_ts = time.time()
         rec.last_offline_ts = None
