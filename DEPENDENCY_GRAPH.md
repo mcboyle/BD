@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1959**
+- internal import edges: **1962**
 - tools: 238 · with internal edge: 137 · with tool→package edge: 77
 - blueprints: 163 · config stores: 5
 
@@ -42,7 +42,7 @@ Graph version: 1
 - **a11y** (`app_a11y.py`) — routes 3, providers 1
 - **account_pool** (`app_account_pool.py`) — routes 1, providers 1
 - **accounts** (`app_accounts.py`) — routes 1, providers 1
-- **activity** (`app_activity.py`) — routes 3, providers 1
+- **activity** (`app_activity.py`) — routes 3, providers 2
 - **ai** (`app_ai.py`) — routes 8, providers 3
 - **alerts** (`app_alerts.py`) — routes 6, providers 2
 - **analyzer** (`app_analyzer.py`) — routes 5, providers 3
@@ -185,7 +185,7 @@ Graph version: 1
 - **templates** (`app_templates.py`) — routes 1, providers 1
 - **tg** (`app_tg.py`) — routes 3, providers 0
 - **thumbnail_sheets** (`app_thumbnail_sheets.py`) — routes 2, providers 2
-- **thumbnails** (`app_thumbnails.py`) — routes 3, providers 0
+- **thumbnails** (`app_thumbnails.py`) — routes 3, providers 1
 - **thumbs** (`app_thumbs.py`) — routes 3, providers 1
 - **tool_bridge** (`app_tool_bridge.py`) — routes 2, providers 1
 - **tools** (`app_tools.py`) — routes 1, providers 0
