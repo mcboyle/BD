@@ -704,6 +704,7 @@ def api_secrets_import_file():
     average ~50KB; 1Password .1pif similar). 10MB is generous
     headroom and prevents a 10GB upload from being read into memory.
     """
+    from werkzeug.exceptions import HTTPException
     from . import password_import as pi
     MAX_IMPORT_BYTES = 10 * 1024 * 1024
     try:
@@ -717,17 +718,28 @@ def api_secrets_import_file():
                                            "via the 'content' field instead, or split "
                                            "the export"}), 413
         else:
-            data = (request.json or {}).get("content", "")
-            if isinstance(data, str):
-                if len(data) > MAX_IMPORT_BYTES:
-                    return jsonify({"ok": False,
-                                      "error": "content too large (>10MB)"}), 413
-                data = data.encode("utf-8")
+            # deep-secrets-export F11: a missing/unparseable/non-object body or a
+            # non-string content is a named 400, never a 500 from deeper down.
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict):
+                return jsonify({"ok": False,
+                                "error": "request body must be a JSON object"}), 400
+            data = body.get("content", "")
+            if not isinstance(data, str):
+                return _wrong_type("content")
+            if len(data) > MAX_IMPORT_BYTES:
+                return jsonify({"ok": False,
+                                  "error": "content too large (>10MB)"}), 413
+            data = data.encode("utf-8")
         fmt, records = pi.import_passwords(data)
         return jsonify({"ok": True, "format": fmt, "records": records,
                         "count": len(records)})
     except pi.FormatNotRecognized as e:
         return jsonify({"ok": False, "error": str(e)}), 400
+    except HTTPException:
+        # F11: RequestEntityTooLarge (body over MAX_CONTENT_LENGTH) reaches the app's
+        # JSON 413 handler instead of being wrapped into a 500.
+        raise
     except Exception as e:
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
 @secrets_bp.route("/api/secrets/import_apply", methods=["POST"])
@@ -766,6 +778,10 @@ def api_secrets_import_apply():
         return _wrong_type("records", "a list")
     if not isinstance(site_ids, list):
         return _wrong_type("site_ids", "a list")
+    # deep-secrets-export F9 (security lens): a non-string site_id is refused before any
+    # backend.set, so it cannot store a secret under a "bulkdl-site-<repr>" orphan key.
+    if any(sid is not None and not isinstance(sid, str) for sid in site_ids):
+        return _wrong_type("site_ids", "a list of strings")
     if len(site_ids) < len(records):
         site_ids = site_ids + [""] * (len(records) - len(site_ids))
 
@@ -785,11 +801,6 @@ def api_secrets_import_apply():
                 continue
             if sid:
                 key = ss.site_password_key(sid)
-                # Update the site config to use a @cred: reference
-                if sid in s_cfg:
-                    s_cfg[sid]["password"] = ss.make_password_reference(sid)
-                    if rec.get("username"):
-                        s_cfg[sid]["username"] = rec["username"]
             else:
                 # Standalone import: slug of name + username, with a
                 # per-batch counter for residual collisions.
@@ -806,6 +817,12 @@ def api_secrets_import_apply():
                 key = f"bulkdl-import-{slug}"
             backend.set(key, password)
             saved += 1
+            # deep-secrets-export F9: link the site to its @cred: reference only once
+            # the secret is in the backend; a failed set leaves the config untouched.
+            if sid and sid in s_cfg:
+                s_cfg[sid]["password"] = ss.make_password_reference(sid)
+                if rec.get("username"):
+                    s_cfg[sid]["username"] = rec["username"]
         except Exception as e:
             errors.append(f"{rec.get('name','?')}: {e}")
 
