@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6827,
+  "edge_count": 6834,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6448,6 +6448,17 @@
     ],
     "tests/test_provider_resolve_surface_lock.py": [
       "bulk_downloader/provider_resolve.py"
+    ],
+    "tests/test_proxy_cred_schemeless.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/diagnostics_bundle.py",
+      "bulk_downloader/egress_withhold.py",
+      "bulk_downloader/marketplace.py"
+    ],
+    "tests/test_proxy_cred_schemeless_r2.py": [
+      "bulk_downloader/diagnostics_bundle.py",
+      "bulk_downloader/egress_withhold.py",
+      "bulk_downloader/marketplace.py"
     ],
     "tests/test_proxy_peer_key.py": [
       "bulk_downloader/app.py",
