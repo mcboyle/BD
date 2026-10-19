@@ -196,6 +196,10 @@ function HistorySearchTab() {
     ? matches.slice(searchPage * pageSize, (searchPage + 1) * pageSize)
     : (history.data?.rows ?? []);
   const loading = searching ? search.isLoading : history.isLoading;
+  // ssqh F2: a failed read is not "No history yet." (same rule as LoadError below).
+  const loadFailed = searching
+    ? search.isError && !search.data
+    : history.isError && !history.data;
   const filtered = siteId !== "" || status !== "";
   // Configured sites first; a site that only survives in loaded history rows
   // (removed from the config since) is offered too, as is the active choice.
@@ -305,6 +309,8 @@ function HistorySearchTab() {
       </div>
       {loading ? (
         <SkeletonRows count={8} rowClassName="h-7" />
+      ) : loadFailed ? (
+        <LoadError what={searching ? "search results" : "history"} />
       ) : rows.length === 0 ? (
         <EmptyState
           icon={Inbox}
