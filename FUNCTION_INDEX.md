@@ -609,7 +609,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_queue.py` (31 entries)
+## `bulk_downloader/runner_queue.py` (32 entries)
 
 ```
 - L0057 `_restored_retries` `[private]` — ddr-fix F6: a NULL/garbage retries column restores as 0, never None
@@ -625,24 +625,25 @@ Schema version: 2
   - L0681 `QueueMixin.reorder_urls`
   - L0693 `QueueMixin.set_priority`
   - L0713 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0735 `QueueMixin._mark_deleted` `[private]` — dqb F4: remember URLs the operator deleted, so a worker still holding
-  - L0744 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0783 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0816 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0842 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0864 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
-  - L0872 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0894 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0918 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0965 `QueueMixin.clear_completed` — Drop URLs in `done` status from both the in-memory job map and the
-  - L0982 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0999 `QueueMixin._log_queue_persist_failure` `[private]` — ddr-fix F7: a bulk verb's queue write failed. Memory already moved,
-  - L1005 `QueueMixin.retry`
-  - L1007 `QueueMixin.clear`
-  - L1009 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L1015 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
-  - L1032 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
-  - L1037 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
+  - L0745 `QueueMixin._rollback_bulk_priority` `[private]` — dqb F3: put back the priorities and order bulk_priority changed.
+  - L0776 `QueueMixin._mark_deleted` `[private]` — dqb F4: remember URLs the operator deleted, so a worker still holding
+  - L0785 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0824 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0857 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0883 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause user-paused jobs. The inverse of bulk_pause.
+  - L0909 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
+  - L0917 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0939 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0963 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L1010 `QueueMixin.clear_completed` — Drop URLs in `done` status from both the in-memory job map and the
+  - L1027 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L1044 `QueueMixin._log_queue_persist_failure` `[private]` — ddr-fix F7: a bulk verb's queue write failed. Memory already moved,
+  - L1050 `QueueMixin.retry`
+  - L1052 `QueueMixin.clear`
+  - L1054 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L1060 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L1077 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
+  - L1082 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
 ```
 
 
@@ -1229,4 +1230,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 1053 across 22 files._
+_Total entries: 1054 across 22 files._
