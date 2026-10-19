@@ -380,6 +380,47 @@ def validate_selector_updates(updates: dict) -> dict:
     return errors
 
 
+def _url_field_error(field: str, val) -> str:
+    if not _is_blank(val) and not _looks_like_url(str(val)):
+        return (f"'{field}' does not look like a valid URL "
+                f"(needs a scheme like https://).")
+    return ""
+
+
+def _scene_pattern_errors(patterns) -> list:
+    if patterns is not None and not isinstance(patterns, str):
+        return ["'crawler_scene_patterns' must be text, one regex per line."]
+    errors: list = []
+    for line in (patterns or "").splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if len(text) > 512:
+            errors.append("'crawler_scene_patterns' has a line over 512 characters.")
+            continue
+        try:
+            re.compile(text)
+        except re.error as exc:
+            errors.append(
+                f"'crawler_scene_patterns' line {text[:60]!r} is not a valid regex ({exc}).")
+    return errors
+
+
+def validate_text_updates(updates: dict) -> list:
+    """deep-site-templates S09-S11: the validate_config messages for the
+    login_url / crawler_scene_patterns values present in a PUT ``updates``,
+    so a value /api/sites/validate rejects is never stored."""
+    updates = updates or {}
+    errors: list = []
+    if "login_url" in updates:
+        msg = _url_field_error("login_url", updates["login_url"])
+        if msg:
+            errors.append(msg)
+    if "crawler_scene_patterns" in updates:
+        errors.extend(_scene_pattern_errors(updates["crawler_scene_patterns"]))
+    return errors
+
+
 def validate_config(cfg: dict) -> dict:
     """Dry-run validate a site config dict.
 
@@ -402,29 +443,12 @@ def validate_config(cfg: dict) -> dict:
 
     # ── URL fields ─────────────────────────────────────────────────
     for url_field in ("login_url", "success_url", "crawler_listing_url"):
-        val = cfg.get(url_field)
-        if not _is_blank(val) and not _looks_like_url(str(val)):
-            errors.append(
-                f"'{url_field}' does not look like a valid URL "
-                f"(needs a scheme like https://).")
+        msg = _url_field_error(url_field, cfg.get(url_field))
+        if msg:
+            errors.append(msg)
 
     # ── Scene URL regexes (fx-newsensations-discovery-scene-rule) ──
-    patterns = cfg.get("crawler_scene_patterns")
-    if patterns is not None and not isinstance(patterns, str):
-        errors.append("'crawler_scene_patterns' must be text, one regex per line.")
-    elif patterns:
-        for line in patterns.splitlines():
-            text = line.strip()
-            if not text:
-                continue
-            if len(text) > 512:
-                errors.append("'crawler_scene_patterns' has a line over 512 characters.")
-                continue
-            try:
-                re.compile(text)
-            except re.error as exc:
-                errors.append(
-                    f"'crawler_scene_patterns' line {text[:60]!r} is not a valid regex ({exc}).")
+    errors.extend(_scene_pattern_errors(cfg.get("crawler_scene_patterns")))
 
     # ── Numeric ranges ─────────────────────────────────────────────
     # O1826 C46 (M165): one validator for both paths. The copy that lived here
@@ -676,6 +700,10 @@ def import_config(payload: Any, *, known_fields: set | None = None) -> dict:
     v = validate_config(clean)
     errors.extend(v["errors"])
     warnings.extend(v["warnings"])
+    # deep-site-templates S17: the selector check PUT runs (Row 722), same
+    # message, so an import cannot store a selector the browser cannot parse.
+    for _f, _why in sorted(validate_selector_updates(clean).items()):
+        errors.append(f"invalid selector '{_f}': {_why}")
 
     return {"ok": not errors, "config": clean,
             "errors": errors, "warnings": warnings}

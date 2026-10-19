@@ -1763,6 +1763,10 @@ _SITES_CONFIG_REACHABILITY = None
 # came from: {"path": str, "sites": {sid: raw entry}}.  They never reach
 # s_cfg, so _save_sites_config writes them back untouched.
 _SITES_CONFIG_SKIPPED = {"path": "", "sites": {}}
+# deep-site-templates SL-F1: the file the last load could not parse, and the
+# copy taken of it.  While it is the live file, _save_sites_config refuses:
+# a save would replace the operator's whole file with the 0 sites loaded.
+_SITES_CONFIG_MALFORMED = {"path": "", "backup": ""}
 
 
 def _sites_file_for_boot() -> Path:
@@ -1834,6 +1838,12 @@ def _save_sites_config():
     # replace this one file.  Keep auto-fill, snapshot, serialization, temp
     # write, and replace in one global transaction.  A later caller then takes
     # a fresh snapshot after any mutation that caused it to wait.
+    if _SITES_CONFIG_MALFORMED.get("path") == str(SITES_FILE):
+        sys.stderr.write(
+            "  ! sites_config.json not saved: the file on disk did not parse "
+            f"at load (copy: {_SITES_CONFIG_MALFORMED.get('backup') or 'none'}); "
+            "repair it and restart\n")
+        return False
     _sites_config_save_lock.acquire()
     saved = False
     _refusal = None
@@ -2067,9 +2077,10 @@ def _load_sites_config():
     s28: one site that fails to load is skipped, logged and listed
     under ``skipped_sites`` of the reachability state (/api/health
     ``sites_config``); every other site and runner still loads."""
-    global _SITES_CONFIG_REACHABILITY, _SITES_CONFIG_SKIPPED
+    global _SITES_CONFIG_REACHABILITY, _SITES_CONFIG_SKIPPED, _SITES_CONFIG_MALFORMED
     path = str(SITES_FILE)
     _SITES_CONFIG_SKIPPED = {"path": path, "sites": {}}
+    _SITES_CONFIG_MALFORMED = {"path": "", "backup": ""}
     try:
         SITES_FILE.stat()
     except FileNotFoundError:
@@ -2109,15 +2120,32 @@ def _load_sites_config():
         }
         sys.stderr.write(f"  ! sites_config path is UNKNOWN: {path}\n")
         return
+    def _keep_malformed():
+        # deep-site-templates SL-F1: copy the unparsable file beside itself
+        # and bar saves over it, so 0 loaded sites never replace it.
+        backup = ""
+        try:
+            ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+            dest = SITES_FILE.with_name(f"{SITES_FILE.name}.malformed-{ts}")
+            dest_tmp = dest.with_name(dest.name + ".tmp")
+            dest_tmp.write_text(raw_config, encoding="utf-8")
+            os.replace(dest_tmp, dest)
+            backup = dest.name
+        except OSError:
+            backup = ""
+        _SITES_CONFIG_MALFORMED.update({"path": path, "backup": backup})
+        return f"; saves refused; copy: {backup or 'not written'}"
     try:
         data = json.loads(raw_config)
     except Exception as e:
-        sys.stderr.write(f"  ! sites_config.json malformed, ignoring: {e}\n")
+        _kept = _keep_malformed()
+        sys.stderr.write(f"  ! sites_config.json malformed, ignoring: {e}{_kept}\n")
         return
     if not isinstance(data, dict):
+        _kept = _keep_malformed()
         sys.stderr.write(
             "  ! sites_config.json malformed, ignoring: top level is "
-            f"{type(data).__name__}, not an object\n")
+            f"{type(data).__name__}, not an object{_kept}\n")
         return
 
     def _load_one_site(sid, cfg_in):
