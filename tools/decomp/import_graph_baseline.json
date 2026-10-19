@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6864,
+  "edge_count": 6871,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2661,6 +2661,15 @@
       "bulk_downloader/migrations.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_aac_f8_dcm_c2_auth_session_pair_dev_csrf.py": [
+      "bulk_downloader/api_tokens.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_pair.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/shares.py"
     ],
     "tests/test_aac_fix_cookie_auth.py": [
       "bulk_downloader/account_pool.py",
