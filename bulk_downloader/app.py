@@ -936,6 +936,7 @@ def _check_token():
     # Check Authorization header
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer ") and any(_token_eq(auth[7:].strip(), t) for t in _toks):
+        g.bd_header_cred_verified = True   # aac-fu1 A1: read by _check_csrf
         return None
     # AUDIT v3.43.46: extension sends X-BD-Token (configured by the
     # user during pairing). The earlier code only read Authorization
@@ -944,6 +945,7 @@ def _check_token():
     # bearer-equivalent — same secret, different header.
     bd_token = request.headers.get("X-BD-Token", "")
     if bd_token and any(_token_eq(bd_token.strip(), t) for t in _toks):
+        g.bd_header_cred_verified = True
         return None
     # v3.43.16 / B12 (v3.66.38): vault-scoped extension tokens are accepted
     # ONLY for the read-only DATA routes (_EXT_VAULT_DATA_ROUTES). The old
@@ -1011,6 +1013,7 @@ def _check_token():
                 _apitok.record_decision(
                     res["token_id"], path, request.method,
                     res.get("scope", ""), True, _ip, "ok")
+                g.bd_header_cred_verified = True
                 return None
             # invalid/expired/revoked api token → fall through to 401
         except Exception:
@@ -1230,25 +1233,55 @@ def _dev_console_cross_site_get() -> bool:
     return bool(origin) and not _origin_names_host(origin, request.headers.get("Host", ""))
 
 
+# aac-fu1 A2: GET /api/pair MINTS a code into the capped pairing store, so a
+# blind GET from a page in a browser on the box (a loopback peer, admitted by
+# _pair_mint_authorized) evicted the operator's pending code. It takes the
+# dev-console GET guard (_dev_console_cross_site_get). aac-fu1 A3 decided
+# OPEN: a GET with neither Sec-Fetch-Site nor Origin still passes, cookie or
+# not -- it cannot be told from curl/bdctl, and evergreen browsers send
+# Sec-Fetch-Site.
+PAIR_MINT_PATH = "/api/pair"
+
+
+def _header_cred_verified() -> bool:
+    """aac-fu1 A1: True iff the request carries a header credential that was
+    VERIFIED: _check_token accepted the master Bearer / X-BD-Token or a bdapi_
+    token (g.bd_header_cred_verified), or the Bearer / X-BD-Token equals an
+    accepted token (_check_token stops at a login session before it reads
+    them). Header PRESENCE proves nothing: only CORS kept a cross-site page
+    from sending one."""
+    if getattr(g, "bd_header_cred_verified", False):
+        return True
+    toks = _accepted_tokens()
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer ") and any(_token_eq(auth[7:].strip(), t) for t in toks):
+        return True
+    bd_tok = request.headers.get("X-BD-Token", "").strip()
+    return bool(bd_tok) and any(_token_eq(bd_tok, t) for t in toks)
+
+
 @app.before_request
 def _check_csrf():
     """For state-changing requests (POST/PUT/PATCH/DELETE) under /api/,
     require X-CSRF-Token to match the derived CSRF for the session.
-    A GET/HEAD to a dev-console route (DEV_CONSOLE_PREFIX) is refused when it
-    is cross-origin (_dev_console_cross_site_get, aac C2).
+    A GET/HEAD to a dev-console route (DEV_CONSOLE_PREFIX) or GET /api/pair is
+    refused when it is cross-origin (_dev_console_cross_site_get, aac C2 /
+    aac-fu1 A2); one with neither Sec-Fetch-Site nor Origin passes (A3).
     Skip when:
-      - The route is GET or OPTIONS (read-only / preflight), dev console aside
-      - The request has a valid Bearer token (CLI usage) or a scoped
-        X-BD-API-Token (aac F8e)
+      - The route is GET or OPTIONS (read-only / preflight), the above aside
+      - The request has a VERIFIED Bearer / X-BD-Token / scoped api token
+        (_header_cred_verified, aac-fu1 A1), or a Bearer on a vault data route
       - No session cookie is present (legacy / unauthenticated requests
         are already handled by _check_token; this layer is only for
         cookie-based browser sessions)
     """
-    if (request.method in ("GET", "HEAD")
-            and (request.path or "").startswith(DEV_CONSOLE_PREFIX)
-            and _dev_console_cross_site_get()):
-        return jsonify({"error": "cross-origin request refused",
-                        "hint": "dev console requests must be same-origin"}), 403
+    if request.method in ("GET", "HEAD"):
+        _p = request.path or ""
+        _dev = _p.startswith(DEV_CONSOLE_PREFIX)
+        if (_dev or _p == PAIR_MINT_PATH) and _dev_console_cross_site_get():
+            return jsonify({"error": "cross-origin request refused",
+                            "hint": ("dev console" if _dev else "pairing-code")
+                                    + " requests must be same-origin"}), 403
     if request.method in ("GET", "OPTIONS", "HEAD"): return None
     path = request.path or ""
     # v3.66.748: the guarded-prefix rule is CSRF_GUARDED_PREFIXES, above — the
@@ -1256,13 +1289,18 @@ def _check_csrf():
     # let the scanner's copy drift; there is now nothing to copy.
     if not path.startswith(CSRF_GUARDED_PREFIXES): return None
     # Bearer auth bypasses CSRF — the bearer is itself a secret that the
-    # attacker doesn't have, so there's no cross-origin attack to defend
+    # attacker doesn't have, so there's no cross-origin attack to defend.
+    # aac-fu1 A1: only a VERIFIED one (master token, or a bdapi_ token as Bearer
+    # or X-BD-API-Token that _check_token verified). A bdapi_ / junk Bearer that
+    # failed verify is not exempt, so a future CORS header grant cannot open
+    # cookie CSRF.
+    if _header_cred_verified(): return None
+    # The vault data routes authenticate by the vault Bearer ALONE (the handler
+    # runs _require_vault_token; a cookie grants nothing there), and the
+    # extension calls them from Origin chrome-extension://<id>. _check_token
+    # gates the same (path, Bearer) pair.
     auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "): return None
-    # aac F8e: a scoped api token may come as X-BD-API-Token instead of Bearer
-    # (_check_token reads both). Same reasoning as Bearer: a custom header a
-    # cross-site page cannot send without a preflight no CORS grant answers.
-    if request.headers.get("X-BD-API-Token", "").strip().startswith("bdapi_"): return None
+    if path in _EXT_VAULT_DATA_ROUTES and auth.startswith("Bearer "): return None
     # ext-bridge F1: the extension's URL-queue calls send X-BD-Token, not
     # Bearer, from Origin chrome-extension://<id>. A VALID X-BD-Token (the
     # same _token_eq over every accepted token as _check_token) is the
