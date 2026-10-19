@@ -83,6 +83,16 @@ _STRUCT_HINTS = ("://", "@", "?")
 # A percent-encoded ``:``, ``/``, ``@``, ``?`` or ``%`` (any case): an encoded
 # URL inside a structural string (``u=https%3A%2F%2Fhost/...``).
 _PCT_URL = re.compile(r"%(?:3[aAfF]|2[fF5]|40)")
+# Scheme-less userinfo (deny-by-default: the host is never validated, a host
+# shape a pattern did not foresee must not fail open). A run of two or more
+# ``/`` or ``\`` starts a network-path authority, which ends at the next
+# ``/ ? # \``; a bare token's authority starts at the token. A bare token
+# needs a ``:port`` after the ``@`` (``a@b.com`` is an e-mail address).
+_NET_PATH = re.compile(r"[/\\]{2,}")
+_AUTHORITY_END = re.compile(r"[/?#\\]")
+_BARE_PORT = re.compile(r"\S*:[0-9]+")
+_XPATH_FN = re.compile(r"[A-Za-z_][\w.-]*\(")
+_XPATH_ATTR = re.compile(r"[A-Za-z_][\w.-]*[),]")
 
 
 def is_credential_url_field(key) -> bool:
@@ -267,8 +277,62 @@ def _urlish_token(t: str) -> bool:
     at = t.find("@")
     if at > 0 and ":" in t[:at] and "/" not in t[:at]:
         return True
+    if "@" in t:
+        if any(_userinfo_at(_authority(t, m.end())) > 0 for m in _NET_PATH.finditer(t)):
+            return True
+        bare = _authority(t, 0)
+        at = _userinfo_at(bare)
+        if at > 0 and _BARE_PORT.fullmatch(bare, at + 1):
+            return True
     q = t.find("?")
     return q > 0 and "/" in t[:q] and "=" in t[q:]
+
+
+def _authority(t: str, start: int) -> str:
+    end = _AUTHORITY_END.search(t, start)
+    return t[start:end.start()] if end else t[start:]
+
+
+def _xpath_step(authority: str, at: int) -> bool:
+    """The ``@`` at ``at`` is an XPath/CSS attribute step, not userinfo: the
+    text before it holds a ``[`` (not RFC 3986 userinfo; urllib refuses it), or
+    the whole text before it is a function name and ``(`` (no ``:``, so never
+    ``user:pw(``) and an attribute name closes with ``)`` or ``,`` right after
+    it (``//a(@x)``). Anything else after the ``@`` is a host: redact."""
+    head = authority[:at]
+    return "[" in head or bool(
+        _XPATH_FN.fullmatch(head) and _XPATH_ATTR.match(authority, at + 1))
+
+
+def _userinfo_at(authority: str) -> int:
+    """Index of the first ``@`` in ``authority`` that ends a userinfo, else -1."""
+    at = authority.find("@")
+    bracket = authority.find("[")
+    while at >= 0:
+        if 0 <= bracket < at:
+            return -1  # this and every later ``@`` has a ``[`` before it (linear)
+        if at > 0 and not _xpath_step(authority, at):
+            return at
+        at = authority.find("@", at + 1)
+    return -1
+
+
+def is_proxy_field(key) -> bool:
+    """A proxy-named key (proxy, http_proxy, socks_proxy, proxy_pool, socks5,
+    ...): its value never holds an e-mail address, so any ``@`` is userinfo."""
+    k = key.lower() if isinstance(key, str) else ""
+    return "proxy" in k or k.startswith("socks")
+
+
+def _proxy_token(m) -> str:
+    t = m.group(0)
+    return masked_url(t) if t.find("@") > 0 else _struct_token(m)
+
+
+def proxy_text(value: str) -> str:
+    """A string under a proxy-named key: struct_text, and every token with
+    an ``@`` after its first character withheld (``@cred:<id>`` is kept)."""
+    return _TOKEN.sub(_proxy_token, value) if value else value
 
 
 def _struct_token(m) -> str:
@@ -304,7 +368,7 @@ def value_view(key, value):
     if is_secret_field(key) and key not in NOT_SECRET_FIELDS:
         return secret_value(value)
     if isinstance(value, str):
-        return struct_text(value)
+        return proxy_text(value) if is_proxy_field(key) else struct_text(value)
     if isinstance(value, dict):
         return _view_dict(value)
     if isinstance(value, (list, tuple)):
