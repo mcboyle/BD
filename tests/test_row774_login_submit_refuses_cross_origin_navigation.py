@@ -290,7 +290,7 @@ def _drive(monkeypatch, tmp_path, *, final_url, success_url=None,
     monkeypatch.setattr(submit, "_wait_captcha_tokens", lambda *a, **kw: (None, 0))
     monkeypatch.setattr(submit, "_try_check_remember_me", lambda page: None)
 
-    def fill(page, selectors, value, role):
+    def fill(page, selectors, value, role, refusal=None):
         calls["fill"].append(role)
         return True, "fixture field"
     monkeypatch.setattr(submit, "_try_fill", fill)

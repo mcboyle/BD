@@ -74,7 +74,7 @@ def _drive(monkeypatch, tmp_path, *, late_url, flip_after_waits=1,
                         lambda *args, **kwargs: (False, False, ""))
     monkeypatch.setattr(submit, "_wait_captcha_tokens", lambda *args, **kwargs: (None, 0))
     monkeypatch.setattr(submit, "_try_check_remember_me", lambda page: None)
-    monkeypatch.setattr(submit, "_try_fill", lambda *args: (True, "fixture field"))
+    monkeypatch.setattr(submit, "_try_fill", lambda *args, **kwargs: (True, "fixture field"))
     monkeypatch.setattr(submit, "keep_pre_submit_screenshot", lambda *args: "")
     monkeypatch.setattr(submit, "_captcha_mount_name", lambda page: "", raising=False)
 

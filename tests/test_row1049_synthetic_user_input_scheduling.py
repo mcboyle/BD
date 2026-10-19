@@ -349,10 +349,16 @@ def test_e2_login_submit_pauses_between_username_and_password():
     from pathlib import Path
 
     src = (Path(__file__).resolve().parents[1] / "bulk_downloader/login_impl/submit.py").read_text(encoding="utf-8")
-    u = src.index('_try_fill(page,uf_candidates,username,"username")')
-    p = src.index('_try_fill(page,pf_candidates,password,"password")')
-    between = src[u:p]
-    assert between.count("_inter_field_pause()") == 1, "E2: submit.py must call _inter_field_pause() between the fields"
+    import ast
+
+    calls = [node for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name)]
+    fills = {node.args[3].value: node.lineno for node in calls
+             if node.func.id == "_try_fill" and len(node.args) >= 4
+             and isinstance(node.args[3], ast.Constant)}
+    pauses = [node for node in calls if node.func.id == "_inter_field_pause"
+              and fills["username"] < node.lineno < fills["password"]]
+    assert len(pauses) == 1, "E2: submit.py must call _inter_field_pause() between the fields"
 
 
 def test_note_keystroke_failure_is_not_retyped_into_the_same_field(monkeypatch):
