@@ -94,6 +94,18 @@ def test_health_unreadable_body_is_unknown_not_ok():
     assert "Health <b>unknown</b>" in strip, strip
 
 
+def test_health_502_html_body_is_fail():
+    # non-2xx whose body is not JSON: the status alone must fail the strip
+    strip = _strip(_render_home({"status": 502, "raw": "<html>bad gateway</html>"}))
+    assert "Health <b>FAIL</b>" in strip, f"{DIAG}: 502 with an HTML body not rendered as FAIL: {strip}"
+
+
+def test_health_503_empty_json_body_is_fail():
+    # non-2xx whose JSON body lacks ok:false: the status alone must fail the strip
+    strip = _strip(_render_home({"status": 503, "raw": "{}"}))
+    assert "Health <b>FAIL</b>" in strip, f"{DIAG}: 503 with body {{}} not rendered as FAIL: {strip}"
+
+
 def test_health_ok_still_renders_ok():
     # positive control: the probe can still say yes
     strip = _strip(_render_home({"status": 200, "body": {"ok": True, "db_ok": True, "version": "3.66.1"}}))
