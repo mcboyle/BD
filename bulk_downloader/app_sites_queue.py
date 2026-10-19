@@ -266,7 +266,11 @@ def api_bulk_priority(sid):
     urls=_job_keys(runners[sid], urls_or_err)
     pri=data.get("priority","normal")
     if pri not in ("normal","high"): return jsonify({"error":"bad priority"}),400
-    n=runners[sid].bulk_priority(urls,pri)
+    try:
+        n=runners[sid].bulk_priority(urls,pri)
+    except Exception as e:
+        # dqb F3: the runner rolled the change back and logged it.
+        return jsonify({"ok":False,"error":f"priority not saved: {type(e).__name__}: {e}"}),500
     return jsonify({"ok":True,"count":n})
 
 
@@ -747,10 +751,13 @@ def api_retry_one(sid):
         job = runner.jobs.get(url)
         if not job:
             return jsonify({"ok": False, "error": "url not in queue"}), 404
-        # Only meaningful states for retry: failed, needs_review, stopped.
+        # Only meaningful states for retry: failed, needs_review, stopped,
+        # dead_letter (dqb F7 ruling: an explicit user retry takes it, as
+        # bulk_retry does; the automatic retries never do).
         # Pending/running are no-ops, done is intentional (don't second-
         # guess the user — they'd use 'reset' for that).
-        if job.get("status") not in ("failed", "needs_review", "stopped"):
+        if job.get("status") not in ("failed", "needs_review", "stopped",
+                                     "dead_letter"):
             return jsonify({"ok": False, "error": f"can't retry from status {job.get('status')!r}"}), 400
     # Drive through the normal _update_job path so the state transition
     # is logged and persisted. Clears retries so the worker pool doesn't

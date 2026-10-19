@@ -287,6 +287,8 @@ _F7 = {
     "bulk_pause": ("pending", lambda r: r.bulk_pause([U])),
     "bulk_resume": ("stopped", lambda r: r.bulk_resume([U])),
 }
+# dqb-fix-r3 F6 ruling: Resume acts only on a user pause, so seed it as one.
+_F7_SEED = {"bulk_resume": {"_paused_by_user": True}}
 
 
 @pytest.mark.parametrize("verb", sorted(_F7))
@@ -295,6 +297,7 @@ def test_f7_s29_persist_failure_is_logged(mk, monkeypatch, verb):
     r = mk()
     r.load_urls([U])
     r.jobs[U]["status"] = status
+    r.jobs[U].update(_F7_SEED.get(verb, {}))
     db.queue_upsert(r.site_id, U, status=status)
     r.log = rec = _LogRec(r.log)
     monkeypatch.setattr(RQ, "queue_bulk_update", _disk_full)
@@ -309,6 +312,7 @@ def test_f7_s29_ctl_healthy_persist_is_silent(mk, verb):
     r = mk()
     r.load_urls([U])
     r.jobs[U]["status"] = status
+    r.jobs[U].update(_F7_SEED.get(verb, {}))
     db.queue_upsert(r.site_id, U, status=status)
     r.log = rec = _LogRec(r.log)
     call(r)

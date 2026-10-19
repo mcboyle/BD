@@ -716,6 +716,8 @@ class QueueMixin:
         urls=list(urls)
         applied=[]
         with self._lock:
+            old_prio={u: self.jobs[u].get("priority") for u in urls if u in self.jobs}
+            old_urls=list(self.urls)
             promote=[]
             for u in urls:
                 if u in self.jobs:
@@ -730,8 +732,47 @@ class QueueMixin:
             # dqb F9: without the ord rewrite a restart restores the old order.
             if order:
                 queue_reorder(self.site_id, order)
-        except Exception: pass
+        except Exception as e:
+            # dqb F3 (ruling): a failed queue write is not swallowed. Undo the
+            # memory change, undo what part of the write landed, log, re-raise
+            # so the route answers 500.
+            self._rollback_bulk_priority(applied, old_prio, old_urls, order)
+            self.log.error("bulk_priority: queue table not updated for %d job(s) "
+                           "(%s: %s); priority change rolled back",
+                           len(applied), type(e).__name__, e)
+            raise
         return len(urls)
+    def _rollback_bulk_priority(self, applied, old_prio, old_urls, order):
+        """dqb F3: put back the priorities and order bulk_priority changed.
+        Memory first, under the lock; a URL queued meanwhile keeps its place
+        after the restored order. The table side is best effort: the write
+        that failed may have half landed, and the caller is already raising."""
+        with self._lock:
+            for u in applied:
+                j = self.jobs.get(u)
+                if j is None: continue
+                if old_prio.get(u) is None: j.pop("priority", None)
+                else: j["priority"] = old_prio[u]
+            if order:
+                kept, cur = set(old_urls), set(self.urls)
+                self.urls[:] = ([u for u in old_urls if u in cur]
+                                + [u for u in self.urls if u not in kept])
+            restore = {u: i for i, u in enumerate(self.urls)} if order else None
+        groups = {}
+        for u in applied:
+            groups.setdefault(old_prio.get(u) or "", []).append(u)
+        for prio, us in groups.items():
+            try:
+                queue_set_priority(self.site_id, us, prio)
+            except Exception as e:
+                self.log.error("bulk_priority rollback: priority not restored "
+                               "for %d job(s) (%s: %s)", len(us), type(e).__name__, e)
+        if restore:
+            try:
+                queue_reorder(self.site_id, restore)
+            except Exception as e:
+                self.log.error("bulk_priority rollback: order not restored "
+                               "(%s: %s)", type(e).__name__, e)
     def _mark_deleted(self, urls):
         """dqb F4: remember URLs the operator deleted, so a worker still holding
         one cannot re-create the job (and its row) by publishing its result.
@@ -840,14 +881,18 @@ class QueueMixin:
             self._log_queue_persist_failure("bulk_pause", paused, e)
         return n
     def bulk_resume(self, urls):
-        """v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-        Re-queues them as pending. Idempotent on jobs that aren't stopped."""
+        """v3.49 (#55): un-pause user-paused jobs. The inverse of bulk_pause.
+        Re-queues them as pending. Idempotent on jobs that aren't paused."""
         urls = set(urls); n = 0; resumed = []
         with self._job_status_writer() as mark_status_changed:
             for u in urls:
                 j = self.jobs.get(u)
                 if not j: continue
                 if j.get("status") not in ("stopped",): continue
+                # dqb F6 (ruling): Resume is the inverse of a user pause only.
+                # A user cancel is terminal (retry is the way back); a runner
+                # Stop is re-queued by Start (_repend_jobs_parked_by_stop).
+                if not j.get("_paused_by_user"): continue
                 j.update({"status": "pending", "message": "Resumed",
                           "ts": _ts(), "retries": 0, "retry_after": 0,
                           "_paused_by_user": False})
