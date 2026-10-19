@@ -404,6 +404,7 @@ function load(url,tblId,keys){
   return fetch(url).then(function(r){return r.json();}).then(function(j){
     if(!j.ok){document.getElementById("err").textContent+=url+": "+(j.error||"error")+" ";return;}
     var d=j.data||{},tbl=document.getElementById(tblId);
+    if(d.available===false){kv(tbl,"status","unavailable");return;}
     keys.forEach(function(k){kv(tbl,k,Array.isArray(d[k])?d[k].join(", "):d[k]);});
   }).catch(function(e){document.getElementById("err").textContent+="fetch failed: "+e;});}
 load("/api/data/vpn_status","vpn",
