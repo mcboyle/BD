@@ -139,6 +139,10 @@ def load() -> dict:
         gs = data.get("global")
         if isinstance(gs, list):
             _state["global"] = _sanitize_list(gs)
+        else:
+            # A file without (or with a null) "global" must not keep the old
+            # in-memory list: the next save() would write it back (ss-fix F3).
+            _state["global"] = list(DEFAULT_WIDGETS)
         ps = data.get("per_site") or {}
         if isinstance(ps, dict):
             _state["per_site"] = {

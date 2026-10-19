@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
@@ -29,6 +30,9 @@ from flask import Blueprint, jsonify, request
 from . import _envfile
 
 envfile_editor_bp = Blueprint("envfile_editor", __name__)
+
+
+_WRITE_LOCK = threading.Lock()
 
 
 def _keys():
@@ -136,36 +140,40 @@ def validate_envfile_updates(updates: dict) -> dict:
 
 def _write_envfile(path: Path, accepted: dict) -> None:
     """Atomically merge `accepted` into the `.env`, preserving comments + unrelated
-    lines. Updates a key in place if present, else appends it (temp + os.replace)."""
-    # Only a MISSING file is empty. An unreadable or non-UTF-8 file must abort
-    # the write: treating it as empty would replace every other key with just
-    # the edited ones (the caller maps the exception to a 500, file untouched).
-    try:
-        existing = path.read_text(encoding="utf-8").splitlines()
-    except FileNotFoundError:
-        existing = []
-    remaining = dict(accepted)
-    out = []
-    for raw in existing:
-        line = raw.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key = line.partition("=")[0].strip()
-            if key in accepted:
-                out.append(f"{key}={accepted[key]}")
-                remaining.pop(key, None)
-                continue
-        out.append(raw)
-    for key, val in remaining.items():
-        out.append(f"{key}={val}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".env.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(out) + "\n")
-        os.replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+    lines. Updates a key in place if present, else appends it (temp + os.replace).
+    The whole read-merge-write runs under _WRITE_LOCK: two concurrent POSTs of
+    different keys each read the old file, and the later replace dropped the
+    other's key (ss-fix F1)."""
+    with _WRITE_LOCK:
+        # Only a MISSING file is empty. An unreadable or non-UTF-8 file must abort
+        # the write: treating it as empty would replace every other key with just
+        # the edited ones (the caller maps the exception to a 500, file untouched).
+        try:
+            existing = path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            existing = []
+        remaining = dict(accepted)
+        out = []
+        for raw in existing:
+            line = raw.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key = line.partition("=")[0].strip()
+                if key in accepted:
+                    out.append(f"{key}={accepted[key]}")
+                    remaining.pop(key, None)
+                    continue
+            out.append(raw)
+        for key, val in remaining.items():
+            out.append(f"{key}={val}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".env.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(out) + "\n")
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
 
 
 def _submitted_updates():

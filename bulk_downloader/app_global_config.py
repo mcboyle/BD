@@ -202,7 +202,8 @@ def _rollback_on_reject(view):
             aiassist._config.update(ai)
             if _log.get_level() != level:
                 _log.set_level(level)
-            if any(str(k).startswith("rate_limit_") for k in (request.get_json(silent=True) or {})):
+            body = request.get_json(silent=True)
+            if isinstance(body, dict) and any(str(k).startswith("rate_limit_") for k in body):
                 from . import rate_limit
                 rate_limit.configure_from_app_config(cfg)
 
@@ -240,6 +241,8 @@ def api_global_config():
     from . import aiassist
     if request.method=="POST":
         data=request.json or {}
+        if not isinstance(data, dict):
+            return jsonify({"error": "expected a JSON object of config keys"}), 400
         # BD-SEC-2 ROW 2: a withheld view echoed back keeps the stored value.
         from .egress_withhold import restore_withheld
         if isinstance(data, dict):
@@ -254,7 +257,11 @@ def api_global_config():
                 "unknown_keys": _unknown,
             }), 400
         if "global_max_concurrent" in data:
-            n=max(0,min(64,int(data["global_max_concurrent"])))
+            try:
+                n=max(0,min(64,int(data["global_max_concurrent"])))
+            except (TypeError, ValueError, OverflowError):
+                return jsonify({"error": "global_max_concurrent must be "
+                                         "an integer"}), 400
             _app_cfg["global_max_concurrent"]=n
             from .runner import set_global_concurrent_cap
             set_global_concurrent_cap(n)
@@ -275,7 +282,11 @@ def api_global_config():
         for k in ("watch_folder", "default_quick_add_site"):
             if k in data: _app_cfg[k] = str(data[k] or "")
         if "watch_interval_sec" in data:
-            _app_cfg["watch_interval_sec"] = max(5, int(data["watch_interval_sec"] or 30))
+            try:
+                _app_cfg["watch_interval_sec"] = max(5, int(data["watch_interval_sec"] or 30))
+            except (TypeError, ValueError, OverflowError):
+                return jsonify({"error": "watch_interval_sec must be an "
+                                         "integer (seconds)"}), 400
         if "watch_archive" in data:
             _app_cfg["watch_archive"] = bool(data["watch_archive"])
         # v3.64.2: Session keep-alive timing knobs. All three are
