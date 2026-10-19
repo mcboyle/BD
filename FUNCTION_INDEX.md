@@ -315,35 +315,35 @@ Schema version: 2
   - L3838 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
   - L3871 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
   - L3892 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L4512 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L4541 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L4596 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L4654 `SiteRunner._worker_generation_is_current` `[private]`
-  - L4658 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L4719 `SiteRunner._wake_for_new_jobs` `[private]` — idle-site-wake r1: pending jobs load_urls just created or re-armed
-  - L4757 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L4827 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L4859 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L4890 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L4910 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L4919 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L4944 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
-  - L4969 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L5010 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L5112 `SiteRunner._record_worker_thread_telemetry` `[private]` — Row 995: must run ON the worker thread -- the reading is of the caller.
-  - L5125 `SiteRunner._worker_threads_status` `[private]`
-  - L5133 `SiteRunner._cgroup_controller_or_none` `[private]`
-  - L5143 `SiteRunner._cgroup_backpressure_delay_s` `[private]` — Seconds to slow the intake by on the high-water ramp (0 when the
-  - L5154 `SiteRunner._cgroup_trial_feedback` `[private]` — Settle the HALF_OPEN trial this worker's URL was admitted as
-  - L5188 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L5572 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L5587 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L5617 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
-  - L5643 `SiteRunner._handle_find_button_budget_spent` `[private]` — dl95-tube8-1: fail the job when find_best_download stopped at the
-  - L5658 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
-  - L5708 `SiteRunner._accept_navigation_download` `[private]` — dl-f6: the job URL itself started a browser download on goto.
-  - L5735 `SiteRunner._resolve_write_dir` `[private]` — The directory a job's file is written to, or "" when none resolves.
-  - L5788 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L4517 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L4546 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L4601 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L4659 `SiteRunner._worker_generation_is_current` `[private]`
+  - L4663 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L4724 `SiteRunner._wake_for_new_jobs` `[private]` — idle-site-wake r1: pending jobs load_urls just created or re-armed
+  - L4762 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L4832 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L4864 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L4895 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L4915 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L4924 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L4949 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
+  - L4974 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L5015 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L5117 `SiteRunner._record_worker_thread_telemetry` `[private]` — Row 995: must run ON the worker thread -- the reading is of the caller.
+  - L5130 `SiteRunner._worker_threads_status` `[private]`
+  - L5138 `SiteRunner._cgroup_controller_or_none` `[private]`
+  - L5148 `SiteRunner._cgroup_backpressure_delay_s` `[private]` — Seconds to slow the intake by on the high-water ramp (0 when the
+  - L5159 `SiteRunner._cgroup_trial_feedback` `[private]` — Settle the HALF_OPEN trial this worker's URL was admitted as
+  - L5193 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L5577 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L5592 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L5622 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
+  - L5648 `SiteRunner._handle_find_button_budget_spent` `[private]` — dl95-tube8-1: fail the job when find_best_download stopped at the
+  - L5663 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
+  - L5713 `SiteRunner._accept_navigation_download` `[private]` — dl-f6: the job URL itself started a browser download on goto.
+  - L5740 `SiteRunner._resolve_write_dir` `[private]` — The directory a job's file is written to, or "" when none resolves.
+  - L5793 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -608,7 +608,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_queue.py` (30 entries)
+## `bulk_downloader/runner_queue.py` (31 entries)
 
 ```
 - L0057 `_restored_retries` `[private]` — ddr-fix F6: a NULL/garbage retries column restores as 0, never None
@@ -623,24 +623,25 @@ Schema version: 2
   - L0244 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
   - L0681 `QueueMixin.reorder_urls`
   - L0693 `QueueMixin.set_priority`
-  - L0703 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0721 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0759 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0792 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0818 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0840 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
-  - L0848 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0870 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0894 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0941 `QueueMixin.clear_completed` — Drop URLs in `done` status from both the in-memory job map and the
-  - L0958 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0975 `QueueMixin._log_queue_persist_failure` `[private]` — ddr-fix F7: a bulk verb's queue write failed. Memory already moved,
-  - L0981 `QueueMixin.retry`
-  - L0983 `QueueMixin.clear`
-  - L0985 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0991 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
-  - L1008 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
-  - L1013 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
+  - L0713 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0735 `QueueMixin._mark_deleted` `[private]` — dqb F4: remember URLs the operator deleted, so a worker still holding
+  - L0744 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0783 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0816 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0842 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0864 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
+  - L0872 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0894 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0918 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0965 `QueueMixin.clear_completed` — Drop URLs in `done` status from both the in-memory job map and the
+  - L0982 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0999 `QueueMixin._log_queue_persist_failure` `[private]` — ddr-fix F7: a bulk verb's queue write failed. Memory already moved,
+  - L1005 `QueueMixin.retry`
+  - L1007 `QueueMixin.clear`
+  - L1009 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L1015 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L1032 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
+  - L1037 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
 ```
 
 
@@ -702,7 +703,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_auth.py` (49 entries)
+## `bulk_downloader/runner_auth.py` (51 entries)
 
 ```
 - L0024 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
@@ -712,48 +713,50 @@ Schema version: 2
   - L0067 `_ScrubbedPage.__getattr__` `[dunder]`
 - L0077 `login_wall_in_body` — dl95-eporner-1: why a downloaded body is a login page instead of the
 - L0102 `_auth_start_guard` `[private]` — Track auth/manual launch callers until publication or retirement.
-- L0124 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
-- L0136 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
-- L0147 `_truthy` `[private]`
-- L0157 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
-- L0163 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
-- L0173 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
-- L0188 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
-- L0197 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
-- L0212 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
-- L0244 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
-- L0263 `_surface_login_channel_fallbacks` `[private]` — Row 723: put the real-Chrome degradation a login flow the runner owns
-- L0272 `AuthMixin` `[class]`
-  - L0273 `AuthMixin._set_login_status` `[private]` — Set operator-visible login text without retaining GET credentials.
-  - L0278 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0641 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
-  - L0688 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0753 `AuthMixin._open_manual_window` `[private]` — Open the thread-owned manual-login window at ``login_url`` and
-  - L0821 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0849 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0958 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L1002 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L1236 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L1288 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L1293 `AuthMixin._maybe_start_human_challenge` `[private]` — fx-takeover-plain-browser: a takeover that stands on a Cloudflare
-  - L1345 `AuthMixin._human_challenge_wait` `[private]`
-  - L1404 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L1431 `AuthMixin.is_awaiting_manual_login`
-  - L1433 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
-  - L1448 `AuthMixin._bare_403_login_wall` `[private]` — True when the whole visible page is a bare 403/denied error (every
-  - L1459 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L1527 `AuthMixin._auth_verdict` `[private]` — fx-auth-expired-evidence (O1567): an 'auth' verdict names the
-  - L1557 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
-  - L1576 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1712 `AuthMixin._hold_for_parked_takeover` `[private]` — O1567 fx-worker-relogin-no-manual: while a manual takeover is
-  - L1727 `AuthMixin._relogin_abort_reason` `[private]` — dl95-cancel-relogin-1: why an in-flight re-login is no longer
-  - L1737 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1745 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1813 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
-  - L1868 `AuthMixin._stored_session_usable` `[private]` — Stored cookies that can still carry a session: some unexpired,
-  - L1881 `AuthMixin._session_reads_ok` `[private]` — tpl95-site-ma-brazzers-2 r3: the jar is the one this runner's own
-  - L1903 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
-  - L1922 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+- L0124 `_manual_start_claim` `[private]` — O1789 session-auth-capture F7: the manual-login idempotency check and
+- L0149 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
+- L0161 `_captcha_session_id` `[private]` — O1789 session-auth-capture F19: unique per solve session. The bare
+- L0168 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
+- L0179 `_truthy` `[private]`
+- L0189 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
+- L0195 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
+- L0205 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
+- L0220 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
+- L0229 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
+- L0244 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
+- L0276 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
+- L0295 `_surface_login_channel_fallbacks` `[private]` — Row 723: put the real-Chrome degradation a login flow the runner owns
+- L0304 `AuthMixin` `[class]`
+  - L0305 `AuthMixin._set_login_status` `[private]` — Set operator-visible login text without retaining GET credentials.
+  - L0310 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
+  - L0674 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
+  - L0722 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0787 `AuthMixin._open_manual_window` `[private]` — Open the thread-owned manual-login window at ``login_url`` and
+  - L0856 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0884 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0993 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L1037 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L1271 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L1323 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L1328 `AuthMixin._maybe_start_human_challenge` `[private]` — fx-takeover-plain-browser: a takeover that stands on a Cloudflare
+  - L1380 `AuthMixin._human_challenge_wait` `[private]`
+  - L1439 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L1466 `AuthMixin.is_awaiting_manual_login`
+  - L1468 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
+  - L1483 `AuthMixin._bare_403_login_wall` `[private]` — True when the whole visible page is a bare 403/denied error (every
+  - L1494 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1562 `AuthMixin._auth_verdict` `[private]` — fx-auth-expired-evidence (O1567): an 'auth' verdict names the
+  - L1592 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
+  - L1611 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1747 `AuthMixin._hold_for_parked_takeover` `[private]` — O1567 fx-worker-relogin-no-manual: while a manual takeover is
+  - L1762 `AuthMixin._relogin_abort_reason` `[private]` — dl95-cancel-relogin-1: why an in-flight re-login is no longer
+  - L1772 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1780 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1848 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1903 `AuthMixin._stored_session_usable` `[private]` — Stored cookies that can still carry a session: some unexpired,
+  - L1916 `AuthMixin._session_reads_ok` `[private]` — tpl95-site-ma-brazzers-2 r3: the jar is the one this runner's own
+  - L1938 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
+  - L1957 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -1225,4 +1228,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 1049 across 22 files._
+_Total entries: 1052 across 22 files._

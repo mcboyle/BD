@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6675,
+  "edge_count": 6696,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4362,6 +4362,12 @@
     "tests/test_dpp_draft_wireup.py": [
       "tools/build_template_from_wacz.py"
     ],
+    "tests/test_dqb_fix_r2_queue_bulk.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_draft_override_ttl_and_revert.py": [
       "bulk_downloader/capture_login_wire.py",
       "bulk_downloader/runner_teach.py"
@@ -5691,6 +5697,14 @@
       "bulk_downloader/db.py",
       "bulk_downloader/queue_templates.py"
     ],
+    "tests/test_o1789_session_auth_capture_f7_f19.py": [
+      "bulk_downloader/cookies.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/session_keeper.py"
+    ],
     "tests/test_o1789_session_jar_integrity_r1.py": [
       "bulk_downloader/cookies.py",
       "bulk_downloader/login.py",
@@ -6278,6 +6292,11 @@
     ],
     "tests/test_pytest_module_graph.py": [
       "bulk_downloader/provenance.py"
+    ],
+    "tests/test_q_enqueue_r2_scheme_and_type.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner_queue.py"
     ],
     "tests/test_q_import_export_fixes.py": [
       "bulk_downloader/app.py"
@@ -7907,6 +7926,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/tg_bot.py"
     ],
+    "tests/test_scs_fix_r2_cockpit_health.py": [
+      "tools/cockpit_console.py"
+    ],
     "tests/test_search_extractor_bounds.py": [
       "bulk_downloader/search_extractor.py"
     ],
@@ -8071,6 +8093,12 @@
       "bulk_downloader/app_sites_lifecycle.py",
       "bulk_downloader/session_keeper.py"
     ],
+    "tests/test_sl_lock_per_site.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/storage_tier.py"
+    ],
     "tests/test_soak_completion_scope.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/pg_backend.py"
@@ -8107,6 +8135,9 @@
       "bulk_downloader/site_weather.py",
       "bulk_downloader/webhooks.py"
     ],
+    "tests/test_staging_integrity_f5_live_recorder_respawn.py": [
+      "bulk_downloader/live_recorder.py"
+    ],
     "tests/test_staging_toctou_f1_no_clobber.py": [
       "bulk_downloader/hls_downloader.py",
       "bulk_downloader/runner_transport.py",
@@ -8122,6 +8153,10 @@
       "bulk_downloader/container_repair.py",
       "bulk_downloader/runner_integrity.py",
       "bulk_downloader/stream_verifier.py"
+    ],
+    "tests/test_stbfix_f2_dry_run_template_patterns_redacted.py": [
+      "bulk_downloader/dry_run.py",
+      "bulk_downloader/template_registry.py"
     ],
     "tests/test_stbfix_f6_budget_history_site_id_route.py": [
       "bulk_downloader/app.py",
