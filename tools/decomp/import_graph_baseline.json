@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6878,
+  "edge_count": 6884,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2678,6 +2678,14 @@
       "bulk_downloader/app.py",
       "bulk_downloader/cookie_clipboard.py",
       "bulk_downloader/cookies.py"
+    ],
+    "tests/test_aac_fu1_auth_csrf_followups.py": [
+      "bulk_downloader/api_tokens.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/shares.py"
     ],
     "tests/test_ab_fix_adapters_browser.py": [
       "bulk_downloader/app.py",
