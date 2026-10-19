@@ -141,3 +141,84 @@ def test_theme_mode_type_includes_system_plus_all_ids():
     assert m, (
         "ThemeMode must be defined as `\"system\" | ThemeId`. Got a "
         "different shape — likely a regression to a narrower union.")
+
+
+# F060: the two default themes are what `system` resolves to, so their
+# text tokens must be readable on every surface token they are drawn on.
+# WCAG 2.1 AA for normal-size text is 4.5:1.
+_AA_NORMAL = 4.5
+_DEFAULT_THEMES = ("light", "dark")
+_TEXT_ON_SURFACE = tuple(
+    (fg, bg)
+    for fg in ("ink", "ink-2", "ink-3", "primary")
+    for bg in ("bg", "surface", "surface-2")
+) + (("primary", "primary-soft"),)
+
+
+def _theme_vars(src: str, theme_id: str) -> dict[str, str]:
+    m = re.search(
+        rf'\b{re.escape(theme_id)}:\s*\{{[^{{}}]*?vars:\s*\{{(.+?)\}}\s*,?\s*\}}',
+        src, re.DOTALL)
+    assert m, f"Could not find vars block for theme {theme_id!r}"
+    return {a or b: v for (a, b, v) in re.findall(
+        r'(?:"([^"]+)"|(\w[\w-]*))\s*:\s*"([^"]+)"', m.group(1))}
+
+
+def _relative_luminance(hex_color: str) -> float:
+    """WCAG 2.1 relative luminance of an opaque `#rrggbb`."""
+    h = hex_color.lstrip("#")
+    lin = []
+    for i in (0, 2, 4):
+        v = int(h[i:i + 2], 16) / 255
+        lin.append(v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def _contrast_ratio(fg: str, bg: str) -> float:
+    hi, lo = sorted((_relative_luminance(fg), _relative_luminance(bg)),
+                    reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def _low_contrast_pairs(palette: dict[str, str]) -> list[tuple[str, str, float]]:
+    low = []
+    for fg, bg in _TEXT_ON_SURFACE:
+        ratio = _contrast_ratio(palette[fg], palette[bg])
+        if ratio < _AA_NORMAL:
+            low.append((fg, bg, round(ratio, 2)))
+    return low
+
+
+def test_default_themes_text_tokens_meet_wcag_aa_on_surfaces():
+    """Muted text (`ink-3`) on the page background and the accent on its
+    soft tint rendered below 4.5:1 in the default light theme, which is
+    most of what /settings draws at 11px."""
+    src = _read_source()
+    checked = 0
+    for theme_id in _DEFAULT_THEMES:
+        palette = _theme_vars(src, theme_id)
+        for fg, bg in _TEXT_ON_SURFACE:
+            assert re.fullmatch(r"#[0-9a-fA-F]{6}", palette[fg]), (theme_id, fg)
+            assert re.fullmatch(r"#[0-9a-fA-F]{6}", palette[bg]), (theme_id, bg)
+            checked += 1
+        low = _low_contrast_pairs(palette)
+        assert not low, (
+            f"Theme {theme_id!r} text below {_AA_NORMAL}:1 "
+            f"(fg, bg, ratio): {low}")
+    assert checked == len(_DEFAULT_THEMES) * 13
+
+
+def test_contrast_probe_flags_the_palette_f060_measured():
+    """Negative control: the probe must say yes on the shipped-broken
+    light palette, or its silence on the current one means nothing."""
+    measured = {
+        "bg": "#eaeef3", "surface": "#ffffff", "surface-2": "#f6f9fc",
+        "ink": "#0a2540", "ink-2": "#4b5563", "ink-3": "#6b7280",
+        "primary": "#635bff", "primary-soft": "#f0effe",
+    }
+    assert _low_contrast_pairs(measured) == [
+        ("ink-3", "bg", 4.15),
+        ("primary", "bg", 4.03),
+        ("primary", "surface-2", 4.45),
+        ("primary", "primary-soft", 4.13),
+    ]
