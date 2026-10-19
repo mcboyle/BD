@@ -199,7 +199,7 @@ def test_containment_routes_and_version():
     assert "/api/settings/site/<sid>/validate" in nonget_rules
     assert "/api/settings/runtime" in nonget_rules
     from bulk_downloader import __version__
-    assert __version__ == "3.66.1930", __version__
+    assert __version__ == "3.66.1931", __version__
 
 
 def test_editor_page_renders_grouped():
