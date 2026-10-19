@@ -45,7 +45,12 @@ def api_bulk_enqueue():
     if sid not in runners or not runners[sid]:
         return jsonify({"ok": False,
                         "error": f"unknown site_id {sid!r}"}), 400
-    clean = [str(u).strip() for u in urls if str(u).strip()]
+    # q-enqueue-r2 M7: a non-string element is refused, never stringified
+    # into "None" / "{}" / "1".
+    if not all(isinstance(u, str) for u in urls):
+        return jsonify({"ok": False,
+                        "error": "urls must be a list of strings"}), 400
+    clean = [u.strip() for u in urls if u.strip()]
     CAP = 1000  # safety cap, matches discovery / capture_schedules
     overflow = max(0, len(clean) - CAP)
     clean = clean[:CAP]
