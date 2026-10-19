@@ -190,6 +190,10 @@ export function Settings() {
   // Local draft mirrors the server-fetched config plus the user's
   // in-flight edits. Reset whenever the server's view changes.
   const [draft, setDraft] = useState<GlobalConfigSubset>({});
+  // scs-fix-r2 F5b: the Watch interval text while it is being typed (null = show the
+  // draft). The draft still gets the clamped value on every keystroke; only the field
+  // waits for blur, so typing "12" no longer turns the "1" into 5 and shows 52.
+  const [watchIntervalText, setWatchIntervalText] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   // rate_limit_domain_overrides is edited as raw JSON in a textarea
   const [domainOverridesRaw, setDomainOverridesRaw] = useState<string>("");
@@ -721,13 +725,15 @@ export function Settings() {
                 <Input
                   type="number"
                   min={5}
-                  value={draft.watch_interval_sec ?? 30}
-                  onChange={(e) =>
+                  value={watchIntervalText ?? draft.watch_interval_sec ?? 30}
+                  onChange={(e) => {
+                    setWatchIntervalText(e.target.value);
                     setField(
                       "watch_interval_sec",
                       Math.max(5, parseInt(e.target.value, 10) || 30),
-                    )
-                  }
+                    );
+                  }}
+                  onBlur={() => setWatchIntervalText(null)}
                   className="w-24 text-right tabular"
                 />
               }
