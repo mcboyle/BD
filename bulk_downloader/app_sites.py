@@ -9,8 +9,10 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
+import contextlib
 import os as _os
 import json
+import logging
 import os
 import re
 import sys
@@ -51,6 +53,46 @@ def _leave_site_lifecycle_transaction(_error=None):
     held = getattr(g, "_bd_site_lifecycle_locks", ())
     while held:
         held.pop().release()
+
+
+@contextlib.contextmanager
+def _site_lifecycle_released():
+    """Run a slow per-site handler body OUTSIDE its lifecycle transaction.
+
+    sl-lock (sites-lifecycle row 1): the transaction covers lifecycle state
+    reads/writes only.  A handler that does unbounded work (a migration pass,
+    an outbound hook) snapshots under the lock, runs that work here with the
+    lock released, and must re-check site identity after this block -- the
+    lock is re-acquired on exit, so the re-check and any response that names
+    the site are again atomic against DELETE.
+    """
+    held = getattr(g, "_bd_site_lifecycle_locks", None) or []
+    released = list(held)
+    held.clear()
+    for lock in reversed(released):
+        lock.release()
+    try:
+        yield
+    finally:
+        for lock in released:
+            lock.acquire()
+            held.append(lock)
+        g._bd_site_lifecycle_locks = held
+
+
+def _site_identity(sid):
+    """Generation markers for a site: (runner object, config object)."""
+    return _app_runners().get(sid), _app_s_cfg().get(sid)
+
+
+def _site_changed_during_slow_handler(sid, identity, what):
+    """True (and logged) when <sid> was deleted/replaced while unlocked."""
+    runner, cfg = _site_identity(sid)
+    if runner is identity[0] and cfg is identity[1]:
+        return False
+    logging.getLogger(__name__).warning(
+        "SL_LOCK_SITE_CHANGED_DURING_SLOW_HANDLER sid=%r handler=%s", sid, what)
+    return True
 
 def _apply_login_template_by_id(*_a, **_k):
     """Delegate to app._apply_login_template_by_id at call time (lazy; avoids an import cycle)."""

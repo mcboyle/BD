@@ -76,30 +76,24 @@ def _save_sites_config():
 
 @contextlib.contextmanager
 def _all_site_lifecycle_transaction():
-    """Own every fixed site stripe in its process-stable order.
+    """Exclude every per-site lifecycle transaction for the whole import.
 
     Config import is the one site mutation whose target population is not
-    represented by a ``<sid>`` route argument.  Taking the fixed stripe tuple
+    represented by a ``<sid>`` route argument.  Owning the all-sites gate
     lets it parse first, then revalidate and mutate the complete live
-    population atomically against per-site routes and DELETE.
+    population atomically against per-site routes and DELETE -- including
+    routes for sids that have no lock object yet (sl-lock: per-site locks are
+    no longer a fixed stripe tuple that could simply be taken in order).
 
-    Lock order is always site stripe(s) -> sites-config save lock.  In
-    particular this helper never takes the save lock itself, so a route that
-    already owns one stripe and is finishing a save cannot form an inversion
-    with an importer waiting to acquire that stripe.
+    Lock order is always all-sites gate -> site lock(s) -> sites-config save
+    lock.  In particular this helper never takes the save lock itself, so a
+    route that already owns a site lock and is finishing a save cannot form an
+    inversion with an importer waiting on the gate.
     """
     from . import app_state
 
-    locks = tuple(app_state._site_lifecycle_locks)
-    acquired = []
-    try:
-        for lock in locks:
-            lock.acquire()
-            acquired.append(lock)
+    with app_state.all_site_lifecycle_locks():
         yield
-    finally:
-        while acquired:
-            acquired.pop().release()
 
 
 _IMPORT_CONSTRUCTION_ROLLBACK_TIMEOUT_S = 2.0

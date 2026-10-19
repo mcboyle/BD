@@ -12,8 +12,11 @@ Note: the pairing lock's construction alias `_t40_threading` (app.py L542)
 is normalized to `threading` here -- same Lock type, identical behavior.
 """
 
+import contextlib
 import os
 import threading
+import time
+import weakref
 
 runners = {}
 s_cfg = {}
@@ -34,16 +37,170 @@ _watch_registry_lock = register_monitored_lock("app_state._watch_registry_lock",
 # replace a newer delete.  Fixed process-wide ownership is also memory-bounded.
 _sites_config_save_lock = register_monitored_lock("app_state._sites_config_save_lock", threading.RLock())
 
-# Fixed stripes serialize every request that observes or mutates one site's
-# identity. Delete holds the same lock through writer retirement and teardown,
-# so a route cannot snapshot a runner/config before delete and commit after it.
-# Stripes (rather than an attacker-keyed dict) keep unknown IDs memory-bounded.
-_site_lifecycle_locks = tuple(threading.RLock() for _ in range(64))
+# sl-lock (sites-lifecycle row 1): one lock per site, never a stripe shared
+# with unrelated sites.  Every request that observes or mutates one site's
+# identity still serializes on it, and delete still holds it through writer
+# retirement and teardown, so a route cannot snapshot a runner/config before
+# delete and commit after it.
+#
+# Memory bound: the registry is weak.  An entry lives only while some caller
+# references its lock (holding it, waiting on it, or about to), so unknown
+# attacker-supplied IDs cost nothing once their request ends.  Pruning never
+# hands out a second lock for a sid: a lock is only collected when nobody can
+# be holding or waiting on it.
+#
+# All-sites exclusion (config import): every per-site acquire first enters
+# _site_lifecycle_gate SHARED; the importer enters it EXCLUSIVE.  That excludes
+# every per-site transition, including sids that have no lock object yet.
+# Lock order: gate -> per-site lock -> sites-config save lock.
+class _SiteLifecycleGate:
+    """Thread-reentrant shared/exclusive gate with exclusive preference.
+
+    A thread already inside the gate (shared or exclusive) always re-enters
+    shared without waiting, so a site route taking a second per-site lock, or
+    the importer taking a per-site lock, can never wait on a queued importer.
+    """
+
+    def __init__(self):
+        self._cond = threading.Condition(threading.Lock())
+        self._shared = {}            # thread ident -> shared depth
+        self._owner = None           # exclusive owner ident
+        self._depth = 0              # exclusive depth
+        self._exclusive_waiting = 0
+
+    def acquire_shared(self, blocking=True, timeout=-1):
+        me = threading.get_ident()
+        with self._cond:
+            if self._owner != me and not self._shared.get(me):
+                def _free():
+                    return self._owner is None and not self._exclusive_waiting
+                if not blocking:
+                    if not _free():
+                        return False
+                elif not self._cond.wait_for(
+                        _free, None if timeout < 0 else timeout):
+                    return False
+            self._shared[me] = self._shared.get(me, 0) + 1
+            return True
+
+    def release_shared(self):
+        me = threading.get_ident()
+        with self._cond:
+            depth = self._shared.get(me, 0)
+            if not depth:
+                raise RuntimeError("cannot release un-acquired site gate")
+            if depth == 1:
+                del self._shared[me]
+                self._cond.notify_all()
+            else:
+                self._shared[me] = depth - 1
+
+    def acquire_exclusive(self):
+        me = threading.get_ident()
+        with self._cond:
+            if self._owner == me:
+                self._depth += 1
+                return True
+
+            def _free():
+                return self._owner is None and not any(
+                    t != me for t in self._shared)
+            self._exclusive_waiting += 1
+            try:
+                self._cond.wait_for(_free)
+            finally:
+                self._exclusive_waiting -= 1
+            self._owner = me
+            self._depth = 1
+            return True
+
+    def release_exclusive(self):
+        with self._cond:
+            if self._owner != threading.get_ident():
+                raise RuntimeError("cannot release un-acquired site gate")
+            self._depth -= 1
+            if not self._depth:
+                self._owner = None
+                self._cond.notify_all()
+
+
+_site_lifecycle_gate = _SiteLifecycleGate()
+
+
+class _SiteLifecycleLock:
+    """A site's reentrant lifecycle lock (RLock interface, gate-aware)."""
+
+    __slots__ = ("site_id", "_lock", "_holds", "__weakref__")
+
+    def __init__(self, site_id):
+        self.site_id = site_id
+        self._lock = threading.RLock()
+        self._holds = 0  # mutated only by the owning thread
+
+    def acquire(self, blocking=True, timeout=-1):
+        deadline = None if timeout < 0 else time.monotonic() + timeout
+        if not _site_lifecycle_gate.acquire_shared(blocking, timeout):
+            return False
+        try:
+            remaining = -1 if deadline is None else max(
+                0.0, deadline - time.monotonic())
+            got = self._lock.acquire(blocking, remaining)
+        except BaseException:
+            _site_lifecycle_gate.release_shared()
+            raise
+        if not got:
+            _site_lifecycle_gate.release_shared()
+            return False
+        self._holds += 1
+        if self._holds == 1:
+            # A held lock stays registered even if the acquirer dropped its
+            # reference, so a later lookup for this sid cannot mint a twin.
+            _site_lifecycle_locks_held[self.site_id] = self
+        return True
+
+    def release(self):
+        if not self._lock._is_owned():
+            raise RuntimeError("cannot release un-acquired site lock")
+        self._holds -= 1
+        if not self._holds:
+            _site_lifecycle_locks_held.pop(self.site_id, None)
+        self._lock.release()
+        _site_lifecycle_gate.release_shared()
+
+    def _is_owned(self):
+        return self._lock._is_owned()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *_exc):
+        self.release()
+
+
+_site_lifecycle_locks = weakref.WeakValueDictionary()
+_site_lifecycle_locks_guard = threading.Lock()
+_site_lifecycle_locks_held = {}  # sid -> lock, while acquired
 
 
 def site_lifecycle_lock(site_id: str):
-    return _site_lifecycle_locks[
-        hash(str(site_id)) % len(_site_lifecycle_locks)]
+    key = str(site_id)
+    with _site_lifecycle_locks_guard:
+        lock = _site_lifecycle_locks.get(key)
+        if lock is None:
+            lock = _SiteLifecycleLock(key)
+            _site_lifecycle_locks[key] = lock
+        return lock
+
+
+@contextlib.contextmanager
+def all_site_lifecycle_locks():
+    """Exclude every per-site lifecycle transaction, known sid or not."""
+    _site_lifecycle_gate.acquire_exclusive()
+    try:
+        yield
+    finally:
+        _site_lifecycle_gate.release_exclusive()
 
 
 def runners_snapshot():
@@ -228,6 +385,7 @@ __all__ = [
     "_watch_registry_lock",
     "_sites_config_save_lock",
     "site_lifecycle_lock",
+    "all_site_lifecycle_locks",
     "_pairing_tokens",
     "_pairing_lock",
     "_dedup_scan_state",
