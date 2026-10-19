@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6888,
+  "edge_count": 6889,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5784,6 +5784,9 @@
       "bulk_downloader/interstitial.py",
       "bulk_downloader/learn.py",
       "bulk_downloader/stealth.py"
+    ],
+    "tests/test_o1698_login_prefill_per_key.py": [
+      "bulk_downloader/synthetic_input_scheduler.py"
     ],
     "tests/test_o1698_oidc_username_exact.py": [
       "bulk_downloader/app.py",
