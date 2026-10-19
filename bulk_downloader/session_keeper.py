@@ -1585,7 +1585,11 @@ class SessionKeeper:
             final_url = self._page.url
             # Redirect to login → session is dead
             if _LOGIN_URL_RE.search(final_url):
-                return DEAD, f"redirected to {final_url[:80]}"
+                # O1789 session-auth-capture F12: this reason lands in
+                # session_history (GET /api/session_history); mask the URL's
+                # credentials before the cut.
+                from .login_impl.replay import redact_url_credentials
+                return DEAD, f"redirected to {redact_url_credentials(final_url)[:80]}"
             if status in (401, 403):
                 return DEAD, f"server returned {status}"
             # Check for login form in the rendered DOM

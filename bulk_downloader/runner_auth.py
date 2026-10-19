@@ -5,7 +5,7 @@ Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies (matched the seams doc exactly -- no
 conditional soft-import blocks in this unit). Cycle rule: nothing from .runner.
 """
-import functools, math, re, shutil, sys, threading, time
+import functools, math, re, shutil, sys, threading, time, uuid
 from pathlib import Path
 
 from .db import db_log, session_event_record
@@ -16,7 +16,7 @@ from .login_impl.submit import (LOGIN_CANCELLED_PREFIX, LOGIN_POST_CHALLENGE_STA
                                  login_abort_check)
 from . import cloak as _cloak
 from .log import site_tag
-from .cookies import cookies_expiry_info
+from .cookies import CookieRoundTripError, cookies_expiry_info
 from .constants import (RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE,
                         LOGGED_OUT_SHAPE_JS, RL_DENIAL_ONLY_RE, MEMBERS_ONLY_RE, BARE_403_ONLY_RE)
 
@@ -121,6 +121,31 @@ def _auth_start_guard(retired_result, *, on_retired=None):
     return decorate
 
 
+def _manual_start_claim(method):
+    """O1789 session-auth-capture F7: the manual-login idempotency check and
+    the claim are ONE locked step. The unlocked check-then-set let two
+    concurrent starts both pass before either set the handle: two browsers,
+    two day-cap reservations, the first handle leaked. The loser reserves
+    nothing and opens nothing; the claim is released however the start ends."""
+    @functools.wraps(method)
+    def claimed(self, *args, **kwargs):
+        lock = (getattr(self, "_run_lifecycle_lock", None)
+                or self.__dict__.setdefault("_login_start_lock", threading.RLock()))
+        with lock:
+            if (getattr(self, "_manual_login_handle", None)
+                    or getattr(self, "_manual_login_starting", False)):
+                sys.stderr.write(
+                    f"  manual login already pending for {self.site_id} "
+                    f"— ignoring duplicate start\n")
+                return True, "Manual login window already open"
+            self._manual_login_starting = True
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            with lock:
+                self._manual_login_starting = False
+    return claimed
+
 def _resolve_retired_login(self, on_done=None, allow_manual=True):
     """Complete the async callback contract when retirement rejects login."""
     del allow_manual
@@ -131,6 +156,13 @@ def _resolve_retired_login(self, on_done=None, allow_manual=True):
     except Exception as exc:
         sys.stderr.write(f"[{self.site_id}] login on_done raised: {exc}\n")
     return True
+
+
+def _captcha_session_id(site_id) -> str:
+    """O1789 session-auth-capture F19: unique per solve session. The bare
+    captcha-<site>-<epoch second> gave two URLs started in one second the
+    same id; the prefix is kept and a random suffix makes it unique."""
+    return f"captcha-{site_id}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
 
 
 def _resolve_takeover_mode(config: dict) -> str:
@@ -529,9 +561,10 @@ class AuthMixin:
                         try:
                             from .cookies import save_cookies_to_file
                             save_cookies_to_file(p,cookies,account_idx=getattr(self,"_active_account_idx",0))
-                        except (OSError, ValueError) as e:
+                        except (OSError, ValueError, CookieRoundTripError) as e:
                             # Cookie save failures aren't fatal — session
                             # state survives in-memory; next login refreshes
+                            # (F10: a failed jar read-back included).
                             self.log.warning("cookie save to %s failed: %s", p, e)
                     self._set_login_status("✓ " + msg)
                     _settle(ok)
@@ -685,6 +718,7 @@ class AuthMixin:
                 f"[{self.site_id}] login watcher could not start: {_e}\n")
             fire(False)
     @_auth_start_guard(lambda: (False, "Site runtime is being deleted"))
+    @_manual_start_claim
     def start_manual_login(self):
         """Phase 19: skip auto-login entirely and open a browser at the
         login URL with the recorder + manual banner active. The user
@@ -816,7 +850,8 @@ class AuthMixin:
                 self._manual_login_handle = None
             raise
         self._set_login_status("⏳ Manual login: complete in browser, then click I'm Done (Home › Needs attention, or the site's page)")
-        sys.stderr.write(f"  manual login started for {self.site_id}: {login_url}\n")
+        sys.stderr.write(f"  manual login started for {self.site_id}: "
+                         f"{redact_url_credentials(login_url)}\n")
         return True, "Manual login window opened"
     def _poll_manual_cookies(self, session, stop_event):
         """Background poller. Every 3 seconds, asks the manual-login
@@ -900,7 +935,7 @@ class AuthMixin:
         # so a solve is never blocked. takeover_vnc.launch opens the kind="vnc"
         # C-1 channel; the later start_solve open_channel(sid) reuses it.
         if eff_mode == "remote_vnc":
-            session_id = f"captcha-{self.site_id}-{int(time.time())}"
+            session_id = _captcha_session_id(self.site_id)
             try:
                 from . import takeover_vnc as _tv
                 vsess = _tv.launch(self.config, session_id, url=url)
@@ -936,7 +971,7 @@ class AuthMixin:
             # [SAST 3:13pm 13 may] Previous code AttributeError'd here and was silently swallowed.
             return {"ok": False, "error": str(e)}
 
-        session_id = f"captcha-{self.site_id}-{int(time.time())}"
+        session_id = _captcha_session_id(self.site_id)
         # In remote mode, begin screencasting the solve browser to this sid so the
         # cockpit viewer (A-3) renders it and forwards operator input (A-2). The
         # takeover channel is opened by captcha_relay.start_solve right after this
