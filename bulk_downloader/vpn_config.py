@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -151,6 +152,16 @@ _quarantined: list[tuple[int, Any]] = []
 # in a single boot-time stderr line).
 _load_errors: list[dict] = []
 
+# dva V1: set when the last load() could not read or parse the file at all.
+# _state then holds defaults, not the operator's file, so save() refuses:
+# writing would replace every stored tunnel with whatever was added since.
+_unreadable_file: Optional[str] = None
+
+
+class VPNConfigNotSavedError(OSError):
+    """save() did not write tunnels.json. The in-memory change was undone by
+    the mutator that called save(); the caller must report a failure."""
+
 
 # ─── Public API ─────────────────────────────────────────────────────
 
@@ -176,11 +187,12 @@ def load() -> dict:
     not drop the record either, since save() writes quarantined entries back
     verbatim. It isolates the record and reports it via load_errors().
     """
-    global _loaded
+    global _loaded, _unreadable_file
     path = _config_path()
     with _lock:
         if not path.exists():
             _loaded = True
+            _unreadable_file = None
             _quarantined.clear()
             _load_errors.clear()
             return dict(_state)
@@ -189,9 +201,20 @@ def load() -> dict:
             if not isinstance(data, dict):
                 raise ValueError("VPN config root must be an object")
         except (OSError, json.JSONDecodeError, ValueError) as e:
-            sys.stderr.write(f"[vpn-config] could not read {path}: {e}\n")
+            sys.stderr.write(f"[vpn-config] could not read {path}: {e} -- "
+                             f"saving is refused until it loads\n")
+            # dva V1: report the whole-file failure like a quarantined record
+            # (index None) and block save(), so the next write cannot replace
+            # the operator's file with the empty in-memory list.
+            _unreadable_file = str(path)
+            _quarantined.clear()
+            _load_errors[:] = [{
+                "index": None, "tunnel_id": None, "path": str(path),
+                "error": f"tunnels.json could not be read: {str(e)[:200]}",
+            }]
             _loaded = True
             return dict(_state)
+        _unreadable_file = None
         _state["schema_version"] = int(data.get("schema_version", SCHEMA_VERSION))
         gs = data.get("global_settings", {}) or {}
         # Merge with defaults so new settings get sensible values
@@ -259,10 +282,17 @@ def save() -> None:
     tunnel list that silently omits them — BD deleting operator config it
     merely failed to parse. Quarantine only holds a record back from being
     REGISTERED; it never removes it from disk.
+
+    dva V2: a failed write raises VPNConfigNotSavedError (it used to write one
+    stderr line and return, so every caller reported an unsaved change as
+    saved). It also refuses while the file failed to load (V1).
     """
     path = _config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
+        if _unreadable_file is not None:
+            raise VPNConfigNotSavedError(
+                f"{_unreadable_file} could not be read at load; refusing to "
+                f"overwrite it (fix or remove the file, then reload)")
         tunnels = list(_state["tunnels"])
         for index, raw in _quarantined:
             tunnels.insert(min(index, len(tunnels)), raw)
@@ -274,6 +304,7 @@ def save() -> None:
         }
     tmp = path.with_suffix(".json.tmp")
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(snapshot, indent=2, sort_keys=False), encoding="utf-8")
         # Atomic rename. On Windows, os.replace handles the cross-FS case too.
         os.replace(tmp, path)
@@ -284,6 +315,7 @@ def save() -> None:
                 tmp.unlink()
         except OSError:
             pass
+        raise VPNConfigNotSavedError(f"could not save {path}: {e}") from e
 
 
 def list_tunnel_configs() -> list[dict]:
@@ -304,6 +336,7 @@ def add_tunnel_config(tunnel_dict: dict) -> dict:
     """Add (or replace) a tunnel config in memory + on disk."""
     cfg = _validate_tunnel_dict(tunnel_dict)
     with _lock:
+        prior = list(_state["tunnels"])
         existing_idx = None
         for i, t in enumerate(_state["tunnels"]):
             if t["tunnel_id"] == cfg["tunnel_id"]:
@@ -313,7 +346,11 @@ def add_tunnel_config(tunnel_dict: dict) -> dict:
             _state["tunnels"][existing_idx] = cfg
         else:
             _state["tunnels"].append(cfg)
-    save()
+        try:
+            save()
+        except OSError:
+            _state["tunnels"] = prior  # dva V2: nothing was saved
+            raise
     return cfg
 
 
@@ -330,14 +367,22 @@ def remove_tunnel_config(tunnel_id: str) -> bool:
         present = any(t.get("tunnel_id") == tunnel_id for t in _state["tunnels"])
     if not present:
         return False
+    # dva V2: the purged values are read first so a save that fails after the
+    # purge can put them back -- the record stays on disk, so must they.
+    backup = _snapshot_secrets_for_tunnel(tunnel_id)
     # Purge first: this may raise, and it must raise before any mutation.
     _purge_secrets_for_tunnel(tunnel_id)
     with _lock:
-        before = len(_state["tunnels"])
+        prior = list(_state["tunnels"])
         _state["tunnels"] = [t for t in _state["tunnels"] if t.get("tunnel_id") != tunnel_id]
-        removed = len(_state["tunnels"]) < before
-    if removed:
-        save()
+        removed = len(_state["tunnels"]) < len(prior)
+        if removed:
+            try:
+                save()
+            except OSError:
+                _state["tunnels"] = prior
+                _restore_secrets(backup)
+                raise
     return removed
 
 
@@ -345,11 +390,17 @@ def update_tunnel_config(tunnel_id: str, **fields: Any) -> Optional[dict]:
     with _lock:
         for t in _state["tunnels"]:
             if t.get("tunnel_id") == tunnel_id:
+                prior = dict(t)
                 for k, v in fields.items():
                     t[k] = v
-                t = _validate_tunnel_dict(t)
-                save()
-                return dict(t)
+                try:
+                    out = _validate_tunnel_dict(t)
+                    save()
+                except (OSError, ValueError):
+                    t.clear()  # dva V2: the stored record is what disk holds
+                    t.update(prior)
+                    raise
+                return dict(out)
     return None
 
 
@@ -447,20 +498,61 @@ def rekey_tunnel(old_id: str, new_id: str) -> bool:
         rewritten = _rewrite(target)
         rewritten["tunnel_id"] = new_id
         # replace in place
+        prior = list(_state["tunnels"])
         _state["tunnels"] = [rewritten if t is target else t
                              for t in _state["tunnels"]]
-    save()
+        try:
+            save()
+        except OSError:
+            # dva V2: disk still names old_id, so the record and its secrets
+            # go back under old_id before the failure is reported.
+            _state["tunnels"] = prior
+            backend = secrets_store.get_backend()
+            if backend is not None:
+                for k in list(backend.list_keys() or []):
+                    if k.startswith(f"{new_id}:"):
+                        val = backend.get(k)
+                        if val is not None:
+                            backend.set(f"{old_id}:{k[len(new_id) + 1:]}", val)
+                        backend.delete(k)
+            raise
     return True
 
 
+def _check_global_setting(k: str, v: Any) -> None:
+    """dva K6: refuse a value of the wrong type or range before it is saved
+    (a string interval or a negative tunnel cap used to be stored as-is)."""
+    if k in ("leak_test_interval_s", "max_concurrent_tunnels"):
+        if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+            raise ValueError(f"{k} must be a positive integer, got {v!r}")
+    elif k in ("kill_switch_auto_recover", "system_killswitch_default",
+               "enable_per_site_tunnels"):
+        if not isinstance(v, bool):
+            raise ValueError(f"{k} must be true or false, got {v!r}")
+    elif k == "system_killswitch_allow_ports":
+        if v is not None and not isinstance(v, dict):
+            raise ValueError(f"{k} must be an object or null, got {type(v).__name__}")
+
+
 def update_global_settings(**fields: Any) -> dict:
+    """Validate every known field first, then apply and save. Raises
+    ValueError for a bad value and VPNConfigNotSavedError when the write
+    fails; in both cases the live settings are unchanged."""
+    for k, v in fields.items():
+        if k in _DEFAULT_GLOBAL_SETTINGS:
+            _check_global_setting(k, v)
     with _lock:
+        prior = dict(_state["global_settings"])
         for k, v in fields.items():
             if k in _DEFAULT_GLOBAL_SETTINGS:
                 _state["global_settings"][k] = v
             else:
                 sys.stderr.write(f"[vpn-config] ignored unknown global setting: {k}\n")
-    save()
+        try:
+            save()
+        except OSError:
+            _state["global_settings"] = prior
+            raise
     return get_global_settings()
 
 
@@ -577,10 +669,57 @@ def _purge_secrets_for_tunnel(tunnel_id: str) -> int:
     return deleted
 
 
+def _snapshot_secrets_for_tunnel(tunnel_id: str) -> dict:
+    """{key: value} for every secrets_store entry of tunnel_id, read before a
+    purge so a later failed save can restore them. A backend or key that
+    cannot be read raises, like the purge itself (fail closed)."""
+    from . import secrets_store
+    backend = secrets_store.get_backend()
+    if backend is None:
+        return {}
+    return {k: backend.get(k) for k in list(backend.list_keys() or [])
+            if k.startswith(f"{tunnel_id}:")}
+
+
+def _restore_secrets(backup: dict) -> None:
+    from . import secrets_store
+    backend = secrets_store.get_backend()
+    for k, v in backup.items():
+        try:
+            if v is not None and backend is not None:
+                backend.set(k, v)
+        except Exception as e:  # noqa: BLE001 -- logged; the save error is raised
+            sys.stderr.write(f"[vpn-config] secret restore failed for {k} "
+                             f"({type(e).__name__})\n")
+
+
 # ─── Validation / migration ─────────────────────────────────────────
 
 _REQUIRED_TUNNEL_FIELDS = ("tunnel_id", "name", "provider", "backend")
 _OPTIONAL_TUNNEL_FIELDS = ("location", "enabled", "config", "extra")
+
+# dva V7/V9/V14: what the API accepts for a NEW id or name. Not applied by
+# _validate_tunnel_dict, so records already on disk keep loading unchanged.
+_TUNNEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+MAX_TUNNEL_NAME_LEN = 128
+
+
+def check_new_tunnel_id(tid: Any) -> str:
+    """Refuse an id that is not URL-path safe: '/', '\\', '..', ':',
+    whitespace, a leading '.', or longer than 64 characters."""
+    if not isinstance(tid, str) or not _TUNNEL_ID_RE.fullmatch(tid):
+        raise ValueError(
+            "tunnel_id must be 1-64 characters of letters, digits, '.', '_' "
+            "or '-', starting with a letter or digit")
+    return tid
+
+
+def check_tunnel_name(name: Any) -> str:
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("name must be a non-empty string")
+    if len(name) > MAX_TUNNEL_NAME_LEN:
+        raise ValueError(f"name must be at most {MAX_TUNNEL_NAME_LEN} characters")
+    return name
 
 
 def _validate_tunnel_dict(d: dict) -> dict:
@@ -624,7 +763,8 @@ def register_loaded_tunnels() -> tuple[int, list[str]]:
     # invisible there.
     errors: list[str] = []
     for e in load_errors():
-        who = e["tunnel_id"] or "tunnel #{}".format(e["index"])
+        who = e["tunnel_id"] or ("tunnel #{}".format(e["index"])
+                                 if e["index"] is not None else "tunnels.json")
         errors.append(
             "{}: {} (quarantined from {}; not registered)".format(
                 who, e["error"], e["path"]))
@@ -669,8 +809,9 @@ def install_credentials_resolver() -> None:
 # ─── Test helpers ───────────────────────────────────────────────────
 
 def _reset_for_tests() -> None:
-    global _loaded
+    global _loaded, _unreadable_file
     with _lock:
+        _unreadable_file = None
         _state["schema_version"] = SCHEMA_VERSION
         _state["global_settings"] = dict(_DEFAULT_GLOBAL_SETTINGS)
         _state["tunnels"] = []
@@ -680,8 +821,9 @@ def _reset_for_tests() -> None:
 
 
 __all__ = [
-    "SCHEMA_VERSION",
+    "SCHEMA_VERSION", "VPNConfigNotSavedError",
     "load", "save", "load_errors",
+    "check_new_tunnel_id", "check_tunnel_name",
     "list_tunnel_configs", "get_tunnel_config",
     "add_tunnel_config", "remove_tunnel_config", "update_tunnel_config",
     "get_global_settings", "update_global_settings",

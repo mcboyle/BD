@@ -378,6 +378,23 @@ def clear_kill(
     return True
 
 
+def forget_tunnel(tunnel_id: str) -> bool:
+    """Drop every kill-switch record for a tunnel that was deleted.
+
+    dva K1: the state used to outlive DELETE, so a new tunnel created under
+    the same id started out killed. Cancels a pending auto-cycle and bumps
+    the transition version so a callback queued for the old tunnel is stale.
+    Fires no callback: a site paused for the old tunnel stays paused (a
+    "cleared" here would resume it with no tunnel behind it). Returns True
+    when a record existed.
+    """
+    _cancel_cycle_generation(tunnel_id)
+    with _state_lock:
+        existed = _states.pop(tunnel_id, None) is not None
+        _next_transition_locked(tunnel_id)
+    return existed
+
+
 def register_kill_callback(fn: Callable[[str, str], None]) -> None:
     """Register a callable invoked as fn(tunnel_id, new_state) on state changes.
 
@@ -748,7 +765,7 @@ __all__ = [
     "KillState",
     "notify_leak_test_result",
     "is_killed", "get_kill_state", "list_kill_states",
-    "kill_tunnel", "clear_kill",
+    "kill_tunnel", "clear_kill", "forget_tunnel",
     "register_kill_callback", "unregister_kill_callback",
     "set_auto_recover", "get_auto_recover",
     "shutdown",

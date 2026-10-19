@@ -57,6 +57,70 @@ def _ok(payload=None):
     return jsonify({"ok": True, "data": payload})
 
 
+def _json_object():
+    """(body, None) for a JSON object or an empty body; (None, 400) otherwise.
+
+    dva K7: ``request.get_json(silent=True) or {}`` read ``[]``, ``null`` and
+    unparseable JSON as ``{}``, so a malformed write was answered 200.
+    """
+    data = request.get_json(silent=True)
+    if data is None and not request.get_data():
+        return {}, None
+    if not isinstance(data, dict):
+        return None, _err("body must be a JSON object")
+    return data, None
+
+
+# vpn._redact_config's mask: what GET shows for every secret config value.
+_REDACTED = "***"
+
+
+def _unmask_config(new, old):
+    """dva V8: a secret whose incoming value is the GET mask was echoed back
+    unchanged, not edited -- keep the stored value instead of saving '***'."""
+    from . import vpn_config
+    old = old if isinstance(old, dict) else {}
+    out = {}
+    for k, v in new.items():
+        if v == _REDACTED and vpn_config._vpn_key_is_secret(k):
+            if k in old:
+                out[k] = old[k]
+            continue
+        out[k] = _unmask_config(v, old.get(k)) if isinstance(v, dict) else v
+    return out
+
+
+def _saved_only_tunnel(tunnel_id):
+    """dva V5: a tunnel saved enabled:false is not registered after a reload,
+    but it is still the operator's record. Its redacted saved form, or None."""
+    from . import vpn, vpn_config
+    cfg = vpn_config.get_tunnel_config(tunnel_id)
+    if cfg is None:
+        return None
+    enabled = cfg.get("enabled", True)
+    return {
+        "tunnel_id": cfg["tunnel_id"], "name": cfg.get("name"),
+        "provider": cfg.get("provider"), "backend": cfg.get("backend"),
+        "location": cfg.get("location"), "enabled": enabled,
+        "state": "disabled" if enabled is False else "not registered",
+        "config": vpn._redact_config(cfg.get("config") or {}),
+    }
+
+
+def _drop_new_tunnel(vpn, vpn_config, tid) -> None:
+    """Undo a half-made create: the registration and any secret already
+    stored under the new id (dva V3: a refused id left its secret behind)."""
+    try:
+        vpn.unregister_tunnel(tid)
+    except Exception as e:
+        sys.stderr.write(f"[vpn-api] rollback unregister failed: {e}\n")
+    try:
+        vpn_config._purge_secrets_for_tunnel(tid)
+    except Exception as e:
+        sys.stderr.write(f"[vpn-api] rollback secret purge failed for {tid} "
+                         f"({type(e).__name__})\n")
+
+
 # ─── Tunnel routes ──────────────────────────────────────────────────
 
 @vpn_bp.route("/api/vpn/status", methods=["GET"]) if vpn_bp else (lambda f: f)
@@ -98,16 +162,37 @@ def vpn_tunnels_list():
 @vpn_bp.route("/api/vpn/tunnels", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_tunnels_create():
     from . import vpn, vpn_config
-    data = request.get_json(silent=True) or {}
+    data, bad = _json_object()
+    if bad:
+        return bad
     required = ("name", "provider", "backend")
     missing = [k for k in required if not data.get(k)]
     if missing:
         return _err(f"missing fields: {missing}")
+    # dva V3/V4/V7/V9/V14: every field is checked before anything is
+    # registered or written, so a refusal leaves no secret behind.
+    config, extra = data.get("config", {}), data.get("extra", {})
+    try:
+        if data.get("tunnel_id") is not None:
+            vpn_config.check_new_tunnel_id(data["tunnel_id"])
+        vpn_config.check_tunnel_name(data["name"])
+        if not isinstance(config, dict) or not isinstance(extra, dict):
+            raise ValueError("config and extra must be JSON objects")
+        if not isinstance(data.get("enabled", True), bool):
+            raise ValueError("enabled must be true or false")
+    except ValueError as e:
+        return _err(str(e))
+    asked = data.get("tunnel_id")
+    if asked is not None and (vpn.get_tunnel(asked) is not None
+                              or vpn_config.get_tunnel_config(asked) is not None):
+        # dva V6: a saved (possibly disabled, unregistered) record is not
+        # silently replaced by a create under the same id.
+        return _err(f"tunnel {asked!r} already exists", 409)
     try:
         tid = vpn.register_tunnel(
             name=data["name"], provider=data["provider"], backend=data["backend"],
-            location=data.get("location"), config=data.get("config", {}),
-            tunnel_id=data.get("tunnel_id"),
+            location=data.get("location"), config=config,
+            tunnel_id=asked,
         )
     except ValueError as e:
         return _err(str(e))
@@ -118,16 +203,16 @@ def vpn_tunnels_create():
     # tunnel vanished on next restart. Now we unregister to keep the
     # two state stores consistent.
     try:
-        stored = vpn_config.store_secrets(tid, data.get("config", {}))
+        stored = vpn_config.store_secrets(tid, config)
+        # dva V4: extra carries credentials too (account_number); it goes
+        # through the same @cred: indirection instead of plaintext to disk.
+        stored_extra = vpn_config.store_secrets(tid, extra)
     except Exception as e:
         # O1826 C01: the secrets store refused (or the store raised): nothing
         # is written and the registration is undone. Log the type only.
         sys.stderr.write(f"[vpn-api] secret store refused for {tid} "
                          f"({type(e).__name__}); rolling back register\n")
-        try:
-            vpn.unregister_tunnel(tid)
-        except Exception as e2:
-            sys.stderr.write(f"[vpn-api] rollback unregister failed: {e2}\n")
+        _drop_new_tunnel(vpn, vpn_config, tid)
         return _err(_secret_store_refusal(e), 503)
     try:
         vpn_config.add_tunnel_config({
@@ -138,15 +223,15 @@ def vpn_tunnels_create():
             "location": data.get("location", ""),
             "enabled": data.get("enabled", True),
             "config": stored,
-            "extra": data.get("extra", {}),
+            "extra": stored_extra,
         })
     except Exception as e:
-        sys.stderr.write(f"[vpn-api] persist failed; rolling back register: {e}\n")
-        try:
-            vpn.unregister_tunnel(tid)
-        except Exception as e2:
-            sys.stderr.write(f"[vpn-api] rollback unregister failed: {e2}\n")
-        return _err(f"persist failed: {e}", 500)
+        sys.stderr.write(f"[vpn-api] persist failed for {tid} "
+                         f"({type(e).__name__}); rolling back register\n")
+        _drop_new_tunnel(vpn, vpn_config, tid)
+        if isinstance(e, ValueError):
+            return _err(str(e))
+        return _err("persist failed; the tunnel was not created", 500)
     return _ok({"tunnel_id": tid, "tunnel": vpn.get_tunnel(tid).to_dict()})
 
 
@@ -167,7 +252,10 @@ def vpn_tunnel_get(tunnel_id):
     from . import vpn
     t = vpn.get_tunnel(tunnel_id)
     if t is None:
-        return _err("no such tunnel", 404)
+        saved = _saved_only_tunnel(tunnel_id)
+        if saved is None:
+            return _err("no such tunnel", 404)
+        return _ok({"tunnel": saved})
     return _ok({"tunnel": t.to_dict()})
 
 
@@ -177,16 +265,33 @@ def vpn_tunnel_update(tunnel_id):
     t = vpn.get_tunnel(tunnel_id)
     if t is None:
         return _err("no such tunnel", 404)
-    data = request.get_json(silent=True) or {}
+    data, bad = _json_object()
+    if bad:
+        return bad
+    # dva V9/V10/V14: a field this route cannot apply, a non-object config
+    # or an unusable name is refused instead of answered 200 and dropped.
+    fixed = sorted(set(data) - {"name", "location", "config"})
+    if fixed:
+        return _err(f"fields not updatable here: {fixed}")
+    try:
+        if "name" in data:
+            vpn_config.check_tunnel_name(data["name"])
+        if data.get("location") is not None and not isinstance(data["location"], str):
+            raise ValueError("location must be a string or null")
+        if "config" in data and not isinstance(data["config"], dict):
+            raise ValueError("config must be a JSON object")
+    except ValueError as e:
+        return _err(str(e))
     # O1826 C08: snapshot -> mutate -> persist -> rollback runs under one
     # per-tunnel lock, so a failed PUT's restore cannot discard a concurrent
     # PUT that persisted in between.
     with _tunnel_update_lock(tunnel_id):
         prior = (t.name, t.location, t.config)
         new_config = t.config
-        if "config" in data and isinstance(data["config"], dict):
+        if "config" in data:
             # Merge into existing config (so PATCH-style partial updates work).
-            new_config = {**(t.config or {}), **data["config"]}
+            new_config = {**(t.config or {}),
+                          **_unmask_config(data["config"], t.config)}
         # Every secret this PUT may overwrite is read back first; one that
         # cannot be read could not be rolled back, so refuse before any write.
         try:
@@ -318,14 +423,26 @@ def _restore_saved_tunnel(vpn_config, tunnel_id, prior_saved) -> None:
 
 @vpn_bp.route("/api/vpn/tunnels/<tunnel_id>", methods=["DELETE"]) if vpn_bp else (lambda f: f)
 def vpn_tunnel_delete(tunnel_id):
-    from . import vpn, vpn_config
-    if vpn.get_tunnel(tunnel_id) is None:
+    from . import vpn, vpn_config, vpn_kill_switch
+    registered = vpn.get_tunnel(tunnel_id) is not None
+    if not registered and vpn_config.get_tunnel_config(tunnel_id) is None:
         return _err("no such tunnel", 404)
-    try:
-        vpn.stop_tunnel(tunnel_id)
-    except Exception:
-        pass
-    vpn.unregister_tunnel(tunnel_id) if hasattr(vpn, "unregister_tunnel") else None
+    if registered:
+        # dva V11: a tunnel whose backend did not stop is still up. Purging
+        # its record and secrets then would orphan a live tunnel, so nothing
+        # is removed; it is unregistered only after the record is gone.
+        try:
+            stopped = vpn.stop_tunnel(tunnel_id)
+        except Exception as e:
+            sys.stderr.write(f"[vpn-api] stop before delete raised for "
+                             f"{tunnel_id} ({type(e).__name__})\n")
+            stopped = False
+        if stopped is False:
+            return jsonify({
+                "ok": False, "state": "stop_failed",
+                "error": "the tunnel did not stop, so nothing was removed; "
+                         "stop it, then delete again",
+            }), 409
     try:
         vpn_config.remove_tunnel_config(tunnel_id)
     except Exception as e:
@@ -334,6 +451,10 @@ def vpn_tunnel_delete(tunnel_id):
         # step that failed and carry the store's own words -- "removed" here
         # would be a success report over an unpurged vault.
         from . import secrets_store
+        if isinstance(e, vpn_config.VPNConfigNotSavedError):
+            sys.stderr.write(f"[vpn-api] delete persist failed for {tunnel_id} "
+                             f"({type(e).__name__})\n")
+            return _err("persist failed; the tunnel was not removed", 500)
         if not isinstance(e, secrets_store.SecretsIntegrityError):
             raise
         return jsonify({
@@ -345,16 +466,25 @@ def vpn_tunnel_delete(tunnel_id):
                 f"{str(e)[:240]}"
             ),
         }), 409
+    if registered and hasattr(vpn, "unregister_tunnel"):
+        vpn.unregister_tunnel(tunnel_id)
+    vpn_kill_switch.forget_tunnel(tunnel_id)  # dva K1
     return _ok({"removed": tunnel_id})
 
 
 @vpn_bp.route("/api/vpn/tunnels/<tunnel_id>/start", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_tunnel_start(tunnel_id):
     from . import vpn
+    if vpn.get_tunnel(tunnel_id) is None:
+        return _err("no such tunnel", 404)  # dva V12
     try:
         ok = vpn.start_tunnel(tunnel_id)
     except Exception as e:
-        return _err(str(e), 500)
+        # dva V13: backend exception text can carry config values; log the
+        # type, answer with a fixed message.
+        sys.stderr.write(f"[vpn-api] start raised for {tunnel_id} "
+                         f"({type(e).__name__})\n")
+        return _err(f"start failed ({type(e).__name__})", 500)
     t = vpn.get_tunnel(tunnel_id)
     return _ok({"started": ok, "tunnel": t.to_dict() if t else None})
 
@@ -362,6 +492,8 @@ def vpn_tunnel_start(tunnel_id):
 @vpn_bp.route("/api/vpn/tunnels/<tunnel_id>/stop", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_tunnel_stop(tunnel_id):
     from . import vpn
+    if vpn.get_tunnel(tunnel_id) is None:
+        return _err("no such tunnel", 404)  # dva V12
     ok = vpn.stop_tunnel(tunnel_id)
     return _ok({"stopped": ok})
 
@@ -369,6 +501,8 @@ def vpn_tunnel_stop(tunnel_id):
 @vpn_bp.route("/api/vpn/tunnels/<tunnel_id>/cycle", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_tunnel_cycle(tunnel_id):
     from . import vpn
+    if vpn.get_tunnel(tunnel_id) is None:
+        return _err("no such tunnel", 404)  # dva V12
     ok = vpn.cycle_tunnel(tunnel_id)
     return _ok({"cycled": ok, "tunnel": vpn.get_tunnel(tunnel_id).to_dict() if vpn.get_tunnel(tunnel_id) else None})
 
@@ -391,8 +525,16 @@ def vpn_provider_test_creds(provider_id):
     try:
         ok, msg = mod.test_credentials(data)
     except Exception as e:
-        return _err(f"provider raised: {e}", 500)
+        return _provider_failure(provider_id, "test_credentials", e)
     return jsonify({"ok": True, "valid": ok, "message": msg})
+
+
+def _provider_failure(provider_id, op, e):
+    """dva K12: a provider exception can quote the submitted credentials
+    (password included); log the type only and answer with a fixed 502."""
+    sys.stderr.write(f"[vpn-api] provider {provider_id} {op} raised "
+                     f"({type(e).__name__})\n")
+    return _err(f"provider {op} failed ({type(e).__name__})", 502)
 
 
 @vpn_bp.route("/api/vpn/providers/<provider_id>/locations", methods=["POST"]) if vpn_bp else (lambda f: f)
@@ -406,7 +548,7 @@ def vpn_provider_locations(provider_id):
     try:
         locs = mod.list_locations(data)
     except Exception as e:
-        return _err(f"provider raised: {e}", 500)
+        return _provider_failure(provider_id, "list_locations", e)
     return _ok({"locations": locs})
 
 
@@ -450,7 +592,10 @@ def vpn_leak_test_latest(tunnel_id):
 @vpn_bp.route("/api/vpn/tunnels/<tunnel_id>/webrtc_result", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_webrtc_post(tunnel_id):
     """Workers POST WebRTC probe results captured in browser contexts here."""
-    from . import vpn_leak_tests
+    from . import vpn, vpn_leak_tests
+    if vpn.get_tunnel(tunnel_id) is None:
+        # dva K11: every unknown id used to get its own stored result entry.
+        return _err("no such tunnel", 404)
     data = request.get_json(silent=True) or {}
     vpn_leak_tests.record_external_probe_result(tunnel_id, "webrtc_leak", data)
     return _ok()
@@ -485,18 +630,32 @@ def vpn_kill_clear(tunnel_id):
 @vpn_bp.route("/api/vpn/kill_switch/<tunnel_id>/trigger", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_kill_trigger(tunnel_id):
     from . import vpn_kill_switch
-    data = request.get_json(silent=True) or {}
+    data, bad = _json_object()
+    if bad:
+        return bad
     vpn_kill_switch.kill_tunnel(tunnel_id, reason=data.get("reason", "manual trigger via API"))
     return _ok()
 
 
 @vpn_bp.route("/api/vpn/kill_switch/auto_recover", methods=["PUT"]) if vpn_bp else (lambda f: f)
 def vpn_kill_auto_recover():
-    from . import vpn_kill_switch
-    data = request.get_json(silent=True) or {}
+    from . import vpn_config, vpn_kill_switch
+    data, bad = _json_object()
+    if bad:
+        return bad
     if "enabled" not in data:
         return _err("missing 'enabled' boolean")
-    vpn_kill_switch.set_auto_recover(bool(data["enabled"]))
+    if not isinstance(data["enabled"], bool):
+        # dva K3: bool("false") is True.
+        return _err("'enabled' must be true or false")
+    # dva K4: persisted first (vpn_runtime.init reads it back at boot), then
+    # applied live; a failed save changes neither.
+    try:
+        vpn_config.update_global_settings(kill_switch_auto_recover=data["enabled"])
+    except OSError as e:
+        sys.stderr.write(f"[vpn-api] auto_recover persist failed ({type(e).__name__})\n")
+        return _err("persist failed; auto-recover was not changed", 500)
+    vpn_kill_switch.set_auto_recover(data["enabled"])
     return _ok({"auto_recover": vpn_kill_switch.get_auto_recover()})
 
 
@@ -509,28 +668,53 @@ def vpn_sysks_available():
     return _ok({"available": ok, "reason": why})
 
 
+def _sysks_args(data):
+    """(vpn_endpoint, allow_ports) or ValueError.
+
+    dva K8: the rule builder keeps the text before the FIRST ':', so an IPv6
+    endpoint became remoteip=2001 (or raised for '[...]'). Refused here until
+    the builder parses IPv6 (vpn_kill_switch_system, owed).
+    """
+    endpoint = data.get("vpn_endpoint", "")
+    if not endpoint:
+        raise ValueError("vpn_endpoint required")
+    if not isinstance(endpoint, str):
+        raise ValueError("vpn_endpoint must be a string")
+    if endpoint.startswith("[") or endpoint.count(":") > 1:
+        raise ValueError("an IPv6 vpn_endpoint is not supported by the system "
+                         "kill switch; use the IPv4 address or host name")
+    allow = data.get("allow_ports")  # dict | None
+    if allow is not None and not isinstance(allow, dict):
+        raise ValueError("allow_ports must be an object or null")
+    return endpoint, allow
+
+
 @vpn_bp.route("/api/vpn/system_killswitch/<tunnel_id>/plan", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_sysks_plan(tunnel_id):
     from . import vpn_kill_switch_system
-    data = request.get_json(silent=True) or {}
-    endpoint = data.get("vpn_endpoint", "")
-    if not endpoint:
-        return _err("vpn_endpoint required")
-    allow = data.get("allow_ports")  # dict | None
-    cmds = vpn_kill_switch_system.plan(tunnel_id, endpoint, allow_ports=allow)
+    data, bad = _json_object()
+    if bad:
+        return bad
+    try:
+        endpoint, allow = _sysks_args(data)
+        cmds = vpn_kill_switch_system.plan(tunnel_id, endpoint, allow_ports=allow)
+    except ValueError as e:
+        return _err(str(e))  # dva K9: invalid input is 400, not 500
     return _ok({"commands": cmds, "count": len(cmds)})
 
 
 @vpn_bp.route("/api/vpn/system_killswitch/<tunnel_id>/apply", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_sysks_apply(tunnel_id):
     from . import vpn_kill_switch_system
-    data = request.get_json(silent=True) or {}
-    endpoint = data.get("vpn_endpoint", "")
-    if not endpoint:
-        return _err("vpn_endpoint required")
+    data, bad = _json_object()
+    if bad:
+        return bad
     dry_run = bool(data.get("dry_run", True))
-    allow = data.get("allow_ports")
-    result = vpn_kill_switch_system.apply(tunnel_id, endpoint, dry_run=dry_run, allow_ports=allow)
+    try:
+        endpoint, allow = _sysks_args(data)
+        result = vpn_kill_switch_system.apply(tunnel_id, endpoint, dry_run=dry_run, allow_ports=allow)
+    except ValueError as e:
+        return _err(str(e))  # dva K9
     return jsonify({**result, "ok": result.get("ok", False)})
 
 
@@ -558,11 +742,20 @@ def vpn_settings_get():
 
 @vpn_bp.route("/api/vpn/settings", methods=["PUT"]) if vpn_bp else (lambda f: f)
 def vpn_settings_update():
-    from . import vpn_config
-    data = request.get_json(silent=True) or {}
-    if not isinstance(data, dict):
-        return _err("body must be JSON object")
-    out = vpn_config.update_global_settings(**data)
+    from . import vpn_config, vpn_kill_switch
+    data, bad = _json_object()
+    if bad:
+        return bad
+    try:
+        out = vpn_config.update_global_settings(**data)
+    except ValueError as e:
+        return _err(str(e))  # dva K6: nothing was saved
+    except OSError as e:
+        sys.stderr.write(f"[vpn-api] settings persist failed ({type(e).__name__})\n")
+        return _err("persist failed; the settings were not changed", 500)
+    if "kill_switch_auto_recover" in data:
+        # dva K5: the saved preference is the live one, as at boot.
+        vpn_kill_switch.set_auto_recover(out["kill_switch_auto_recover"])
     return _ok({"settings": out})
 
 
