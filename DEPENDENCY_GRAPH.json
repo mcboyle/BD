@@ -2474,7 +2474,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1970,
+    "edge_count": 1972,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3533,6 +3533,8 @@
       ],
       "bulk_downloader/egress_identity.py": [
         "bulk_downloader/app_captcha_relay.py",
+        "bulk_downloader/app_sites_id_core.py",
+        "bulk_downloader/cloak.py",
         "bulk_downloader/db.py",
         "bulk_downloader/download_egress.py",
         "bulk_downloader/session_keeper.py",
@@ -6194,6 +6196,7 @@
         "bulk_downloader/db.py",
         "bulk_downloader/download_window.py",
         "bulk_downloader/dry_run.py",
+        "bulk_downloader/egress_identity.py",
         "bulk_downloader/egress_withhold.py",
         "bulk_downloader/fname.py",
         "bulk_downloader/learn.py",
@@ -6610,6 +6613,7 @@
       ],
       "bulk_downloader/cloak.py": [
         "bulk_downloader/browser_sentinel.py",
+        "bulk_downloader/egress_identity.py",
         "bulk_downloader/frame_hierarchy.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/netns_isolation.py"
