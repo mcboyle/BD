@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6871,
+  "edge_count": 6877,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -676,6 +676,7 @@
       "bulk_downloader/db.py",
       "bulk_downloader/download_window.py",
       "bulk_downloader/dry_run.py",
+      "bulk_downloader/egress_identity.py",
       "bulk_downloader/egress_withhold.py",
       "bulk_downloader/fname.py",
       "bulk_downloader/learn.py",
@@ -1092,6 +1093,7 @@
     ],
     "bulk_downloader/cloak.py": [
       "bulk_downloader/browser_sentinel.py",
+      "bulk_downloader/egress_identity.py",
       "bulk_downloader/frame_hierarchy.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/netns_isolation.py"
@@ -8135,6 +8137,12 @@
     "tests/test_sac_f9_clearance_site_scope.py": [
       "bulk_downloader/app_captcha_relay.py",
       "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/egress_identity.py"
+    ],
+    "tests/test_sac_fu1_relay_site_binding.py": [
+      "bulk_downloader/app_captcha_relay.py",
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/cloak.py",
       "bulk_downloader/egress_identity.py"
     ],
     "tests/test_satellite_video_validation.py": [

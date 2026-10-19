@@ -6,9 +6,10 @@ Five endpoints:
   GET   /api/captcha/pending/<url>              Single item lookup
   POST  /api/captcha/start_solve                Body: {url}
                                                 Triggers manual takeover for the URL
-  POST  /api/captcha/resolved                   Body: {url}
-                                                Marks resolved + signals worker to retry
-  POST  /api/captcha/dismiss                    Body: {url}
+  POST  /api/captcha/resolved                   Body: {url[, site_id, clearance]}
+                                                Marks resolved + signals worker to retry;
+                                                a clearance needs the owning site_id
+  POST  /api/captcha/dismiss                    Body: {url[, site_id]}
                                                 User gives up on this URL
 
 The dashboard polls /api/captcha/pending every 5s when the captcha panel
@@ -71,9 +72,31 @@ def _clearance_scope(url: str):
     None when the URL has no pending site: nothing is cached or served. Never
     shared across sites (sac-f9). Call it BEFORE the pending record is
     resolved/dismissed."""
-    from . import captcha_relay
     from .egress_identity import clearance_scope_for_site
-    return clearance_scope_for_site((captcha_relay.get_pending(url) or {}).get("site_id"))
+    return clearance_scope_for_site(_pending_site(url))
+
+
+def _pending_site(url: str):
+    from . import captcha_relay
+    return (captcha_relay.get_pending(url) or {}).get("site_id")
+
+
+def _site_mismatch(data: dict, owner, writes_clearance: bool = False) -> bool:
+    """sac-fu1 C4: the relay routes had no caller->site binding, so a caller
+    acting for siteB that named siteA's pending URL wrote into (or dropped)
+    siteA's clearance scope. True when body.site_id names a site other than
+    the one owning the pending URL, or when a clearance is written without
+    naming one (omission must not bypass the check). False for an unknown
+    URL (owner None): the route's own 404 answers that."""
+    if owner is None:
+        return False
+    claimed = data.get("site_id")
+    if claimed is None:
+        return writes_clearance
+    return str(claimed) != str(owner)
+
+
+_SITE_MISMATCH = "site mismatch: body.site_id must name the site that owns the pending url"
 
 
 @captcha_bp.route("/api/captcha/start_solve", methods=["POST"]) if captcha_bp else (lambda f: f)
@@ -109,8 +132,8 @@ def captcha_start_solve():
                         "session_id": session_id,
                         "url": url,
                         "status": "resolved",
-                        # F9: the clearance value stays in the cache (cloak injects
-                        # it); the client is told only that one was used.
+                        # F9: the clearance value stays in the cache; the client
+                        # is told only that one was used.
                     },
                 })
     except Exception:
@@ -163,7 +186,12 @@ def captcha_resolved():
     if clearance and ttl is None:
         # Refused BEFORE mark_resolved: a bad ttl leaves the captcha pending.
         return _err(f"ttl_seconds must be a number in (0, {int(MAX_CLEARANCE_TTL_S)}]")
-    scope = _clearance_scope(url)                # from the pending record, before it is resolved
+    owner = _pending_site(url)                   # from the pending record, before it is resolved
+    if _site_mismatch(data, owner, writes_clearance=bool(clearance)):
+        # Refused BEFORE mark_resolved: the URL stays pending for its owner.
+        return _err(_SITE_MISMATCH, 409)
+    from .egress_identity import clearance_scope_for_site, note_site_clearance
+    scope = clearance_scope_for_site(owner)
     ok = captcha_relay.mark_resolved(url)
     if not ok:
         return _err("url not pending", 404)
@@ -174,6 +202,7 @@ def captcha_resolved():
 
             domain = urlparse(url).netloc
             get_default_cache().set_clearance(scope, domain, clearance, ttl_seconds=ttl)
+            note_site_clearance(owner, scope, domain)    # C3c: purged on site delete
         except Exception:
             pass
 
@@ -189,7 +218,11 @@ def captcha_dismiss():
     url = (data.get("url") or "").strip()
     if not url:
         return _err("body.url required")
-    scope = _clearance_scope(url)                # from the pending record, before it is dismissed
+    owner = _pending_site(url)                   # from the pending record, before it is dismissed
+    if _site_mismatch(data, owner):
+        return _err(_SITE_MISMATCH, 409)
+    from .egress_identity import clearance_scope_for_site
+    scope = clearance_scope_for_site(owner)
     ok = captcha_relay.mark_dismissed(url)
     if not ok:
         return _err("url not pending", 404)

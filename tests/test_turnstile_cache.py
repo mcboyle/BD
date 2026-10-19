@@ -63,7 +63,9 @@ def test_token_reuse_across_repeated_sessions_cloak(monkeypatch):
     """(1) Token reuse across repeated sessions wired into cloak context."""
     cache = get_default_cache()
     clearance_cookie = [{"name": "cf_clearance", "value": "test-clearance-123", "domain": ".site.test"}]
-    cache.set_clearance("203.0.113.10", "site.test", clearance_cookie, ttl_seconds=3600.0)
+    # sac-fu1: cloak keys on the site scope (site AND egress), never the egress alone
+    _bind_egress("siteC", "tun-c", "203.0.113.10")
+    cache.set_clearance("site=siteC|egress=203.0.113.10", "site.test", clearance_cookie, ttl_seconds=3600.0)
 
     # Mock open_persistent_context underlying launcher
     mock_context = MagicMock()
@@ -72,6 +74,7 @@ def test_token_reuse_across_repeated_sessions_cloak(monkeypatch):
 
     ctx, pw, backend = cloak.open_persistent_context(
         user_data_dir="/tmp/test-profile",
+        config={"site_id": "siteC"},
         domain="site.test",
         egress_ip="203.0.113.10",
     )
@@ -257,7 +260,8 @@ def test_routes_ignore_a_client_supplied_egress_ip_and_scope_by_the_servers_iden
 
     # WRITE: a resolved clearance lands under the server's identity, not the named one
     mine = [{"name": "cf_clearance", "value": "own-clearance"}]
-    res = client.post("/api/captcha/resolved", json={"url": url, "clearance": mine, "egress_ip": victim_ip})
+    res = client.post("/api/captcha/resolved", json={"url": url, "site_id": "site-own", "clearance": mine,
+                                                    "egress_ip": victim_ip})
     assert res.status_code == 200
     assert cache.get_clearance(own_scope, "protected.test") == mine
     assert cache.get_clearance(victim_ip, "protected.test") == victim          # untouched

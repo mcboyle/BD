@@ -155,7 +155,7 @@ def test_f6_reservation_released_after_starter_raises(relay, monkeypatch):
 def test_f9_cached_reply_does_not_echo_clearance(client, monkeypatch):
     _starter(monkeypatch, lambda s, u: {"ok": True, "session_id": "sess-1"})
     cr.mark_captcha_needed("siteA", URL, "turnstile")
-    client.post("/api/captcha/resolved", json={"url": URL, "clearance": "CLR-SECRET-1"})
+    client.post("/api/captcha/resolved", json={"url": URL, "site_id": "siteA", "clearance": "CLR-SECRET-1"})
     other = "https://shop.example.test/item/2"
     cr.mark_captcha_needed("siteB", other, "turnstile")
     r = client.post("/api/captcha/start_solve", json={"url": other})
@@ -186,7 +186,7 @@ def test_f15_bad_clearance_ttl_refused_before_resolve(client, ttl):
 @pytest.mark.parametrize("ttl,expect", [(None, 7200.0), (60, 60.0), ("90.5", 90.5)])
 def test_f15_control_valid_ttl_stored(client, ttl, expect):
     cr.mark_captcha_needed("siteA", URL, "turnstile")
-    body = {"url": URL, "clearance": "CLR-X"}
+    body = {"url": URL, "site_id": "siteA", "clearance": "CLR-X"}
     if ttl is not None:
         body["ttl_seconds"] = ttl
     r = client.post("/api/captcha/resolved", json=body)

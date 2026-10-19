@@ -1364,7 +1364,13 @@ def api_update(sid):
 @sites_bp.route("/api/sites/<sid>",methods=["DELETE"])
 def api_delete(sid):
     with _site_delete_lock(sid):
-        return _api_delete_transaction(sid)
+        resp = _api_delete_transaction(sid)
+        if not isinstance(resp, tuple):
+            # sac-fu1 C3c: a site recreated with this id must not be served the
+            # deleted site's cached captcha clearance (any egress it had).
+            from .egress_identity import purge_site_clearance
+            purge_site_clearance(sid)
+        return resp
 
 
 def _reap_site_vault_entries(sid, old_cfg, remaining_cfg, keep_refs_of=None):
