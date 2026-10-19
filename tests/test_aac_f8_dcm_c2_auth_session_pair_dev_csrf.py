@@ -201,10 +201,16 @@ def _session_client():
     return c
 
 
-def test_f8e_api_token_header_exempt_from_cookie_csrf(iso):
-    r = _session_client().post("/api/zzz_aac_probe",
-                               headers={"X-BD-API-Token": "bdapi_aacprobe.x.y"})
-    assert not (r.status_code == 403 and b"csrf token" in r.data), \
+def test_f8e_api_token_header_exempt_from_cookie_csrf(iso, monkeypatch):
+    # aac-fu1 A1: the exemption needs a VERIFIED token, so mint a real one on a
+    # token-protected install (a bogus bdapi_ value no longer exempts).
+    monkeypatch.setitem(app_mod._app_cfg, "auth_token", "aac-f8e-master")
+    tok = api_tokens.create_token(scope="admin", label="aac-f8e")
+    assert tok.get("ok") is True, tok
+    r = app.test_client().post("/api/api_tokens", json={"scope": "read", "label": "aac-f8e-child"},
+                               headers={"X-BD-API-Token": tok["token"],
+                                        "Origin": "https://cli.example"})
+    assert r.status_code < 400, \
         f"F8E-API-TOKEN-HEADER-CSRF-403 status={r.status_code}"
 
 
