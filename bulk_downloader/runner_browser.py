@@ -49,6 +49,9 @@ def _adaptive_manifest_kind_from_mime(mime_type):
     return _ADAPTIVE_MANIFEST_MIME.get(base)
 
 
+_MAX_PENDING_CHAINS = 4096   # requests still awaiting their response (CDP path)
+
+
 class AdaptiveManifestWatcher:
     """Groups ``Network.requestWillBeSent`` CDP events by ``requestId`` so a
     manifest reached through one or more HTTP redirects is reported with its
@@ -123,6 +126,11 @@ class AdaptiveManifestWatcher:
         rid = params.get("requestId")
         if method == "Network.requestWillBeSent":
             url = (params.get("request") or {}).get("url", "")
+            if rid not in self._chains and len(self._chains) >= _MAX_PENDING_CHAINS:
+                # oldest request that never got a response; a detected manifest's
+                # chain is kept so its later redirect leg still resolves
+                old = next((k for k in self._chains if k not in self._entries), None)
+                del self._chains[next(iter(self._chains)) if old is None else old]
             chain = self._chains.setdefault(rid, [])
             chain.append(url)
             kind = _adaptive_manifest_kind(url)
@@ -135,6 +143,8 @@ class AdaptiveManifestWatcher:
             response = params.get("response") or {}
             kind = _adaptive_manifest_kind_from_mime(response.get("mimeType"))
             if kind is None:
+                if rid not in self._entries:
+                    self._chains.pop(rid, None)   # final response: no later redirect leg for this request
                 return None
             url = response.get("url") or (self._chains.get(rid) or [""])[-1]
             if rid not in self._chains:
@@ -165,21 +175,21 @@ def extract_media_urls(message):
     A key from _WS_URL_KEYS is listed first so a consumer sees the field the
     app names as the media before incidental links."""
     named, others, seen = [], [], set()
-
-    def walk(node, key=None):
+    # An explicit stack, not recursion: a page controls the nesting depth of
+    # its frames, and a RecursionError here escapes into the CDP listener.
+    stack = [(message, None)]
+    while stack:
+        node, key = stack.pop()
         if isinstance(node, dict):
-            for k, v in node.items():
-                walk(v, str(k).lower())
+            stack.extend((v, str(k).lower()) for k, v in reversed(list(node.items())))
         elif isinstance(node, list):
-            for v in node:
-                walk(v, key)
+            stack.extend((v, key) for v in reversed(node))
         elif isinstance(node, str) and _WS_URL_RE.match(node.strip()):
             url = node.strip()
             if url in seen:
-                return
+                continue
             seen.add(url)
             (named if key in _WS_URL_KEYS else others).append(url)
-    walk(message)
     return named + others
 
 
@@ -220,7 +230,7 @@ class WebSocketFrameDispatcher:
             return
         try:
             message = json.loads(payload)
-        except ValueError:
+        except (ValueError, RecursionError):   # nested deeper than the decoder allows: dropped, not raised
             return
         if not isinstance(message, (dict, list)):
             return                       # a bare scalar is not a protocol message
@@ -439,6 +449,20 @@ class BrowserMixin:
         self.manifest_urls = []
         return [dict(e, redirect_chain=list(e.get("redirect_chain") or [])) for e in queued]
 
+    def _manifest_url_index(self):
+        """[queue, length, ids, url -> first entry] over ``self.manifest_urls``;
+        rebuilt only when the list was replaced (a drain) or changed by
+        someone else since the last detection."""
+        queued = self.manifest_urls
+        idx = getattr(self, "_manifest_index", None)
+        if idx is None or idx[0] is not queued or idx[1] != len(queued):
+            ids, by_url = set(), {}
+            for e in queued:
+                ids.add(id(e))
+                by_url.setdefault(e["url"], e)
+            idx = self._manifest_index = [queued, len(queued), ids, by_url]
+        return idx
+
     def _on_adaptive_manifest_detected(self, entry):
         """Handoff point for a detected adaptive-streaming manifest: queue
         it on ``self.manifest_urls`` for the transport pipeline to consume,
@@ -448,16 +472,24 @@ class BrowserMixin:
             return
         if not hasattr(self, "manifest_urls"):
             self.manifest_urls = []
-        if any(e is entry for e in self.manifest_urls):
-            return                                   # a redirect leg refreshed an entry already queued
-        for queued in self.manifest_urls:
-            if queued["url"] == entry["url"]:
-                # the CDP and Playwright paths saw the same request: keep one
-                # entry, with the most complete chain
-                if len(entry.get("redirect_chain") or ()) > len(queued.get("redirect_chain") or ()):
-                    queued["redirect_chain"] = list(entry["redirect_chain"])
-                return
+        # Indexed, not scanned: this runs in the Playwright event callback once
+        # per detection, and the queue only grows between drains.
+        idx = self._manifest_url_index()
+        ids, by_url = idx[2], idx[3]
+        if id(entry) in ids:
+            by_url.setdefault(entry["url"], entry)   # a redirect leg refreshed (maybe renamed) an entry already queued
+            return
+        queued = by_url.get(entry["url"])
+        if queued is not None and queued["url"] == entry["url"]:
+            # the CDP and Playwright paths saw the same request: keep one
+            # entry, with the most complete chain
+            if len(entry.get("redirect_chain") or ()) > len(queued.get("redirect_chain") or ()):
+                queued["redirect_chain"] = list(entry["redirect_chain"])
+            return
         self.manifest_urls.append(entry)
+        ids.add(id(entry))
+        by_url[entry["url"]] = entry
+        idx[1] += 1
         _log = getattr(self, "log_event", None)
         if _log is not None:
             hops = len(entry["redirect_chain"])
@@ -505,9 +537,24 @@ class BrowserMixin:
 
         def _wire(page):
             try:
-                dispatchers.append(self._watch_websocket_json(page))
+                dispatcher = self._watch_websocket_json(page)
             except Exception as e:
                 sys.stderr.write(f"  [runner_browser] websocket capture not installed: {str(e)[:100]}\n")
+                return
+            dispatchers.append(dispatcher)
+
+            def _release(*_):
+                # The page is gone (closed per URL, a popup, or its context
+                # closed): detach and drop its dispatcher so its queued
+                # messages are not held for the runner's lifetime.
+                dispatcher.close()
+                dispatcher.drain()
+                if dispatcher in dispatchers:
+                    dispatchers.remove(dispatcher)
+            try:
+                page.on("close", _release)
+            except Exception:
+                pass
 
         for page in getattr(ctx, "pages", None) or []:
             _wire(page)
@@ -562,10 +609,18 @@ class BrowserMixin:
         stalled_rounds = 0
         end_rounds = 0
         last_scroll_y = object()  # never equal to a reported position
-        started = time.monotonic()
+        deadline = time.monotonic() + max_seconds
+
+        def _left_ms():
+            return (deadline - time.monotonic()) * 1000.0
+
+        # max_seconds bounds every call started here: none begins after the
+        # deadline and no settle wait outlasts it. A single page.evaluate on a
+        # page whose main thread never yields still cannot be interrupted
+        # from the sync API.
         try:
             for _round in range(max_rounds):
-                if time.monotonic() - started > max_seconds:
+                if _left_ms() < 0:     # a round may start exactly at the deadline
                     break
                 snapshot = page.evaluate(_VIRTUAL_SCROLL_MEDIA_JS, selector) or {}
                 new_urls = 0
@@ -581,9 +636,9 @@ class BrowserMixin:
                     # still be appending. Poll (no scroll) until idle_rounds_to_stop
                     # consecutive end snapshots add nothing.
                     end_rounds = 0 if new_urls else end_rounds + 1
-                    if end_rounds >= idle_rounds_to_stop:
+                    if end_rounds >= idle_rounds_to_stop or _left_ms() <= 0:
                         break
-                    page.wait_for_timeout(end_settle_ms)
+                    page.wait_for_timeout(min(end_settle_ms, _left_ms()))
                     continue
                 end_rounds = 0
                 # Not at the end yet: a snapshot with nothing new is only "idle"
@@ -598,8 +653,12 @@ class BrowserMixin:
                         break
                 last_scroll_y = scroll_y
                 step = self._virtual_scroll_step(snapshot.get("viewport"))
+                if _left_ms() <= 0:
+                    break
                 page.evaluate(_VIRTUAL_SCROLL_BY_JS, [selector, step])
-                page.wait_for_timeout(settle_ms)
+                if _left_ms() <= 0:
+                    break
+                page.wait_for_timeout(min(settle_ms, _left_ms()))
         except Exception as e:
             sys.stderr.write(
                 f"  virtual_scroll: stopped after {len(urls)} url(s): "
