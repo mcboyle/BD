@@ -44,10 +44,19 @@ import { cn } from "@/lib/utils";
 
 type Filter = "all" | "active" | "paused" | "issues";
 
+// ssqh-f6: the runner states that mean "paused". An idle, stopped or done
+// site is not running but was never paused, so it is not in the Paused tab.
+const PAUSED_STATES = new Set([
+  "paused",
+  "paused_no_button",
+  "window_paused",
+  "maintenance_paused",
+]);
+
 function filterMatches(filter: Filter, site: SiteEntryV2): boolean {
   if (filter === "all") return true;
   if (filter === "active") return site.state === "running";
-  if (filter === "paused") return site.state !== "running" && !siteHasIssue(site);
+  if (filter === "paused") return PAUSED_STATES.has(site.state) && !siteHasIssue(site);
   if (filter === "issues") return siteHasIssue(site);
   return true;
 }
@@ -124,6 +133,8 @@ export function Sites() {
     applied_to: number;
     total: number;
     errors: { site_id: string; error: string }[];
+    // ssqh-f6: sites a pause did not apply to because they were not running.
+    skipped?: { site_id: string; state: string }[];
   };
   const bulkMut = useMutation<BulkResponse, Error, { action: string }>({
     mutationFn: ({ action }) =>
@@ -137,8 +148,17 @@ export function Sites() {
         vars.action === "pause" ? "Paused" :
         vars.action === "resume" ? "Resumed" :
         vars.action === "start" ? "Started" : "Updated";
+      const skipped = res.skipped?.length ?? 0;
+      const sites = (n: number) => `${n} site${n === 1 ? "" : "s"}`;
       if (res.applied_to === res.total && res.errors.length === 0) {
-        toast.success(`${verb} ${res.applied_to} site${res.applied_to === 1 ? "" : "s"}`);
+        toast.success(`${verb} ${sites(res.applied_to)}`);
+      } else if (skipped > 0 && res.errors.length === 0) {
+        // ssqh-f6: a pause of a site that is not running is a no-op.
+        if (res.applied_to === 0) {
+          toast.info(`Nothing to pause: ${sites(skipped)} not running`);
+        } else {
+          toast.success(`${verb} ${sites(res.applied_to)}; ${skipped} not running`);
+        }
       } else {
         toast.warning(
           `${verb} ${res.applied_to} of ${res.total}; ${res.errors.length} failed`,
@@ -170,7 +190,7 @@ export function Sites() {
   const counts = {
     all: allSites.length,
     active: allSites.filter((s) => s.state === "running").length,
-    paused: allSites.filter((s) => s.state !== "running" && !siteHasIssue(s)).length,
+    paused: allSites.filter((s) => filterMatches("paused", s)).length,
     issues: allSites.filter(siteHasIssue).length,
   };
 
