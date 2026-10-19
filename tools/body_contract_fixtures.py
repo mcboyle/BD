@@ -476,6 +476,7 @@ class Fixtures:
             (r"^/api/notifications/inbox/", lambda: self.notification_id),
             (r"^/api/user_templates/", lambda: self.user_template_id),
             (r"^/api/vpn/tunnels/", lambda: self.tunnel_id),
+            (r"^/api/vpn/kill_switch/", lambda: self.tunnel_id),
             # F017: the draft routes take the draft by FILENAME (`?file=` on
             # DELETE/GET), never by site id.
             (r"^/api/template_manager/draft", lambda: self.draft_file),
@@ -759,9 +760,9 @@ class Fixtures:
         self.tunnel_id = "fx_tunnel"
         try:
             r = self.c.post("/api/vpn/tunnels",
-                            json={"name": "fx_tunnel", "location": "eu",
-                                  "provider": "wireguard", "backend": "wireguard",
-                                  "config": "[Interface]\nPrivateKey=x\n"},
+                            json={"name": "fx_tunnel", "tunnel_id": "fx_tunnel", "location": "eu",
+                                  "provider": "generic", "backend": "wireguard",
+                                  "config": {"endpoint": "198.51.100.1:51820"}},
                             headers=hdr)
             j = r.get_json(silent=True) or {}
             if r.status_code < 300:

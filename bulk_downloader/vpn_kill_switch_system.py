@@ -45,6 +45,8 @@ integration is straightforward to add later but adds permissions complexity
 from __future__ import annotations
 
 import atexit
+import hashlib
+import ipaddress
 import subprocess
 import sys
 import threading
@@ -357,7 +359,7 @@ def _build_commands(
 
     # Allow VPN endpoint. Sanitize: host must look like an IP or domain,
     # not shell metacharacters that could break out of the netsh arg.
-    host = (vpn_endpoint or "").split(":")[0].strip()
+    host = _endpoint_host(vpn_endpoint)
     if not host or not _looks_like_host(host):
         raise ValueError(
             f"vpn_endpoint host {host!r} contains characters not valid in "
@@ -442,8 +444,42 @@ def _extract_rule_name(cmd: str) -> Optional[str]:
     return cmd[i + len(marker):j]
 
 
+def _endpoint_host(vpn_endpoint: str) -> str:
+    """dva K8: host part of ``host[:port]``. IPv6 hosts: ``[addr]:port`` is
+    canonical; a bare address, or ``addr:port`` whose last group is not a
+    valid hex group, is also accepted. Anything else with 2+ colons is
+    refused instead of being cut at its first colon."""
+    s = (vpn_endpoint or "").strip()
+    if s.startswith("["):
+        host, sep, rest = s[1:].partition("]")
+        if not sep or (rest and not (rest[0] == ":" and rest[1:].isdigit())):
+            raise ValueError(f"vpn_endpoint {s!r} is not [ipv6]:port -- refusing to build netsh rules")
+        return host.strip()
+    if s.count(":") >= 2:
+        if _is_ipv6(s):
+            return s
+        host, _, port = s.rpartition(":")
+        if port.isdigit() and _is_ipv6(host):
+            return host
+        raise ValueError(f"vpn_endpoint {s!r} is not an IPv6 address[:port] -- refusing to build netsh rules")
+    return s.split(":")[0].strip()
+
+
+def _is_ipv6(s: str) -> bool:
+    try:
+        return ipaddress.ip_address(s).version == 6
+    except ValueError:
+        return False
+
+
 def _safe_id(s: str) -> str:
-    return "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in s)[:32] or "anon"
+    # dva K10: past 32 chars, keep a 23-char prefix plus a hash of the raw id,
+    # so two long ids sharing a prefix no longer map to one rule name.
+    # Ids that fit are unchanged (installed rule names stay valid).
+    out = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in s)
+    if len(out) > 32:
+        return out[:23] + "-" + hashlib.sha256(s.encode("utf-8")).hexdigest()[:8]
+    return out or "anon"
 
 
 def _have_netsh() -> bool:
