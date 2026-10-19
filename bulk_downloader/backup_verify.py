@@ -30,6 +30,7 @@ import tarfile
 import tempfile
 import time
 import zipfile
+import zlib
 from pathlib import Path
 from typing import Optional
 
@@ -77,9 +78,25 @@ def verify_db_dump(path: str) -> dict:
         result = {"ok": False, "error": f"file not found: {path}"}
         _record(path, "db_dump", result, started)
         return result
+    tmpdir = None
     try:
         size = os.path.getsize(path)
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True,
+        warnings: list = []
+        # drr F14: even a mode=ro open of a WAL-mode file creates -wal/-shm beside
+        # it, i.e. beside the backup being verified. Verify a private copy (with
+        # the -wal when there is one), and say when a WAL-mode file came without
+        # its -wal: the rows committed after its last checkpoint are not in it.
+        tmpdir = tempfile.mkdtemp(prefix="bd-verify-db-")
+        copy = os.path.join(tmpdir, os.path.basename(path))
+        shutil.copyfile(path, copy)
+        if os.path.isfile(path + "-wal"):
+            shutil.copyfile(path + "-wal", copy + "-wal")
+        elif _is_wal_mode(path):
+            warnings.append(
+                "database is in WAL mode but has no -wal file beside it: rows "
+                "committed after its last checkpoint are not in this copy, so "
+                "the counts may be short")
+        with sqlite3.connect(f"file:{copy}?mode=ro", uri=True,
                             timeout=10) as cx:
             # integrity_check returns "ok" if good, error list otherwise
             ic = cx.execute("PRAGMA quick_check").fetchone()
@@ -96,6 +113,7 @@ def verify_db_dump(path: str) -> dict:
                     row_counts[t] = int(n[0]) if n else 0
                 except Exception:
                     row_counts[t] = -1
+        cx.close()
         result = {
             "ok": ic_result == "ok",
             "tables": tables,
@@ -104,6 +122,7 @@ def verify_db_dump(path: str) -> dict:
             "total_rows": sum(v for v in row_counts.values() if v >= 0),
             "integrity_check": ic_result,
             "size_bytes": size,
+            "warnings": warnings,
         }
         _record(path, "db_dump", result, started)
         return result
@@ -111,6 +130,20 @@ def verify_db_dump(path: str) -> dict:
         result = {"ok": False, "error": str(e)[:300]}
         _record(path, "db_dump", result, started)
         return result
+    finally:
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _is_wal_mode(path: str) -> bool:
+    """drr F14: SQLite header bytes 18/19 (write/read format) are 2 in WAL mode."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(20)
+    except OSError:
+        return False
+    return (len(head) == 20 and head.startswith(b"SQLite format 3\x00")
+            and head[18] == 2 and head[19] == 2)
 
 
 # -- Row 423: the archive verdict is a TRISTATE, and the third state is not a pass.
@@ -152,12 +185,16 @@ def verify_tarball(path: str, *, expected_members: Optional[list] = None) -> dic
     try:
         size = os.path.getsize(path)
         members = []
+        unreadable = None
         if path.endswith((".tar", ".tar.gz", ".tgz")):
             with tarfile.open(path, "r:*") as tf:
-                members = [m.name for m in tf.getmembers()]
+                tar_members = tf.getmembers()
+                members = [m.name for m in tar_members]
+                unreadable = _first_unreadable_member(tf, tar_members, is_tar=True)
         elif path.endswith(".zip"):
             with zipfile.ZipFile(path) as zf:
                 members = zf.namelist()
+                unreadable = _first_unreadable_member(zf, zf.infolist(), is_tar=False)
         else:
             # Not a measured failure: we never got to look inside it.
             result = {"ok": False, "state": _STATE_UNKNOWN,
@@ -182,6 +219,13 @@ def verify_tarball(path: str, *, expected_members: Optional[list] = None) -> dic
             result["error"] = (
                 f"backup archive is EMPTY: 0 members in {path} "
                 f"({size} bytes) -- there is nothing here to restore")
+        elif unreadable:
+            # drr F5: a member whose data does not decode is a measured failure
+            # -- the directory opening is not the archive being restorable.
+            result["ok"] = False
+            result["state"] = _STATE_FAILED
+            result["error"] = (f"backup archive member {unreadable[0]!r} is "
+                               f"unreadable ({unreadable[1]})")
         if expected_members:
             missing = [exp for exp in expected_members
                        if not any(exp in m for m in members)]
@@ -199,6 +243,29 @@ def verify_tarball(path: str, *, expected_members: Optional[list] = None) -> dic
         result = {"ok": False, "state": _STATE_UNKNOWN, "error": str(e)[:300]}
         _record(path, "tarball", result, started)
         return result
+
+
+def _first_unreadable_member(archive, members, *, is_tar: bool):
+    """drr F5: read every regular member's data through to its end (CRC/zlib
+    checked); return (name, error type) for the first that fails, else None."""
+    for m in members:
+        name = m.name if is_tar else m.filename
+        try:
+            if is_tar:
+                if not m.isfile():
+                    continue
+                fp = archive.extractfile(m)
+            else:
+                if m.is_dir():
+                    continue
+                fp = archive.open(m)
+            with fp:
+                while fp.read(1024 * 1024):
+                    pass
+        except (zipfile.BadZipFile, tarfile.TarError, zlib.error, EOFError,
+                OSError, ValueError) as e:
+            return name, type(e).__name__
+    return None
 
 
 # BK-REST F9: per-member extraction cap, equal to backup._RESTORE_MEMBER_CAP (the
