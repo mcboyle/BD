@@ -658,6 +658,146 @@ def test_replay_redirect_to_this_box_needs_master_token(flags, monkeypatch):
         f"RCR-CONTROL redirect hops outer={len(outer.seen)} inner={len(inner.seen)}"
 
 
+INTERNAL_URLS = ["http://192.0.2.1:5000", "http://10.255.255.1:5000", "http://169.254.169.254/"]
+PUBLIC_URL = "http://8.8.8.8:5000"
+
+
+def test_replay_to_internal_target_needs_master_token(flags, monkeypatch):
+    """SSRF policy (option b): a replay aimed at an internal (non-global) target --
+    RFC1918, CGNAT, link-local / metadata, ULA, TEST-NET -- needs the master token,
+    by its own gate (_targets_internal), not by widening _targets_self; a public
+    target does not. The opener is stubbed: nothing leaves the box."""
+    rr = _mod("request_replay")
+    mt = _canary("mt")
+    a = _auth(monkeypatch, mt)
+    _mod("feature_flags").set_flag("request_capture", True)
+    rid = rr.record(method="GET", path="/api/x", query="", status=200, request_headers={},
+                    request_body="", response_body="", duration_ms=1.0)
+    sent = []
+
+    def _stub(req, **_kw):
+        sent.append(req.full_url)
+        raise OSError("RCR-STUB no network")
+    monkeypatch.setattr(_mod("outbound_guard"), "urlopen", _stub)
+    bare = {u: rr.replay(rid, base_url=u, timeout=1) for u in INTERNAL_URLS}
+    sent_bare = list(sent)
+    with _master_ctx(a, mt):
+        for u in INTERNAL_URLS:
+            rr.replay(rid, base_url=u, timeout=1)
+    sent_ok = sent[len(sent_bare):]
+    del sent[:]
+    rr.replay(rid, base_url=PUBLIC_URL, timeout=1)
+    assert not sent_bare and all("internal target needs the master token" in str(o.get("error"))
+                                 for o in bare.values()), \
+        f"RCR-REPLAY-INTERNAL internal replay without the master token sent={sent_bare} " \
+        f"errors={[o.get('error') for o in bare.values()]}"
+    assert len(sent_ok) == len(INTERNAL_URLS), f"RCR-CONTROL master-token internal replay sent={sent_ok}"
+    assert sent == [PUBLIC_URL + "/api/x"], f"RCR-CONTROL public replay without the token sent={sent}"
+    is_internal = getattr(rr, "_targets_internal", lambda u: False)
+    missed = [u for u in INTERNAL_URLS + ["http://100.64.0.1:5000", "http://[fd00::1]:5000",
+                                          "http://[::ffff:10.0.0.1]:5000"] if not is_internal(u)]
+    assert not missed, f"RCR-INTERNAL-TARGET internal addresses read as public: {missed}"
+    assert not is_internal(PUBLIC_URL), "RCR-CONTROL public address read as internal"
+    assert not is_internal("http://127.0.0.1:5000"), "RCR-CONTROL loopback is _targets_self's, not internal"
+
+
+def test_replay_redirect_to_internal_target_needs_master_token(flags, monkeypatch):
+    """A redirect from an admitted first hop to an internal target needs the master
+    token too. Non-loopback connects are stubbed: nothing leaves the box."""
+    import ipaddress
+    import socket
+    rr = _mod("request_replay")
+    mt = _canary("mt")
+    a = _auth(monkeypatch, mt)
+    monkeypatch.setattr(rr, "_targets_self", lambda u: False, raising=False)
+    real, tried = socket.create_connection, []
+
+    def _loopback_only(addr, *args, **kw):
+        if not ipaddress.ip_address(addr[0]).is_loopback:
+            tried.append(addr[0])
+            raise OSError("RCR-STUB no network")
+        return real(addr, *args, **kw)
+    monkeypatch.setattr(socket, "create_connection", _loopback_only)
+    _mod("feature_flags").set_flag("request_capture", True)
+    outer = _Receiver(redirect_to="http://10.255.255.1:1")
+    rid = rr.record(method="GET", path="/api/x", query="", status=200, request_headers={},
+                    request_body="", response_body="", duration_ms=1.0)
+    try:
+        bare = rr.replay(rid, base_url=outer.base, timeout=1)
+        tried_bare = list(tried)
+        with _master_ctx(a, mt):
+            rr.replay(rid, base_url=outer.base, timeout=1)
+    finally:
+        outer.close()
+    assert not tried_bare and "redirected to an internal target" in str(bare.get("error")), \
+        f"RCR-REPLAY-REDIRECT-INTERNAL redirect to 10.x followed without the token: " \
+        f"tried={tried_bare} error={bare.get('error')}"
+    assert len(outer.seen) == 2 and tried == ["10.255.255.1"], \
+        f"RCR-CONTROL redirect hops outer={len(outer.seen)} tried={tried}"
+
+
+REBIND_PUBLIC = "93.184.216.34"
+
+
+def _rebind_rig(monkeypatch, answers):
+    """Fake resolver for rebind.test (lookup n answers answers(n)); every
+    non-loopback connect is recorded and stubbed: nothing leaves the box."""
+    import ipaddress
+    import socket
+    real_gai, real_cc = socket.getaddrinfo, socket.create_connection
+    calls, tried = [], []
+
+    def _gai(host, port, *a, **kw):
+        if host != "rebind.test":
+            return real_gai(host, port, *a, **kw)
+        calls.append(host)
+        ip = answers(len(calls))
+        if ":" in ip:
+            return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (ip, port or 0, 0, 0))]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port or 0))]
+
+    def _cc(addr, *a, **kw):
+        if not ipaddress.ip_address(addr[0]).is_loopback:
+            tried.append(addr[0])
+            raise OSError("RCR-STUB no network")
+        return real_cc(addr, *a, **kw)
+    monkeypatch.setattr(socket, "getaddrinfo", _gai)
+    monkeypatch.setattr(socket, "create_connection", _cc)
+    return calls, tried
+
+
+def test_replay_rebind_control_static_internal_name_refused(flags, monkeypatch):
+    """Control: a name that always resolves internal is refused before any connect."""
+    rr = _mod("request_replay")
+    _auth(monkeypatch, _canary("mt"))
+    _mod("feature_flags").set_flag("request_capture", True)
+    rid = rr.record(method="GET", path="/api/x", query="", status=200, request_headers={},
+                    request_body="", response_body="", duration_ms=1.0)
+    calls, tried = _rebind_rig(monkeypatch, lambda n: "10.255.255.1")
+    out = rr.replay(rid, base_url="http://rebind.test:5000", timeout=1)
+    assert tried == [] and "internal target needs the master token" in str(out.get("error")), \
+        f"RCR-CONTROL static internal name tried={tried} error={out.get('error')}"
+
+
+@pytest.mark.parametrize("target", ["10.255.255.1", "169.254.169.254", "100.64.0.1", "fd00::1"])
+@pytest.mark.parametrize("flip", [3, 5])
+def test_replay_rebind_after_gate_never_connects_internal(flags, monkeypatch, flip, target):
+    """F1 (pin-time gate): the no-token gate is judged on the address actually
+    connected. DNS rebinding: lookups before <flip> answer public, later ones the
+    internal target; flip=5 = replay()'s two and the first hop gate's two lookups
+    public, the pin's lookup internal. The pin must refuse; nothing is connected."""
+    rr = _mod("request_replay")
+    _auth(monkeypatch, _canary("mt"))
+    _mod("feature_flags").set_flag("request_capture", True)
+    rid = rr.record(method="GET", path="/api/x", query="", status=200, request_headers={},
+                    request_body="", response_body="", duration_ms=1.0)
+    calls, tried = _rebind_rig(monkeypatch, lambda n: REBIND_PUBLIC if n < flip else target)
+    out = rr.replay(rid, base_url="http://rebind.test:5000", timeout=1)
+    assert tried == [] and not out.get("ok"), \
+        f"SECLEG-REBIND no-token replay connected to {tried} after gate saw {REBIND_PUBLIC} " \
+        f"(lookups={len(calls)} error={out.get('error')})"
+
+
 def test_x_auth_headers_masked_x_auth_user_kept(flags):
     """A2: X-Auth, X-Auth-Token and any X-Auth-* are credential headers;
     X-Auth-User (a username) stays visible."""
