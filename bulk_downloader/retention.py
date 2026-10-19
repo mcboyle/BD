@@ -66,6 +66,8 @@ def _ensure_tables():
             )""")
             cx.execute("""CREATE INDEX IF NOT EXISTS idx_retention_audit_ts
                 ON retention_audit(deleted_at)""")
+            cx.execute("""CREATE INDEX IF NOT EXISTS idx_retention_audit_hid
+                ON retention_audit(history_id, dry_run)""")
         _tables_ready = True
     except Exception:
         pass
@@ -128,7 +130,9 @@ def _tagged_with_any(cx, history_ids: list, tag_list: list) -> set:
 
 def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
     """Return rows that this site's retention policy would delete.
-    Each entry is {id, site_id, filename, file_size, ts, reason}."""
+    Each entry is {id, site_id, filename, file_size, ts, reason}. A row
+    whose file retention already deleted (a real audit row) is not a
+    candidate again (F7)."""
     _ensure_tables()
 
     retention_days = int(s_cfg_entry.get("retention_days", 0) or 0)
@@ -152,6 +156,9 @@ def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
                 FROM history
                 WHERE site_id = ? AND status = 'done'
                   AND filename IS NOT NULL AND filename != ''
+                  AND NOT EXISTS (SELECT 1 FROM retention_audit a
+                                  WHERE a.history_id = history.id
+                                    AND a.dry_run = 0)
                 ORDER BY ts_sec DESC
             """, (site_id,)).fetchall()
             # A tag read failure selects nothing this run (fail closed).

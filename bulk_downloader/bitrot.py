@@ -42,6 +42,7 @@ The scan is read-only on the data plane; the only DB writes are to
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import sqlite3
 import threading
@@ -109,8 +110,12 @@ class AdaptiveIOPacer:
             return 0.0
 
     def set_nominal_rate(self, bytes_per_sec: float) -> None:
+        rate = float(bytes_per_sec)
+        if not math.isfinite(rate):
+            # F12: inf turned pacing off; nan fell through max() as 1024.
+            raise ValueError("nominal rate must be a finite number")
         with self._lock:
-            self.nominal_bytes_per_sec = max(1024.0, float(bytes_per_sec))
+            self.nominal_bytes_per_sec = max(1024.0, rate)
             if self._mode == PacingMode.NOMINAL:
                 self._rate = self.nominal_bytes_per_sec
                 self._capacity = max(self._rate * self.burst_seconds, 65536.0)

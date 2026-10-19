@@ -13,6 +13,28 @@ from flask import Blueprint, jsonify, request
 
 retention_bp = Blueprint("retention", __name__)
 
+# Most audit rows one GET returns (F10: limit=-1 used to mean unbounded).
+AUDIT_LIMIT_MAX = 1000
+
+
+def _confirm_id_list(raw):
+    """confirm_ids as ints, or None when any entry is not an integer id
+    (F10: ["x"] / [None] used to surface as a 500). A blank string is
+    skipped, as apply_retention skips it."""
+    ids = []
+    for i in raw:
+        if isinstance(i, str) and i.strip() == "":
+            continue
+        if isinstance(i, str) and i.strip().isdigit():
+            try:
+                i = int(i.strip())
+            except ValueError:  # "²", or past int's digit cap
+                return None
+        if isinstance(i, bool) or not isinstance(i, int):
+            return None
+        ids.append(i)
+    return ids
+
 def _check_csrf(*_a, **_k):
     """Delegate to app._check_csrf at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -58,8 +80,8 @@ def api_retention_apply():
     restricted to the intersection of those ids with the freshly computed
     candidates — apply can never delete more than the preceding preview
     disclosed. ``site_id`` scopes the run to one site (the per-site SPA
-    destructive flow). Omitting confirm_ids preserves the legacy unbound
-    all-sites sweep.
+    destructive flow). A real delete (dry_run false) must name confirm_ids
+    (F6): the unbound all-sites sweep is a dry run only.
     """
     s_cfg = _app_s_cfg()
     _check_csrf()
@@ -69,6 +91,15 @@ def api_retention_apply():
     if confirm_ids is not None and not isinstance(confirm_ids, list):
         return jsonify({"ok": False,
                         "error": "confirm_ids must be a list of ids"}), 400
+    if confirm_ids is not None:
+        confirm_ids = _confirm_id_list(confirm_ids)
+        if confirm_ids is None:
+            return jsonify({"ok": False,
+                            "error": "confirm_ids must be integer ids"}), 400
+    elif not dry_run:
+        return jsonify({"ok": False,
+                        "error": "a real apply needs confirm_ids "
+                                 "(the previewed ids); preview first"}), 400
     site_id = body.get("site_id")
     try:
         from . import retention as _rt
@@ -81,7 +112,16 @@ def api_retention_apply():
 @retention_bp.route("/api/retention/audit")
 def api_retention_audit():
     """Recent retention deletion audit log. ?dry_run=1 for dry-run rows
-    only, ?dry_run=0 for actual deletions only."""
+    only, ?dry_run=0 for actual deletions only. ?limit is a positive
+    integer, capped at AUDIT_LIMIT_MAX (default 100)."""
+    raw = (request.args.get("limit") or "").strip() or "100"
+    try:
+        limit = int(raw) if raw.isdigit() else 0
+    except ValueError:  # "²", or past int's digit cap
+        limit = 0
+    if limit < 1:
+        return jsonify({"error": "limit must be a positive integer"}), 400
+    limit = min(limit, AUDIT_LIMIT_MAX)
     try:
         from . import retention as _rt
         dry = request.args.get("dry_run")
@@ -92,7 +132,7 @@ def api_retention_audit():
         else:
             dry_only = None
         return jsonify({"audit": _rt.audit_log(
-            limit=int(request.args.get("limit", 100) or 100),
+            limit=limit,
             dry_run_only=dry_only)})
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
