@@ -867,6 +867,7 @@
       "module": "app_global_config.py",
       "providers": [
         "bulk_downloader/aiassist.py",
+        "bulk_downloader/audit.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/egress_withhold.py",
         "bulk_downloader/global_config.py",
@@ -1954,6 +1955,7 @@
         "bulk_downloader/capture_login_wire.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/egress_withhold.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/template_extractor.py",
         "bulk_downloader/urllib_ssrf.py"
       ],
@@ -2472,7 +2474,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1966,
+    "edge_count": 1970,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2797,6 +2799,7 @@
         "bulk_downloader/app_audit.py",
         "bulk_downloader/app_captures.py",
         "bulk_downloader/app_discovery.py",
+        "bulk_downloader/app_global_config.py",
         "bulk_downloader/app_sites_collection.py",
         "bulk_downloader/app_sites_id_core.py",
         "bulk_downloader/audit_journal.py",
@@ -4153,6 +4156,7 @@
       ],
       "bulk_downloader/outbound_guard.py": [
         "bulk_downloader/ai_provider.py",
+        "bulk_downloader/app_template.py",
         "bulk_downloader/dev_suite/audit_security.py",
         "bulk_downloader/hls_downloader.py",
         "bulk_downloader/login_impl/manual.py",
@@ -4165,6 +4169,8 @@
         "bulk_downloader/runner_integrations.py",
         "bulk_downloader/runner_manual.py",
         "bulk_downloader/scene_crawler.py",
+        "bulk_downloader/selector_playground.py",
+        "bulk_downloader/session_keeper.py",
         "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/password_import.py": [
@@ -5940,6 +5946,7 @@
       ],
       "bulk_downloader/app_global_config.py": [
         "bulk_downloader/aiassist.py",
+        "bulk_downloader/audit.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/egress_withhold.py",
         "bulk_downloader/global_config.py",
@@ -6297,6 +6304,7 @@
         "bulk_downloader/capture_login_wire.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/egress_withhold.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/template_extractor.py",
         "bulk_downloader/urllib_ssrf.py"
       ],
@@ -7817,6 +7825,7 @@
       "bulk_downloader/selector_playground.py": [
         "bulk_downloader/cloak.py",
         "bulk_downloader/deep_http.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/selector_check.py"
       ],
       "bulk_downloader/selftest.py": [
@@ -7853,6 +7862,7 @@
         "bulk_downloader/download_egress.py",
         "bulk_downloader/egress_identity.py",
         "bulk_downloader/global_config.py",
+        "bulk_downloader/outbound_guard.py",
         "bulk_downloader/ssrf_transport.py",
         "bulk_downloader/vault_sync.py",
         "bulk_downloader/vpn_runtime.py"

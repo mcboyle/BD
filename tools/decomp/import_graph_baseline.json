@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6834,
+  "edge_count": 6846,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -428,6 +428,7 @@
     ],
     "bulk_downloader/app_global_config.py": [
       "bulk_downloader/aiassist.py",
+      "bulk_downloader/audit.py",
       "bulk_downloader/daily_budget.py",
       "bulk_downloader/egress_withhold.py",
       "bulk_downloader/global_config.py",
@@ -785,6 +786,7 @@
       "bulk_downloader/capture_login_wire.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/egress_withhold.py",
+      "bulk_downloader/outbound_guard.py",
       "bulk_downloader/template_extractor.py",
       "bulk_downloader/urllib_ssrf.py"
     ],
@@ -2305,6 +2307,7 @@
     "bulk_downloader/selector_playground.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/deep_http.py",
+      "bulk_downloader/outbound_guard.py",
       "bulk_downloader/selector_check.py"
     ],
     "bulk_downloader/selftest.py": [
@@ -2341,6 +2344,7 @@
       "bulk_downloader/download_egress.py",
       "bulk_downloader/egress_identity.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/outbound_guard.py",
       "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/vault_sync.py",
       "bulk_downloader/vpn_runtime.py"
@@ -2894,6 +2898,12 @@
       "bulk_downloader/deep_http.py",
       "bulk_downloader/plex_advanced.py",
       "bulk_downloader/plex_deep.py"
+    ],
+    "tests/test_bd_sec_3_ssrf_residual.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/outbound_guard.py",
+      "bulk_downloader/selector_playground.py",
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_bd_sec_4_restore_allowlist.py": [
       "bulk_downloader/backup.py",
@@ -4471,6 +4481,12 @@
       "bulk_downloader/app.py",
       "bulk_downloader/capture_schedules.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_dscs_f01_f04_f19_settings_write_integrity.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/audit.py"
     ],
     "tests/test_dscs_f08_numeric_config.py": [
       "bulk_downloader/app.py",

@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1966**
+- internal import edges: **1970**
 - tools: 238 · with internal edge: 137 · with tool→package edge: 77
 - blueprints: 163 · config stores: 5
 
@@ -30,12 +30,12 @@ Graph version: 1
 - `bulk_downloader/capture_redact.py`: 18
 - `bulk_downloader/capture_ingest.py`: 17
 - `bulk_downloader/cloak.py`: 17
+- `bulk_downloader/outbound_guard.py`: 17
 - `bulk_downloader/runner.py`: 17
 - `bulk_downloader/site_editor.py`: 17
 - `bulk_downloader/aiassist.py`: 16
 - `bulk_downloader/ffmpeg_bin.py`: 15
 - `bulk_downloader/log.py`: 15
-- `bulk_downloader/outbound_guard.py`: 14
 
 ## Blueprints → providers
 
@@ -101,7 +101,7 @@ Graph version: 1
 - **gallerydl_status** (`app_gallerydl_status.py`) — routes 1, providers 1
 - **gallerydl_update** (`app_gallerydl_update.py`) — routes 1, providers 1
 - **gamification** (`app_gamification.py`) — routes 1, providers 1
-- **global_config** (`app_global_config.py`) — routes 3, providers 8
+- **global_config** (`app_global_config.py`) — routes 3, providers 9
 - **health** (`app_health.py`) — routes 3, providers 5
 - **history** (`app_history.py`) — routes 3, providers 1
 - **hourly_stats** (`app_hourly_stats.py`) — routes 1, providers 1
@@ -179,7 +179,7 @@ Graph version: 1
 - **supervisor** (`app_supervisor.py`) — routes 2, providers 0
 - **synthetic_tests** (`app_synthetic_tests.py`) — routes 2, providers 1
 - **tags** (`app_tags.py`) — routes 9, providers 1
-- **template** (`app_template.py`) — routes 5, providers 6
+- **template** (`app_template.py`) — routes 5, providers 7
 - **template_manager** (`app_template_manager.py`) — routes 8, providers 6
 - **template_manager_ui** (`app_template_manager_ui.py`) — routes 3, providers 3
 - **templates** (`app_templates.py`) — routes 1, providers 1
