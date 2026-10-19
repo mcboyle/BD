@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 170,
+    "total": 171,
     "version": 1,
-    "count_dict": 169,
-    "test_files_scanned": 2894,
+    "count_dict": 170,
+    "test_files_scanned": 2895,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -33,6 +33,7 @@
       "tests/test_cut_quality_permits.py": 1,
       "tests/test_daily_digest.py": 2,
       "tests/test_deep_scheduler_cron.py": 3,
+      "tests/test_deep_site_templates_med_sl_f1f2.py": 1,
       "tests/test_dev_console_lows.py": 2,
       "tests/test_differential_oracle_frontend.py": 4,
       "tests/test_dl95_site_ma_brazzers_2_stop_persists_job_status.py": 3,
@@ -270,6 +271,16 @@
         "daily": 1
       },
       "gates_what": "test_d1_a_backward_clock_step_does_not_freeze_the_tasks"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_deep_site_templates_med_sl_f1f2.py",
+      "line": 200,
+      "value": {
+        "keep": 3,
+        "c2": 0
+      },
+      "gates_what": "test_sl_f2_control_a_normal_delete_removes_only_that_sites_rows"
     },
     {
       "form": "count_dict",
