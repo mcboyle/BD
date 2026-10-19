@@ -120,8 +120,10 @@ def update_schedule(sid: int, *, cadence_hours=None,
     cadence re-times next_run from the last run (a never-run schedule stays
     due as-is). The edit is ONE conditional UPDATE, so the add_schedule
     double-fire guard holds atomically: a cadence that would give this
-    enabled schedule the same (site_id, cadence_hours) as another enabled
-    one writes nothing and reports that schedule's id."""
+    enabled schedule the same (site_id, cadence_hours, urls) as another
+    enabled one writes nothing and reports that schedule's id. Urls are in
+    the key (a pinned-url schedule may share a cadence with a different-url
+    sibling, as add_schedule allows); label is not."""
     _ensure_table()
     if cadence_hours is None and label is None:
         return {"status": "invalid"}
@@ -147,19 +149,23 @@ def update_schedule(sid: int, *, cadence_hours=None,
                          SELECT 1 FROM capture_schedules o
                          WHERE o.site_id = capture_schedules.site_id
                            AND o.cadence_hours = ? AND o.enabled = 1
+                           AND COALESCE(o.urls_json, '[]')
+                               = COALESCE(capture_schedules.urls_json, '[]')
                            AND o.id != capture_schedules.id))""",
                 (cadence_hours, label, cadence_hours, cadence_hours, int(sid),
                  cadence_hours, cadence_hours))
             if cur.rowcount > 0:
                 return {"status": "ok"}
-            row = cx.execute("SELECT site_id FROM capture_schedules WHERE id = ?",
+            row = cx.execute("SELECT site_id, COALESCE(urls_json, '[]') "
+                             "FROM capture_schedules WHERE id = ?",
                              (int(sid),)).fetchone()
             if row is None:
                 return {"status": "missing"}
             other = cx.execute(
                 """SELECT id FROM capture_schedules WHERE site_id = ?
-                   AND cadence_hours = ? AND enabled = 1 AND id != ?""",
-                (row[0], cadence_hours, int(sid))).fetchone()
+                   AND cadence_hours = ? AND enabled = 1
+                   AND COALESCE(urls_json, '[]') = ? AND id != ?""",
+                (row[0], cadence_hours, row[1], int(sid))).fetchone()
             return {"status": "duplicate",
                     "existing_id": int(other[0]) if other is not None else None}
     except Exception:
