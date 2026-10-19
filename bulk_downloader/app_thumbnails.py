@@ -69,10 +69,23 @@ def api_thumbnails_regenerate():
     source_path = (body.get("source_path") or "").strip()
     if not source_path:
         return jsonify({"ok": False, "error": "missing 'source_path'"})
+    # misc-surface C1: the worker runs ffmpeg -y (skip_existing=False) and writes beside
+    # source_path or under <download_dir>/thumbs/. Both come from the body, so confine
+    # BOTH to a configured root like the sibling /api/thumbs/* routes -- source alone is
+    # not enough: a download_dir that is a PARENT of the root writes outside it.
+    from .app_thumbs import _confine_path
+    source_path, err = _confine_path(source_path)
+    if err:
+        return jsonify({"ok": False, "error": err}), 403
+    download_dir = (body.get("download_dir") or "").strip()
+    if download_dir:
+        download_dir, err = _confine_path(download_dir)
+        if err:
+            return jsonify({"ok": False, "error": "download_dir: " + err}), 403
     cfg = {
         "mode": body.get("mode", "single"),
         "output_dir_mode": body.get("output_dir_mode", "sidecar"),
-        "download_dir": body.get("download_dir", ""),
+        "download_dir": download_dir,
         "sheet_rows": int(body.get("sheet_rows", 3) or 3),
         "sheet_cols": int(body.get("sheet_cols", 3) or 3),
         "skip_existing": False,  # explicit re-gen
@@ -111,14 +124,17 @@ def api_thumbnails_serve(site_id, filename):
     thumb_path = _thumb_mod.resolve_output_path(
         candidate_video, mode=dir_mode, download_dir=dl_dir,
     )
-    if not thumb_path or not os.path.isfile(thumb_path):
+    if not thumb_path:
         return ("thumbnail not found", 404)
     # Safety check: the resolved path must be UNDER dl_dir (no
-    # `..` traversal). Use realpath for symlink safety.
+    # `..` traversal). Use realpath for symlink safety. misc-surface C2:
+    # containment runs BEFORE isfile, else 404-vs-403 is an existence oracle.
     real_dl = os.path.realpath(dl_dir)
     real_thumb = os.path.realpath(thumb_path)
     if not real_thumb.startswith(real_dl + os.sep) and real_thumb != real_dl:
         return ("path outside download_dir", 403)
+    if not os.path.isfile(real_thumb):
+        return ("thumbnail not found", 404)
     from flask import send_file
     return send_file(real_thumb, mimetype="image/jpeg")
 
