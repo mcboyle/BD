@@ -984,6 +984,16 @@ def api_queue_v2_add_url():
         return jsonify({"ok": False, "error": "site_id required"}), 400
     if not url:
         return jsonify({"ok": False, "error": "url required"}), 400
+    # q-enqueue-r2 M6: load_urls refuses a non-http(s) URL silently (200,
+    # added 0); refuse it here with the runner's own predicate instead.
+    # importlib: no new static import edge. r3 F1: judge the url part of a
+    # Phase 68 `url<TAB>Header=value` line, as load_urls does.
+    import importlib
+    if not importlib.import_module(
+            "bulk_downloader.runner_queue")._is_queueable_url(
+                url.split("\t", 1)[0].strip()):
+        return jsonify({"ok": False,
+                        "error": "url must be an http(s) URL with a host"}), 400
     try:
         result = enqueue_one_url(sid, url, runners=runners)
     except (ValueError, KeyError) as e:
