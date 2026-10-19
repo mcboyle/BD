@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6849,
+  "edge_count": 6855,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -8104,6 +8104,14 @@
     "tests/test_sac_captcha_relay_fix.py": [
       "bulk_downloader/app_captcha_relay.py",
       "bulk_downloader/captcha_relay.py"
+    ],
+    "tests/test_sac_f4_f12_keeper.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/cookies.py",
+      "bulk_downloader/download_egress.py",
+      "bulk_downloader/session_keeper.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/vault_sync.py"
     ],
     "tests/test_satellite_video_validation.py": [
       "bulk_downloader/integrity.py",
