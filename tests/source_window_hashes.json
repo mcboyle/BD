@@ -135,9 +135,9 @@
       "sha256": "b17bbdc703e1399c9d61d4c8a6499f7f5490dce396ea1f6af7ed0b45318c0fcc"
     },
     {
-      "bytes": 6016,
+      "bytes": 6014,
       "key": "tests/test_v3_43_33_ai_login.py::test_ai_failure_falls_back_silently::src[pos:pos + 6000]::1",
-      "sha256": "0156e67fcda1042dda59f9dd5d1038afddd5353d595a8a4d22af250b1a2e53fc"
+      "sha256": "6cacc555f44c74c0ca8eae261e4fa8f988118319d941f78c56de731b488fb5d5"
     },
     {
       "bytes": 500,
@@ -307,12 +307,12 @@
     {
       "bytes": 6012,
       "key": "tests/test_v3_43_46_audit.py::test_x_bd_token_header_accepted_as_bearer::src[pos:pos + 6000]::1",
-      "sha256": "80d75c89aade18d274a2842fce1bf7dc143200e43938934fb8694cdf0477a122"
+      "sha256": "734de22faef10c1506c9e74c40967cd0ad0cd7481ee72c844c9600eea4e97105"
     },
     {
       "bytes": 6012,
       "key": "tests/test_v3_43_46_audit.py::test_x_bd_token_matches_authorization_bearer_semantics::src[pos:pos + 6000]::1",
-      "sha256": "80d75c89aade18d274a2842fce1bf7dc143200e43938934fb8694cdf0477a122"
+      "sha256": "734de22faef10c1506c9e74c40967cd0ad0cd7481ee72c844c9600eea4e97105"
     },
     {
       "bytes": 400,
