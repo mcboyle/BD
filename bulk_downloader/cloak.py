@@ -941,13 +941,21 @@ def _apply_clearance_to_context(
 ) -> bool:
     """Inject valid cached clearance tokens/cookies into browser context.
 
-    Falls back non-blocking on empty cache.
+    Falls back non-blocking on empty cache. Read under the owning site's
+    scope (egress_identity.clearance_scope_for_site), never the bare egress:
+    keyed by egress alone every site on the domain shared one clearance
+    (sac-fu1, the shape sac-f9 removed from the relay). ``egress_ip`` is kept
+    for the callers' signature; the scope derives the site's own egress. No
+    site: nothing is read.
     """
     try:
+        from .egress_identity import clearance_scope_for_site
         from .login_impl.token_manager import get_default_cache
 
-        ip = egress_ip or "UNKNOWN"
-        clearance = get_default_cache().get_clearance(ip, domain)
+        scope = clearance_scope_for_site(ledger_site_id(config))
+        if scope is None:
+            return False
+        clearance = get_default_cache().get_clearance(scope, domain)
         if clearance:
             if isinstance(clearance, list):
                 context.add_cookies(clearance)
@@ -967,18 +975,25 @@ def save_clearance_from_context(
     config: dict | None = None,
     ttl_seconds: float = 7200.0,
 ) -> bool:
-    """Save clearance cookies from a browser context into the lifecycle cache."""
+    """Save clearance cookies from a browser context into the lifecycle cache,
+    under the owning site's scope (see _apply_clearance_to_context); no site:
+    nothing is saved."""
     try:
+        from .egress_identity import clearance_scope_for_site, note_site_clearance
         from .login_impl.token_manager import get_default_cache
 
-        ip = egress_ip or "UNKNOWN"
+        site_id = ledger_site_id(config)
+        scope = clearance_scope_for_site(site_id)
+        if scope is None:
+            return False
         raw_cookies = context.cookies()
         clearance_cookies = [
             c for c in raw_cookies
             if c.get("name") in ("cf_clearance", "__cf_bm") or "clearance" in c.get("name", "").lower()
         ]
         if clearance_cookies:
-            get_default_cache().set_clearance(ip, domain, clearance_cookies, ttl_seconds=ttl_seconds)
+            get_default_cache().set_clearance(scope, domain, clearance_cookies, ttl_seconds=ttl_seconds)
+            note_site_clearance(site_id, scope, domain)    # C3c: purged on site delete
             return True
     except Exception:
         pass

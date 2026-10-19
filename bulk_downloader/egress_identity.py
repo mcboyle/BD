@@ -33,6 +33,7 @@ UNKNOWN_EGRESS = "UNKNOWN"
 _lock = threading.Lock()
 _observed: dict[Optional[str], str] = {}
 _carrier_of_site: dict[str, Optional[str]] = {}
+_clearance_keys_of_site: dict[str, set[tuple[str, str]]] = {}
 
 
 def normalize_egress_ip(value) -> str:
@@ -92,3 +93,31 @@ def clearance_scope_for_site(site_id) -> Optional[str]:
     if not site_id:
         return None
     return f"site={site_id}|egress={egress_ip_for_site(site_id)}"
+
+
+def note_site_clearance(site_id, scope: str, domain: str) -> None:
+    """Record that a clearance was cached for ``site_id`` under (scope,
+    domain), so ``purge_site_clearance`` can find it after the site's egress
+    (and so its scope) has moved on (sac-fu1 C3c)."""
+    if not site_id or scope is None:
+        return
+    with _lock:
+        _clearance_keys_of_site.setdefault(str(site_id), set()).add((scope, str(domain)))
+
+
+def purge_site_clearance(site_id) -> int:
+    """Drop every clearance cached for ``site_id`` -- under each egress it
+    was ever bound to -- on site delete: a site recreated with the same id
+    must not be served the deleted site's clearance (sac-fu1 C3c). Returns
+    the number of (scope, domain) keys invalidated."""
+    if not site_id:
+        return 0
+    with _lock:
+        keys = _clearance_keys_of_site.pop(str(site_id), set())
+    if not keys:
+        return 0
+    from .login_impl.token_manager import get_default_cache
+    cache = get_default_cache()
+    for scope, domain in keys:
+        cache.invalidate_clearance(scope, domain)
+    return len(keys)

@@ -52,7 +52,8 @@ def _solve_a_then_start_b(c):
     from bulk_downloader import captcha_relay
     captcha_relay.mark_captcha_needed("siteA", URL_A, "turnstile")
     captcha_relay.mark_captcha_needed("siteB", URL_B, "turnstile")
-    r = c.post("/api/captcha/resolved", json={"url": URL_A, "clearance": [{"name": "cf_clearance", "value": SECRET}]})
+    r = c.post("/api/captcha/resolved", json={"url": URL_A, "site_id": "siteA",
+                                              "clearance": [{"name": "cf_clearance", "value": SECRET}]})
     assert r.status_code == 200
     return c.post("/api/captcha/start_solve", json={"url": URL_B})
 
@@ -80,7 +81,8 @@ def test_f9_same_site_same_bound_egress_still_hits_cache_control(client, caplog,
     from bulk_downloader import captcha_relay
     _bind("siteA", "tun-a", "198.51.100.5")
     captcha_relay.mark_captcha_needed("siteA", URL_A, "turnstile")
-    c.post("/api/captcha/resolved", json={"url": URL_A, "clearance": [{"name": "cf_clearance", "value": SECRET}]})
+    c.post("/api/captcha/resolved", json={"url": URL_A, "site_id": "siteA",
+                                          "clearance": [{"name": "cf_clearance", "value": SECRET}]})
     captcha_relay.mark_captcha_needed("siteA", URL_B, "turnstile")
     res = c.post("/api/captcha/start_solve", json={"url": URL_B})
     body = res.get_json()
