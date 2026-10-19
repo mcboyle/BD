@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6751,
+  "edge_count": 6754,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3628,6 +3628,11 @@
     ],
     "tests/test_data_layer_status.py": [
       "bulk_downloader/app_data_layer.py"
+    ],
+    "tests/test_data_writes_l1_l6.py": [
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/user_templates.py"
     ],
     "tests/test_db_concurrency.py": [
       "bulk_downloader/db.py"
