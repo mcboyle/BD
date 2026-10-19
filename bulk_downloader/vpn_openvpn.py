@@ -49,6 +49,7 @@ we can't kill it without taking the others down.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -465,8 +466,14 @@ def _watch_openvpn_output(
 # ─── Helpers ────────────────────────────────────────────────────────
 
 def _safe_id(tunnel_id: str) -> str:
-    """File-system-safe id for conf/auth filenames."""
-    return "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in tunnel_id)[:32] or "anon"
+    """File-system-safe id for conf/auth filenames.
+
+    dva K10: past 32 chars, a 23-char prefix plus a hash of the raw id, so
+    two long ids sharing a prefix no longer share one conf/auth file."""
+    out = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in tunnel_id)
+    if len(out) > 32:
+        return out[:23] + "-" + hashlib.sha256(tunnel_id.encode("utf-8")).hexdigest()[:8]
+    return out or "anon"
 
 
 def _terminate(proc: subprocess.Popen) -> None:

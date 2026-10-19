@@ -443,9 +443,12 @@ def _start_tunnel_action(tunnel_id: str, action) -> bool:
         backend = _get_backend(tunnel)
         ok = bool(backend.start(tunnel))
     except Exception as e:
-        sys.stderr.write(f"[vpn] start({tunnel_id}) backend raised: {e}\n")
+        # dva V13: backend exception text can carry config values; record
+        # (and log) the type only -- last_error is served by GET.
+        sys.stderr.write(f"[vpn] start({tunnel_id}) backend raised "
+                         f"({type(e).__name__})\n")
         with _lock:
-            tunnel.last_error = f"backend start raised: {e}"
+            tunnel.last_error = f"backend start raised ({type(e).__name__})"
 
     with _backend_action_condition:
         current = _backend_action_is_current(action)
@@ -474,9 +477,10 @@ def _start_tunnel_action(tunnel_id: str, action) -> bool:
                     cleanup_error = "stale backend start cleanup returned false"
             except Exception as e:
                 cleanup_ok = False
-                cleanup_error = f"stale backend start cleanup raised: {e}"
-                sys.stderr.write(
-                    f"[vpn] stale start cleanup({tunnel_id}) raised: {e}\n")
+                cleanup_error = ("stale backend start cleanup raised "
+                                 f"({type(e).__name__})")  # dva V13
+                sys.stderr.write(f"[vpn] stale start cleanup({tunnel_id}) "
+                                 f"raised ({type(e).__name__})\n")
         with _lock:
             t = _tunnels.get(tunnel_id)
             if t is None:
@@ -541,8 +545,9 @@ def _stop_tunnel_action(tunnel_id: str) -> bool:
             stop_error = "backend stop returned false"
     except Exception as e:
         stop_ok = False
-        stop_error = f"backend stop raised: {e}"
-        sys.stderr.write(f"[vpn] stop({tunnel_id}) backend raised: {e}\n")
+        stop_error = f"backend stop raised ({type(e).__name__})"  # dva V13
+        sys.stderr.write(f"[vpn] stop({tunnel_id}) backend raised "
+                         f"({type(e).__name__})\n")
 
     with _lock:
         t = _tunnels.get(tunnel_id)
@@ -679,8 +684,10 @@ def check_health(tunnel_id: str) -> dict:
         backend = _get_backend(tunnel)
         running = bool(backend.is_running(tunnel)) if hasattr(backend, "is_running") else True
     except Exception as e:
-        sys.stderr.write(f"[vpn] check_health({tunnel_id}) backend raised: {e}\n")
-        return {"ok": False, "error": f"backend check raised: {e}"}
+        # dva V13: the error lands in last_error (_record_health) -- type only.
+        sys.stderr.write(f"[vpn] check_health({tunnel_id}) backend raised "
+                         f"({type(e).__name__})\n")
+        return {"ok": False, "error": f"backend check raised ({type(e).__name__})"}
 
     return {
         "ok": running,
@@ -749,8 +756,9 @@ def _run_health_pass() -> None:
         try:
             result = check_health(tid)
         except Exception as e:
-            sys.stderr.write(f"[vpn] check_health({tid}) raised: {e}\n")
-            result = {"ok": False, "error": str(e)}
+            sys.stderr.write(f"[vpn] check_health({tid}) raised "
+                             f"({type(e).__name__})\n")
+            result = {"ok": False, "error": f"health check raised ({type(e).__name__})"}  # dva V13
         _record_health(tid, result)
 
 

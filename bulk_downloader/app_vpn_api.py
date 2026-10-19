@@ -71,6 +71,34 @@ def _json_object():
     return data, None
 
 
+_MUTATING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def vpn_admin_gate():
+    """dva U20: with multi-user on, a VPN mutation (tunnels, settings, kill
+    switch, system kill switch, leak tests, auto_blacklist) needs the admin
+    role, as the /api/auth/users* routes do; reads stay open. Default-no-op:
+    with multi-user off (the single-operator default) nothing changes. Fails
+    CLOSED: a store/gate error refuses (403); it never skips the role check.
+    Registered on this blueprint and on app_vpn's."""
+    if request.method not in _MUTATING:
+        return None
+    try:
+        from . import user_accounts as _ua
+        if not _ua.multi_user_enabled():
+            return None
+        who = _ua.current_user_from_cookie(request.cookies.get("bd_user", ""))
+        if who and who.get("role") == "admin":
+            return None
+    except Exception:
+        return _err("VPN role check failed; refusing", 403)
+    return _err("admin role required", 403)
+
+
+if vpn_bp is not None:
+    vpn_bp.before_request(vpn_admin_gate)
+
+
 # vpn._redact_config's mask: what GET shows for every secret config value.
 _REDACTED = "***"
 
@@ -620,16 +648,34 @@ def vpn_kill_state():
     })
 
 
+# dva K2: reserved probe id, answered on the normal kill-switch path (200)
+# whether or not a tunnel of that name exists; see vpn_kill_clear/trigger.
+_PROBE_ID = "_probe"
+
+
 @vpn_bp.route("/api/vpn/kill_switch/<tunnel_id>/clear", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_kill_clear(tunnel_id):
-    from . import vpn_kill_switch
+    """dva K2: an id that is neither a registered tunnel nor holding a kill
+    state is 404 (a stale state of a removed tunnel stays clearable).
+    "_probe" is a reserved probe id: it keeps the 200 path so the body-contract
+    probe (tools/body_contract, test_v3_66_1160) can exercise the route."""
+    from . import vpn, vpn_kill_switch
+    if (tunnel_id != _PROBE_ID and vpn.get_tunnel(tunnel_id) is None
+            and not any(s.get("tunnel_id") == tunnel_id
+                        for s in vpn_kill_switch.list_kill_states())):
+        return _err("no such tunnel", 404)
     vpn_kill_switch.clear_kill(tunnel_id)
     return _ok()
 
 
 @vpn_bp.route("/api/vpn/kill_switch/<tunnel_id>/trigger", methods=["POST"]) if vpn_bp else (lambda f: f)
 def vpn_kill_trigger(tunnel_id):
-    from . import vpn_kill_switch
+    """dva K2: an unknown tunnel id is 404 and creates no kill state.
+    "_probe" is a reserved probe id that keeps the 200 path (the probe harness
+    restores the kill-switch state it touches)."""
+    from . import vpn, vpn_kill_switch
+    if tunnel_id != _PROBE_ID and vpn.get_tunnel(tunnel_id) is None:
+        return _err("no such tunnel", 404)
     data, bad = _json_object()
     if bad:
         return bad

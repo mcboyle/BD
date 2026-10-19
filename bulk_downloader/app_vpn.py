@@ -16,6 +16,13 @@ def _check_csrf(*_a, **_k):
     return getattr(importlib.import_module("bulk_downloader.app"), "_check_csrf")(*_a, **_k)
 
 
+@vpn_bp.before_request
+def _vpn_admin_gate():
+    """dva U20: same admin-role gate as app_vpn_api (auto_blacklist POST)."""
+    from .app_vpn_api import vpn_admin_gate
+    return vpn_admin_gate()
+
+
 @vpn_bp.route("/api/vpn/stats")
 def api_vpn_stats():
     try:
