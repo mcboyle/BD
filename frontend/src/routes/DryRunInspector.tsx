@@ -12,6 +12,7 @@ import { apiPost } from "@/lib/api-client";
 import type {
   InspectCandidateRow,
   InspectResult,
+  SelectorHit,
   TemplateDryRunResult,
 } from "@/lib/api-types";
 
@@ -22,6 +23,23 @@ import type {
 //     groups / resolutions / redacted patterns / lint, static selector
 //     hit-counts, and whether a final safe candidate would be selected.
 // Both are offline: no fetch, no download, no cookie/token/storage reads.
+
+// stb-fix F1: the backend (dry_run._selector_hit_counts) sends a dict keyed
+// by "group.field" -> [{selector, hits}]; a flat array is also accepted.
+type HitRow = SelectorHit & { group?: string };
+
+function hitRows(
+  counts: SelectorHit[] | Record<string, SelectorHit[]> | null | undefined,
+): HitRow[] {
+  if (!counts) return [];
+  if (Array.isArray(counts)) return counts;
+  const rows: HitRow[] = [];
+  for (const [group, hits] of Object.entries(counts)) {
+    if (!Array.isArray(hits)) continue;
+    for (const h of hits) rows.push({ ...h, group });
+  }
+  return rows;
+}
 
 function kindClass(kind: string, accepted: boolean): string {
   if (!accepted) return "bg-ink-1/40 text-ink-3";
@@ -128,6 +146,7 @@ function TemplatePanel({ res }: { res: TemplateDryRunResult }) {
       </Card>
     );
   }
+  const hits = hitRows(res.selector_hit_counts);
   return (
     <div className="space-y-2">
       <Card className="border bg-surface p-3">
@@ -179,16 +198,19 @@ function TemplatePanel({ res }: { res: TemplateDryRunResult }) {
         </Card>
       )}
 
-      {res.selector_hit_counts.length > 0 && (
+      {hits.length > 0 && (
         <Card className="border bg-surface p-3">
           <div className="mb-1 eyebrow">
             Selector hits
           </div>
-          {res.selector_hit_counts.map((h, i) => (
+          {hits.map((h, i) => (
             <div
               key={i}
               className="flex items-center gap-2 border-t border-hairline py-1 first:border-t-0"
             >
+              {h.group && (
+                <span className="shrink-0 text-[10px] text-ink-3">{h.group}</span>
+              )}
               <span className="truncate font-mono text-[11px] text-ink-2">
                 {h.selector}
               </span>
