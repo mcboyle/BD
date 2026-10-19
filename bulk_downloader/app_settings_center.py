@@ -246,6 +246,24 @@ def _site_effective(sid: str) -> dict:
         return {"ok": True, "sid": sid, "fields": {}, "note": f"read fail-open: {str(e)[:120]}"}
 
 
+def _site_known(sid: str):
+    """dscs F04: True/False when the sites store answers whether it holds `sid`; None
+    when there is no readable store to ask (absent or unreadable -- the same fail-open
+    _site_effective applies, so a store-less editor still validates)."""
+    import json
+    try:
+        path = _sites_config_path()
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    sites = data.get("sites", data) if isinstance(data, dict) else None
+    if not isinstance(sites, dict):
+        return None
+    return sid in sites
+
+
 def _is_global_secret(k) -> bool:
     """dss-global-secrets F8: the global store is ALSO masked by the rule GET
     /api/global_config uses (any *_key/*_secret/*_token name), so the two read views of
@@ -569,6 +587,51 @@ def _runtime_controls_card() -> str:
     return _card("Runtime settings (editable)", body)
 
 
+# dscs F19: a plain form POST navigated the browser to the raw JSON reply, and a
+# cookie session cannot put X-CSRF-Token on a plain form. Submit through fetch with
+# the session's CSRF token and report the reply beside the form; the form keeps its
+# action/method (the no-JS contract the rows 972/973 coupling test reads).
+_RUNTIME_SUBMIT_JS = """<script>
+(function () {
+  var route = "%s";
+  function csrf() {
+    return fetch("/api/csrf", {credentials: "same-origin"})
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .then(function (b) { return (b && (b.csrf_token || b.csrf || b.token)) || ""; })
+      .catch(function () { return ""; });
+  }
+  document.querySelectorAll("form[action='" + route + "']").forEach(function (form) {
+    var status = document.createElement("div");
+    status.setAttribute("role", "status");
+    status.style.cssText = "font-size:12px;margin-top:4px";
+    form.appendChild(status);
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var body = {};
+      new FormData(form).forEach(function (v, k) { body[k] = v; });
+      status.style.color = "#9ca3af";
+      status.textContent = "Saving\u2026";
+      csrf().then(function (tok) {
+        return fetch(route, {method: "POST", credentials: "same-origin",
+          headers: {"Content-Type": "application/json", "X-CSRF-Token": tok},
+          body: JSON.stringify(body)});
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; })
+          .then(function (j) { return {ok: r.ok && j.ok === true, j: j, code: r.status}; });
+      }).then(function (res) {
+        status.style.color = res.ok ? "#4ade80" : "#f87171";
+        status.textContent = res.ok ? "Saved."
+          : "Not saved: " + ((res.j && res.j.error) || ("HTTP " + res.code));
+      }).catch(function (e) {
+        status.style.color = "#f87171";
+        status.textContent = "Not saved: " + e;
+      });
+    });
+  });
+})();
+</script>""" % _RUNTIME_WRITE_ROUTE
+
+
 @settings_center_bp.route(_RUNTIME_WRITE_ROUTE, methods=["POST"])
 def api_settings_runtime_write():
     """Write one runtime-tunable setting. Validate first, then persist, or change nothing.
@@ -657,6 +720,7 @@ def page_settings():
         "POST /api/settings/runtime.</div>"
         + _runtime_controls_card()
         + _card("Per-site config surface", body)
+        + _RUNTIME_SUBMIT_JS
         + "</body></html>")
     return page
 
@@ -786,6 +850,13 @@ def _validate_updates(updates: dict) -> dict:
     editable = _editable_field_set()
     all_fields = set(_cfg_fields())
     ranges, ftypes, _required = _site_editor_meta()
+    # dscs F04: the enum choices the descriptor already advertises are enforced here
+    # too, so validate never accepts a value the <select> could not have produced.
+    try:
+        from . import site_editor as _SE
+        enums = getattr(_SE, "_FIELD_ENUMS", {}) or {}
+    except Exception:  # noqa: BLE001
+        enums = {}
     accepted, rejected = {}, {}
     for k, v in (updates or {}).items():
         if k not in all_fields:
@@ -831,6 +902,11 @@ def _validate_updates(updates: dict) -> dict:
             if isinstance(v, float) and not math.isfinite(v):
                 rejected[k] = "expected a finite integer"
                 continue
+            # dscs F04: bool is an int subclass, so int(True) == 1 slipped through;
+            # PUT /api/sites/<sid> rejects a boolean for an integer field.
+            if isinstance(v, bool):
+                rejected[k] = "expected integer, got boolean"
+                continue
             try:
                 iv = int(v)
             except (TypeError, ValueError):
@@ -855,6 +931,8 @@ def _validate_updates(updates: dict) -> dict:
                 rejected[k] = f"out of range — expected number in [{rng[0]}, {rng[1]}]"
             else:
                 accepted[k] = int(fv) if fv.is_integer() else fv
+        elif k in enums and ("" if v is None else str(v)) not in enums[k]:
+            rejected[k] = f"expected one of: {', '.join(enums[k])}"
         else:
             accepted[k] = "" if v is None else str(v)
     return {"ok": True, "accepted": accepted, "rejected": rejected,
@@ -921,6 +999,9 @@ def api_settings_site_validate(sid):
     updates = body.get("updates", body)
     if not isinstance(updates, dict):
         return jsonify({"ok": False, "error": "'updates' must be a JSON object"}), 400
+    # dscs F04: a site the store does not hold is not "ok" to edit.
+    if _site_known(sid) is False:
+        return jsonify({"ok": False, "error": "unknown site"}), 404
     try:
         return jsonify(_validate_updates(updates))
     except Exception as e:  # noqa: BLE001

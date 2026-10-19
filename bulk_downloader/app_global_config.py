@@ -515,7 +515,24 @@ def api_global_config():
             _gc_updates[_k] = _v
         if _gc_updates:
             _app_cfg.update(_gc_updates)
-        _save_app_config()
+        try:
+            _save_app_config()
+        except Exception as e:
+            # dscs r2: a refused or failed save is never silent. _rollback_on_reject
+            # puts _app_cfg and the live module state back when this re-raises (500);
+            # the audit row names the keys only -- values may be secrets.
+            try:
+                from . import audit as _audit
+                _audit.audit_log(source="api", action="save_failed",
+                                 target="global_config",
+                                 after={"outcome": "failed",
+                                        "keys": sorted(str(k) for k in data),
+                                        "error": type(e).__name__},
+                                 actor=(request.cookies.get("bd_session", "")[:8]
+                                        or request.remote_addr or "unknown"))
+            except Exception:
+                pass  # audit failures must never mask the save failure
+            raise
     # Inject default for ui_logging_level on read so the frontend
     # doesn't have to handle undefined vs "basic".
     out = dict(_app_cfg)
