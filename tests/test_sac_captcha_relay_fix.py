@@ -160,7 +160,14 @@ def test_f9_cached_reply_does_not_echo_clearance(client, monkeypatch):
     cr.mark_captcha_needed("siteB", other, "turnstile")
     r = client.post("/api/captcha/start_solve", json={"url": other})
     body = r.get_json()
-    assert body["cached"] is True and body["session"]["status"] == "resolved"     # control: cache path taken
+    # sac-f9: siteA's clearance is never served to siteB (scope = site + egress)
+    assert body.get("cached") is not True, f"F9_CLEARANCE_SHARED_ACROSS_SITES: {body}"
+    assert "CLR-SECRET-1" not in r.get_data(as_text=True), f"F9_CLEARANCE_ECHOED: {body}"
+    third = "https://shop.example.test/item/3"
+    cr.mark_captcha_needed("siteA", third, "turnstile")
+    r = client.post("/api/captcha/start_solve", json={"url": third})
+    body = r.get_json()
+    assert body["cached"] is True and body["session"]["status"] == "resolved"     # control: cache path taken (same site)
     assert "CLR-SECRET-1" not in r.get_data(as_text=True), f"F9_CLEARANCE_ECHOED: {body}"
 
 
