@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6896,
+  "edge_count": 6897,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2952,6 +2952,9 @@
     "tests/test_best_must_not_pick_a_page_link_over_4k.py": [
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_bh1_45_watch_bulk_priority_raise.py": [
+      "bulk_downloader/watch_folder.py"
     ],
     "tests/test_bh1_48_pair_headerless_cannot_evict_fm_proven.py": [
       "bulk_downloader/api_tokens.py",
