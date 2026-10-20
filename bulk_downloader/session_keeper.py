@@ -1753,13 +1753,19 @@ class SessionKeeper:
             # imports keep this off the module-level import graph.
             from . import vpn_runtime as _vpnrt
             from .download_egress import effective_download_proxy as _eff_proxy
+            from .outbound_guard import OutboundRefused, judge_proxy_url
             try:
                 _resolver = getattr(_vpnrt, "get_socks_url_for_site", None)
                 proxy_url = _eff_proxy(self.config.get("proxy"), self.site_id,
                                        _resolver)
+                if proxy_url:
+                    judge_proxy_url(proxy_url)  # BD-SEC-3 F14
             except _vpnrt.VPNRequiredError as _pe:
                 return DEAD, (f"VPN required, tunnel unavailable -- "
                               f"failing closed: {_pe}")
+            except OutboundRefused as _pr:
+                # A refused proxy is never swapped for the clear interface.
+                return DEAD, f"proxy-refused -- failing closed: {_pr}"
             from bulk_downloader.ssrf_transport import guarded_transport, PINNED
             with httpx.Client(timeout=20.0, follow_redirects=False,
                               cookies=cookies,

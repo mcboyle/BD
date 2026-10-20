@@ -343,6 +343,11 @@ class TelemetryMixin:
                 client_kwargs = {"timeout": httpx.Timeout(5.0, connect=3.0)}
                 if proxy_url: client_kwargs["proxy"] = proxy_url
                 transport_proxy = client_kwargs.pop("proxy", None)
+                if transport_proxy:
+                    # BD-SEC-3 F14: a refused proxy skips this mirror (except
+                    # below); it is never probed on the clear interface.
+                    from bulk_downloader.outbound_guard import judge_proxy_url
+                    judge_proxy_url(transport_proxy)
                 from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
                 with httpx.Client(**client_kwargs, transport=guarded_transport(PUBLIC_ONLY, proxy=transport_proxy)) as cl:
                     # follow_redirects=False (F-RUN03-04): a public mirror could 302 us

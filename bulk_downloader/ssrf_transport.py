@@ -481,7 +481,15 @@ def guarded_transport(policy: str, **transport_kwargs) -> httpx.HTTPTransport:
     ``cert``, ``trust_env``, ``http1``, ``http2``, ``limits``, ``retries``,
     ``local_address``, ``uds``, ``socket_options`` -- because once a transport
     is installed httpx no longer applies them from the client.
+
+    A ``proxy`` is judged first (``outbound_guard.judge_proxy_url``, BD-SEC-3 F14): every
+    httpx proxy mount lands here, and a refused proxy raises ``OutboundRefused``
+    (``reason="proxy-refused"``) before any transport exists -- never a direct one.
     """
+    if transport_kwargs.get("proxy"):
+        from bulk_downloader.outbound_guard import judge_proxy_url  # imports this module
+
+        judge_proxy_url(transport_kwargs["proxy"])
     if policy == PUBLIC_ONLY:
         return restoring_public_guard_cls()(allow_private_hosts=False, **transport_kwargs)
     if policy == PINNED:

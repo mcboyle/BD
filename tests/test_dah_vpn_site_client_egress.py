@@ -27,6 +27,25 @@ from bulk_downloader import (extractors_dl8, extractors_jsonapi, mp4_metadata, r
 
 BD_GATE_SCOPE = "module"
 
+
+# BH1-34 / RULING-pm-B B.1: a proxy host must resolve (fail closed otherwise). These
+# fixture proxy names resolve to a LAN literal through outbound_guard's declared seam.
+_F14_PROXY_HOSTS = frozenset({'pa.invalid', 'pb.invalid', 'pc.invalid', 'p.invalid'})
+
+
+@pytest.fixture(autouse=True)
+def _f14_fixture_proxy_hosts_resolve(monkeypatch):
+    import socket
+    from bulk_downloader import outbound_guard as og
+    real = og._resolve
+
+    def resolve(host, port):
+        if host in _F14_PROXY_HOSTS:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.9", port))]
+        return real(host, port)
+
+    monkeypatch.setattr(og, "_resolve", resolve)
+
 HOST = "93.184.216.34"          # a public literal: passes the public-host checks; never contacted
 PROXY = "socks5://127.0.0.1:19999"
 SID = "dahvpn01"
