@@ -22,6 +22,21 @@ pair_bp = Blueprint("pair", __name__)
 # then answers "unknown or already-redeemed").
 PAIRING_TOKENS_MAX = 32
 
+# BH1-48 (RULING-pm-B-A3, option b): aac-fu1 A3 stays DECIDED OPEN -- a GET
+# carrying no Fetch Metadata still mints -- but it can no longer flood the cap
+# to evict the operator's code. Every stored code records whether its mint was
+# Fetch-Metadata-proven (Sec-Fetch-Site same-origin / none, the values the CSRF
+# hook admits); a headerless mint evicts only headerless codes, and is refused
+# when every slot holds a proven one.
+_PAIR_FM_PROVEN_SITES = frozenset({"same-origin", "none"})
+
+
+def _pair_mint_fm_proven() -> bool:
+    """True iff this mint carries a Sec-Fetch-Site the browser set for the app
+    itself or the user (typed URL, bookmark). Cross-site / same-site never get
+    here (_check_csrf refuses them); anything else is headerless."""
+    return request.headers.get("Sec-Fetch-Site", "").strip().lower() in _PAIR_FM_PROVEN_SITES
+
 def _csrf_token_for(*_a, **_k):
     """Delegate to app._csrf_token_for at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -200,17 +215,26 @@ def api_pair():
     # Phase 40: register the token so /api/pair/redeem can exchange it
     # for a session. One-shot, expires in PAIRING_TTL.
     now = time.time()
+    fm_proven = _pair_mint_fm_proven()
     with _pairing_lock:
-        _pairing_tokens[token] = {"created": now,
-                                   "expires_at": now + PAIRING_TTL}
         # Garbage-collect expired tokens — keeps the store small without
         # a dedicated cleanup thread
         expired = [k for k, v in _pairing_tokens.items() if v["expires_at"] < now]
         for k in expired: del _pairing_tokens[k]
-        excess = len(_pairing_tokens) - PAIRING_TOKENS_MAX
+        # Make room for the new code BEFORE storing it (BH1-48): a headerless
+        # mint may evict only headerless codes, oldest first.
+        excess = len(_pairing_tokens) + 1 - PAIRING_TOKENS_MAX
         if excess > 0:
-            oldest = sorted(_pairing_tokens, key=lambda k: _pairing_tokens[k]["created"])
+            evictable = [k for k, v in _pairing_tokens.items()
+                         if fm_proven or not v.get("fm_proven")]
+            if len(evictable) < excess:
+                return jsonify({"ok": False, "error": "pairing store is full of same-origin codes; "
+                                                      "a request without Fetch Metadata cannot evict them"}), 403
+            oldest = sorted(evictable, key=lambda k: _pairing_tokens[k]["created"])
             for k in oldest[:excess]: del _pairing_tokens[k]
+        _pairing_tokens[token] = {"created": now,
+                                   "expires_at": now + PAIRING_TTL,
+                                   "fm_proven": fm_proven}
     full_url = f"{url}?t={_up.quote(token)}"
 
     # Try to render the QR as SVG. The qrcode package is OPTIONAL; if
