@@ -112,7 +112,7 @@
     {
       "bytes": 4000,
       "key": "tests/test_v3_43_30_watch_folder.py::test_watch_thread_stopped_on_site_delete::src[del_pos:del_pos + 4000]::1",
-      "sha256": "eca0925815e375372a851d58cd8f3dafde590916bf1cfc1cd7d18c7ecdc4f1e8"
+      "sha256": "f8dfa2a80ff884b5388f03c772c95524d7265830de96d2ad50cbb286b58fad59"
     },
     {
       "bytes": 3007,
