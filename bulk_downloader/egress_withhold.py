@@ -242,15 +242,61 @@ def _token(m) -> str:
     return PLACEHOLDER
 
 
+# BH1-64: a credential after ``Authorization:`` / ``Authorization=`` (the rest
+# of that header value, fail closed: Basic, Digest and AWS forms hold several
+# tokens), ``Bearer`` (whitespace and/or ``:`` / ``=``: the separator is never
+# the credential) or ``token=`` (also ``access_token = X``) is replaced by MASK,
+# which the per-token pass cannot do: it never sees the trigger token. Every
+# token is still judged WHOLE as that pass judges it, so the mask never serves
+# a part of a token the pass withholds: a trigger glued inside a withheld token
+# leaves that token PLACEHOLDER, a withheld credential token is all MASK. Any
+# case; one pass, linear time.
+_CREDENTIAL_TEXT = re.compile(
+    r"authorization[\"']?[ \t]*[:=]\s*(\S[^\r\n]*)"
+    r"|bearer(?:\s*[:=][\s:=]*|\s+)(\S+)"
+    r"|token[\"']?[ \t]*=[\s=]*(\S+)", re.IGNORECASE)
+
+
+def _token_start(value: str, i: int, lo: int) -> int:
+    while i > lo and not value[i - 1].isspace():
+        i -= 1
+    return i
+
+
+def _withheld(value: str, i: int) -> bool:
+    return _token(_TOKEN.match(value, i)) == PLACEHOLDER
+
+
+def _free_text(value: str) -> str:
+    out, pos = [], 0
+    for m in _CREDENTIAL_TEXT.finditer(value):
+        start, cred = _token_start(value, m.start(), pos), m.start(m.lastindex)
+        held = _token_start(value, cred, start)
+        out.append(_TOKEN.sub(_token, value[pos:start]))
+        if held == start and _withheld(value, start):
+            rest = value[_TOKEN.match(value, start).end():m.end()]
+            body = rest.lstrip()
+            out.append(PLACEHOLDER + (rest[:len(rest) - len(body)] + MASK if body else rest))
+        elif held == start:
+            out.append(value[start:cred] + MASK)
+        else:
+            out.append(_TOKEN.sub(_token, value[start:held]))
+            out.append(MASK if _withheld(value, held) else value[held:cred] + MASK)
+        pos = m.end()
+    out.append(_TOKEN.sub(_token, value[pos:]))
+    return "".join(out)
+
+
 def _text_key(key):
-    return _TOKEN.sub(_token, key) if isinstance(key, str) and key else key
+    return _free_text(key) if isinstance(key, str) and key else key
 
 
 def withhold_text(value):
-    """Free text with every URL-like token replaced by PLACEHOLDER (linear),
-    in dict keys as well as values."""
+    """Free text with every credential after Authorization / Bearer / token=
+    replaced by MASK and every URL-like token by PLACEHOLDER (linear), in dict
+    keys as well as values."""
     if isinstance(value, str):
-        return _TOKEN.sub(_token, value) if value else value
+        return _free_text(value) if value else value
     if isinstance(value, (list, tuple)):
         return [withhold_text(v) for v in value]
     if isinstance(value, dict):
