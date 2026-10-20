@@ -199,7 +199,8 @@ def process_file(file_path: Path, runner,
                   priority: str = "normal") -> dict:
     """Parse one .txt file and call runner.load_urls() with the
     extracted URLs. Moves the file to .processed/ on success,
-    .failed/ on parse error or zero URLs.
+    .failed/ on parse error or zero URLs. If only the priority tag
+    (bulk_priority) fails, the file stays in place for the next poll.
 
     Args:
       file_path: the .txt file
@@ -246,11 +247,6 @@ def process_file(file_path: Path, runner,
     # no new import edge is introduced.
     try:
         runner.load_urls(urls)
-        if priority and priority != "normal":
-            # mirror load_urls' own per-URL normalization (strip a tab-separated
-            # header suffix + surrounding whitespace) so the queued job keys match
-            norm_urls = [u.split("\t", 1)[0].strip() for u in urls]
-            runner.bulk_priority(norm_urls, priority)
     except Exception as e:
         # Loading failed (DB error, etc.) — treat as failed
         failed_dir = folder / ".failed"
@@ -267,6 +263,26 @@ def process_file(file_path: Path, runner,
             "errors": [f"load_urls failed: {e}"],
             "moved_to": str(moved),
         }
+
+    if priority and priority != "normal":
+        # mirror load_urls' own per-URL normalization (strip a tab-separated
+        # header suffix + surrounding whitespace) so the queued job keys match
+        norm_urls = [u.split("\t", 1)[0].strip() for u in urls]
+        try:
+            runner.bulk_priority(norm_urls, priority)
+        except Exception as e:
+            # BH1-45: bulk_priority re-raises a failed queue write (dqb F3)
+            # after rolling its change back. The URLs ARE queued, at normal
+            # priority, so this is not a load failure and must not go to
+            # .failed/ (never rescanned). Leave the file in place: the next
+            # poll's load_urls dedups and bulk_priority runs again.
+            return {
+                "ok": False, "urls_imported": len(urls),
+                "errors": [f"bulk_priority failed: {type(e).__name__}: {e} "
+                           f"(URLs queued at normal priority; file left in "
+                           f"place for retry)"],
+                "moved_to": str(file_path),
+            }
 
     # Success — move to .processed/
     try:
@@ -360,6 +376,10 @@ def watch_loop_for_site(runner, stop_event: threading.Event,
                         f"from {f.name}"
                         + (f" (with {len(result['errors'])} per-line warnings)"
                            if result["errors"] else ""))
+                elif result["moved_to"] == str(f):
+                    runner.log_event("watch_import",
+                        f"Failed to import {f.name}: "
+                        + ", ".join(result["errors"][:3]))
                 else:
                     runner.log_event("watch_import",
                         f"Failed to import {f.name}: "
