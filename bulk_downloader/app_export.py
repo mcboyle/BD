@@ -24,6 +24,19 @@ def _bad_limit():
     return jsonify({"error": "limit must be an integer"}), 400
 
 
+def _export_rows(fdict):
+    """BH1-67: (rows, refused). The rows a client is shown (exports.display_rows),
+    raw only under the history export's include_tokens gate (a client on this
+    machine; anyone else asking gets its 403)."""
+    from . import exports as _exp
+    from .app_sites_queue import _include_tokens
+    raw, refused = _include_tokens()
+    if refused:
+        return None, refused
+    rows = _exp._rows_from_filter(fdict)
+    return (rows if raw else _exp.display_rows(rows)), None
+
+
 @export_bp.route("/api/export/csv")
 def api_export_csv():
     try:
@@ -37,7 +50,10 @@ def api_export_csv():
             v = request.args.get(k)
             if v:
                 fdict[k] = v
-        body = _exp.to_csv(fdict)
+        rows, refused = _export_rows(fdict)
+        if refused:
+            return refused
+        body = _exp.to_csv(rows=rows)
         return Response(body, mimetype="text/csv",
                         headers={"Content-Disposition":
                                  'attachment; filename="bd-history.csv"'})
@@ -56,7 +72,10 @@ def api_export_json():
             v = request.args.get(k)
             if v:
                 fdict[k] = v
-        return Response(_exp.to_json(fdict),
+        rows, refused = _export_rows(fdict)
+        if refused:
+            return refused
+        return Response(_exp.to_json(rows=rows),
                         mimetype="application/json")
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500

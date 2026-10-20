@@ -71,6 +71,25 @@ def to_csv(filter_dict: Optional[dict] = None,
     return buf.getvalue().encode("utf-8")
 
 
+def display_rows(rows) -> list:
+    """BH1-67: export rows as a client is shown them -- url / source_url as
+    the display URL (every token value and the userinfo masked), message with
+    every URL-like token withheld. NEW dicts; the CSV writer neutralises after.
+    The raw rows leave only on the include_tokens local opt-in."""
+    from .db import queue_display_url
+    from .egress_withhold import withhold_text
+    out = []
+    for r in rows:
+        r = dict(r)
+        for c in ("url", "source_url"):
+            if isinstance(r.get(c), str):
+                r[c] = queue_display_url(r[c])
+        if isinstance(r.get("message"), str):
+            r["message"] = withhold_text(r["message"])
+        out.append(r)
+    return out
+
+
 # ─── JSON / NDJSON ────────────────────────────────────────────────────
 
 def to_json(filter_dict: Optional[dict] = None,

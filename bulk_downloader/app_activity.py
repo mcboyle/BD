@@ -143,6 +143,13 @@ def api_activity_v2_export_csv():
     import io
     import sqlite3 as _sqlite3
     from .exports import csv_cells  # lazy, as app_sites_queue's history CSV
+    from .app_sites_queue import _include_tokens
+    from .egress_withhold import withhold_text
+    # BH1-67: the message as a client is shown it; raw only on the history
+    # export's include_tokens local opt-in.
+    raw, refused = _include_tokens()
+    if refused:
+        return refused
     window = (request.args.get("window") or "24h").lower()
     q = (request.args.get("q") or "").strip()
     window_days = {"24h": 1, "7d": 7, "30d": 30, "all": None}.get(window)
@@ -172,11 +179,12 @@ def api_activity_v2_export_csv():
             sid = r.get("site_id") or ""
             cfg = s_cfg.get(sid, {}) or {}
             name = cfg.get("name") or sid
+            msg = r.get("message") or ""
             w.writerow(csv_cells([
                 r.get("id"), r.get("ts"), sid, name,
                 r.get("filename"), r.get("status"),
                 r.get("file_size") or 0,
-                (r.get("message") or "")[:500],
+                (msg if raw else withhold_text(msg))[:500],
             ]))
         body = buf.getvalue()
         import time as _t
