@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6939,
+  "edge_count": 6943,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2990,6 +2990,12 @@
     ],
     "tests/test_bh1_45_watch_bulk_priority_raise.py": [
       "bulk_downloader/watch_folder.py"
+    ],
+    "tests/test_bh1_46_dismiss_site_scoped.py": [
+      "bulk_downloader/app_captcha_relay.py",
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/egress_identity.py"
     ],
     "tests/test_bh1_48_pair_headerless_cannot_evict_fm_proven.py": [
       "bulk_downloader/api_tokens.py",
