@@ -3271,6 +3271,10 @@ def _display_query(text: str) -> str:
     return "&".join(out)
 
 
+# exports._CSV_FORMULA_LEADS, inlined: exports is not imported by db.
+_FORMULA_LEADS = "=+-@\t\r"
+
+
 def queue_display_url(url):
     """The form of a job URL a client is shown: every query (and fragment
     query) value whose name is not a plain routing name, and the whole userinfo
@@ -3280,12 +3284,16 @@ def queue_display_url(url):
         return url
     scheme, sep, rest = url.partition("://")
     if not sep:  # r2: a scheme-relative //user:pw@host keeps its "//"
-        scheme, sep, rest = ("", "//", url[2:]) if url.startswith("//") else ("", "", url)
+        # bh1-67: a CSV formula lead before the "//" (=//u:pw@host) is a
+        # prefix kept as is, not the host.
+        body = url.lstrip(_FORMULA_LEADS)
+        lead = url[:len(url) - len(body)]
+        scheme, sep, rest = (lead, "//", body[2:]) if body.startswith("//") else (lead, "", body)
     rest, hsep, frag = rest.partition("#")
     rest, qsep, query = rest.partition("?")
     host, slash, path = rest.partition("/")
     userinfo, at, hostport = host.rpartition("@")
-    if at and sep:
+    if at and (sep or ":" in userinfo):  # bh1-67: scheme-less u:pw@host/p too
         host = f"{MASK}@{hostport}"
     if hsep and "=" in frag:
         frag = _display_query(frag)
