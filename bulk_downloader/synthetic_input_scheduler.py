@@ -70,6 +70,191 @@ class InputSchedule:
         }
 
 
+BOUND_FIELD_LOST = "credential entry aborted: bound field lost"
+
+
+class BoundFieldLost(RuntimeError):
+    """BH1-49 r2: the checked element can no longer be proven to be the one
+    the next key would reach.  The whole credential entry stops: no retry,
+    no re-resolve, no Locator fallback."""
+
+    def __init__(self, check: str, detail: Any = ""):
+        self.check = check
+        tail = f": {str(detail)[:120]}" if detail else ""
+        super().__init__(f"{BOUND_FIELD_LOST} ({check}{tail})")
+
+
+def _origin(url: str) -> tuple:
+    from urllib.parse import urlsplit
+    parts = urlsplit(url or "")
+    return (parts.scheme.lower(), (parts.hostname or "").lower(), parts.port)
+
+
+class BoundField:
+    """BH1-49: the checked element as an ElementHandle, resolved ONCE.
+
+    A Locator re-resolves on every action, so its keys followed a navigation
+    or an nth() shift (r1 SEC F1/F2).  A handle stays on its element and dies
+    with its document.  r4: no keys at all.  Keystrokes are routed by focus,
+    and any check-then-press leaves a window in which page script moves focus
+    (r3 SEC A1), so each character is written by ONE in-realm evaluate on the
+    handle: the element is connected, in its realm's document of the recorded
+    origin, holds exactly the characters written so far, and then gets the
+    next one through the native value setter plus an 'input' event.  Checks
+    and write share one JS turn, so no page script runs between them (the
+    field's own listeners run after the write, and the value is read back
+    after them).  Nothing depends on focus (so a field in a shadow root is
+    no different, r3 SEC S1).  Events are
+    isTrusted=false, the accepted trade-off.  Every failure, the handle's own
+    errors included, raises BoundFieldLost."""
+
+    # One call per write: checks and write share a single JS turn.  Returns
+    # {lost: check, detail} or the value read back after the event.
+    _WRITE = """(el, a) => {
+        const lost = (check, detail) => ({lost: check, detail: detail === undefined ? '' : String(detail)});
+        if (!el.isConnected) return lost('isConnected');
+        if (el.ownerDocument !== document) return lost('ownerDocument');
+        if (location.origin !== a.origin) return lost('document origin', location.origin);
+        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
+            : el instanceof HTMLInputElement ? HTMLInputElement.prototype : null;
+        if (!proto) return lost('not a text field', el.tagName);
+        if (a.before !== null && el.value !== a.before) return lost('value', 'changed under the entry');
+        if (a.value !== null && el.value !== a.value) {  // clearing an empty field fires nothing, as Delete would not
+            Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, a.value);
+            try { el.setSelectionRange(a.value.length, a.value.length); } catch (e) {}
+            el.dispatchEvent(new InputEvent('input', {data: a.data, inputType: a.inputType, bubbles: true}));
+        }
+        if (a.value === null || a.change) el.dispatchEvent(new Event('change', {bubbles: true}));
+        if (!el.isConnected) return lost('isConnected');
+        return {value: el.value};
+    }"""
+    def _sleep(self, seconds: float) -> None:
+        """The scheduled delay as the page's own wait, as keyboard.type(delay)
+        held the key: time.sleep would also stop this client from taking
+        the page's events (a navigation the page started stays unseen)."""
+        wait = getattr(self.page, "wait_for_timeout", None)
+        if wait is None:
+            time.sleep(seconds)
+            return
+        try:
+            wait(seconds * 1000.0)
+        except Exception as e:
+            raise BoundFieldLost("handle", e)
+
+    def __init__(self, page: Any, handle: Any):
+        self.page = page
+        self.handle = handle
+        self.written = ""
+        self.length: Optional[int] = None  # the entry's length, when the caller knows it
+        self.changed = False
+        try:
+            self.frame = handle.owner_frame()
+            self.frame_origin = _origin(self.frame.url)
+            self.main_origin = _origin(page.main_frame.url)
+            state = handle.evaluate("el => ({connected: el.isConnected,"
+                                    " sameDoc: el.ownerDocument === document, origin: location.origin})")
+        except Exception as e:
+            raise BoundFieldLost("bind", e)
+        if not state.get("connected") or not state.get("sameDoc"):
+            raise BoundFieldLost("bind", "element not connected")
+        self.origin = state.get("origin")
+
+    @classmethod
+    def bind(cls, page: Any, locator: Any) -> Optional["BoundField"]:
+        """Resolve ``locator`` once, before the click, so the clicked and
+        the typed-into element are one.  None only for objects without
+        ``element_handle`` (test doubles; a Playwright Locator has it)."""
+        if not hasattr(locator, "element_handle"):
+            return None
+        try:
+            handle = locator.element_handle(timeout=1500)
+        except Exception as e:
+            raise BoundFieldLost("bind", e)
+        if handle is None:
+            raise BoundFieldLost("bind", "no element")
+        return cls(page, handle)
+
+    def verify(self) -> None:
+        """The frames as seen from outside the realm: not detached, and the
+        frame and main-frame origins are the recorded ones."""
+        try:
+            if self.frame.is_detached() or _origin(self.frame.url) != self.frame_origin:
+                raise BoundFieldLost("frame origin", self.frame.url)
+            if _origin(self.page.main_frame.url) != self.main_origin:
+                raise BoundFieldLost("main-frame origin", self.page.main_frame.url)
+        except BoundFieldLost:
+            raise
+        except Exception as e:
+            raise BoundFieldLost("handle", e)
+
+    def _write(self, before: Optional[str], value: Optional[str], data: Optional[str],
+               input_type: str, change: bool = False) -> None:
+        self.verify()
+        try:
+            res = self.handle.evaluate(self._WRITE, {"origin": self.origin, "before": before,
+                                                     "value": value, "data": data,
+                                                     "inputType": input_type, "change": change})
+        except Exception as e:
+            raise BoundFieldLost("handle", e)
+        if res.get("lost"):
+            raise BoundFieldLost(res["lost"], res.get("detail"))
+        # Never the value itself in the reason: it is the credential.
+        if res.get("value") != (before if value is None else value):
+            raise BoundFieldLost("value", f"{len(str(res.get('value')))} characters after the write")
+
+    def clear(self) -> None:
+        """Empty the field in-realm (ElementHandle.fill('') is focus plus a
+        Delete key press)."""
+        self._write(None, "", None, "deleteContentBackward")
+        self.written = ""
+
+    def type_char(self, char: str, delay: float) -> None:
+        """Write ONE character in-realm, then wait the scheduled delay; the
+        field must read back as exactly the characters written so far.
+        The delay follows the write, where keyboard.type(char, delay) held
+        the key, so a page that submits on input has the same time to
+        navigate before the caller looks at it.  The last character
+        (``length``) carries 'change' in the same JS turn, so that
+        navigation cannot run before it."""
+        value = self.written + char
+        last = len(value) == self.length
+        self._write(self.written, value, char, "insertText", change=last)
+        self.written, self.changed = value, last
+        if delay > 0:
+            self._sleep(delay / 1000.0)
+
+    def finish(self) -> None:
+        """'change' after the last character: sent with it when ``length``
+        was known, else one more write under the same checks."""
+        if not self.changed:
+            self._write(self.written, None, None, "")
+
+
+class BoundSelector(str):
+    """BH1-49: a selector string that also carries its BoundField.  It still
+    compares, hashes and serialises as the plain selector."""
+
+    def __new__(cls, selector: str, field: BoundField):
+        obj = super().__new__(cls, selector)
+        obj.field = field
+        return obj
+
+
+def type_char(page: Any, selector: Any, char: str, delay: float) -> bool:
+    """Type one character; written in-realm by the selector's BoundField
+    when it carries one (raises BoundFieldLost, never falls back), else
+    through ``page.keyboard`` (only objects without ``element_handle``).
+    True when a character was sent."""
+    field = getattr(selector, "field", None)
+    if field is not None:
+        field.type_char(char, delay)
+        return True
+    if hasattr(page, "keyboard") and hasattr(page.keyboard, "type"):
+        page.keyboard.type(char, delay=delay)
+        return True
+    return False
+
+
 class SyntheticInputScheduler:
     """Generates and executes realistic, non-periodic synthetic user interactions."""
 
@@ -255,9 +440,12 @@ class SyntheticInputScheduler:
                     if hasattr(loc, "fill"):
                         loc.fill("")
             elif act.action_type == InputActionType.TYPE_CHAR:
-                if act.char and hasattr(page, "keyboard") and hasattr(page.keyboard, "type"):
-                    page.keyboard.type(act.char, delay=act.delay_ms)
-                    chars_typed += 1
+                try:
+                    if act.char and type_char(page, act.selector, act.char, act.delay_ms):
+                        chars_typed += 1
+                except BoundFieldLost as e:
+                    why = str(e)
+                    break
             elif act.action_type == InputActionType.PRESS_KEY:
                 if act.key and hasattr(page, "keyboard") and hasattr(page.keyboard, "press"):
                     page.keyboard.press(act.key)

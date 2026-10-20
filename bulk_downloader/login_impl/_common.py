@@ -3,6 +3,8 @@
 import sys
 import time
 
+from bulk_downloader.synthetic_input_scheduler import BOUND_FIELD_LOST  # noqa: F401 (submit.py)
+
 
 def log_url(url):
     """A URL as it may appear in a diagnostic: scheme/host/path kept, EVERY
@@ -269,8 +271,12 @@ def _wait_attached(loc):
 
 def _wait_visible(loc):
     """Wait for VISIBILITY, which is what a field must be before we fill
-    it -- but never what a whole selector's match set is judged on."""
-    loc.wait_for(state="visible", timeout=_MATCH_WAIT_MS)
+    it -- but never what a whole selector's match set is judged on.
+    BH1-49 r3: ``loc`` may be the bound ElementHandle (no ``wait_for``)."""
+    if hasattr(loc, "wait_for_element_state"):
+        loc.wait_for_element_state("visible", timeout=_MATCH_WAIT_MS)
+    else:
+        loc.wait_for(state="visible", timeout=_MATCH_WAIT_MS)
 
 
 def _signal_tabindex(loc):
@@ -474,18 +480,23 @@ def _try_fill(page,selectors,value,what,refusal=None):
 
     Phase 15.5 — Human-like typing: instead of `loc.fill(value)` (which
     sets the value via DOM in one shot — no keyboard events, trivially
-    detectable), we focus the field then call `page.keyboard.type` with
+    detectable), we focus the field then type it one key at a time with
     a randomized 50-150ms delay between keystrokes. Real browsers emit
     keydown/keypress/input/keyup for each character; bots that DOM-set
     don't. Many enterprise WAFs key on this gap exclusively. Row 1049: the
     per-keystroke delays now come from the synthetic input scheduler
-    (_type_field_value)."""
+    (_type_field_value). BH1-49 r4: a bound field gets no keys; each
+    character is written in-realm on the checked match's ElementHandle
+    (BoundField), one checked evaluate per character at the scheduler's
+    delays, so nothing reaches whatever has focus.  Those events are
+    isTrusted=false, the accepted trade-off."""
     def refused():
         try:
             return refusal() if refusal is not None else None
         except Exception:
             return "cross-origin prefill refused: could not verify the current page"
 
+    from bulk_downloader.synthetic_input_scheduler import BoundField, BoundFieldLost, BoundSelector
     tried=[]
     skipped=[]
     searches=[]
@@ -507,35 +518,46 @@ def _try_fill(page,selectors,value,what,refusal=None):
         for idx in range(count):
             try:
                 loc=matches.nth(idx)
-                decoy,why=_is_honeypot_field(loc)
+                # BH1-49 r3: resolve ONCE, FIRST, to an ElementHandle; every
+                # check below runs on that handle and every key goes to it,
+                # so nothing re-resolves nth(idx) between check and typing
+                # (r2 SEC F4) and no Locator is called after bind (F3).
+                field=BoundField.bind(page, loc)
+                el=loc if field is None else field.handle
+                decoy,why=_is_honeypot_field(el)
                 if decoy:
                     skipped.append(f"{sel}[{idx}]:{why}")
                     continue
-                search,why=_is_search_field(loc)
+                search,why=_is_search_field(el)
                 if search:
                     searches.append(f"{sel}[{idx}]:{why}")
                     continue
-                _wait_visible(loc)
+                _wait_visible(el)
                 why=refused()
                 if why:
                     return False,why
                 # Clear any existing value, then click to focus, then type.
-                # We use loc.fill('') for the clear (DOM-set is fine for blanking)
-                # and only switch to keyboard.type for the new value.
-                try: loc.fill('')
-                except Exception: pass
+                # We use fill('') for the clear (DOM-set is fine for blanking)
+                # and only switch to per-key typing for the new value.
+                # BH1-49 r4: a bound field is cleared in-realm (fill('') is
+                # focus plus a Delete key); a failure aborts the entry.
+                if field is not None: field.clear()
+                else:
+                    try: el.fill('')
+                    except Exception: pass
                 why=refused()
                 if why:
                     return False,why
-                try: loc.click(timeout=1500)
-                except Exception:
-                    # Fallback: just call fill if click is intercepted (e.g.
-                    # sneaky overlay). Less stealthy but the login still works.
+                # BH1-49 r3: a failed click (intercepted, or the handle's
+                # document navigated away) aborts the entry. The base
+                # fallback here, loc.fill(value), re-resolved the Locator in
+                # whatever document the page then held (r2 SEC F3).
+                try: el.click(timeout=1500)
+                except Exception as e:
                     why=refused()
                     if why:
                         return False,why
-                    loc.fill(value)
-                    return True,sel
+                    raise BoundFieldLost("click", e)
                 why=refused()
                 if why:
                     return False,why
@@ -553,10 +575,16 @@ def _try_fill(page,selectors,value,what,refusal=None):
                 # input scheduler and is executed by it. A keystroke failure
                 # propagates to the `continue` below (next match), exactly as
                 # the base loop did -- it is never retyped into the same field.
-                why=_type_field_value(page, sel, value, refusal=refused)
+                # BH1-49 r2: every key goes to the clicked handle. A lost
+                # binding aborts the whole entry (never the next match: that
+                # would re-resolve).
+                bound=BoundSelector(sel, field) if field is not None else sel
+                why=_type_field_value(page, bound, value, refusal=refused)
                 if why:
                     return False,why
                 return True,sel
+            except BoundFieldLost as e:
+                return False,str(e)
             except Exception: continue
     # Row 770: "nothing matched" and "every match was a decoy" are opposite
     # situations -- the first wants a better selector list, the second says
@@ -583,9 +611,30 @@ def _type_field_value(page, sel, value, refusal=None):
     """Row 1049: type ``value`` into the focused field through the scheduler's
     field plan (TYPE_CHAR actions, per-character delay with hesitation) and
     its executor. Only building the plan may fall back to the Phase 15.5
-    uniform(50,150) loop; typing is attempted once either way.
+    uniform(50,150) loop; typing is attempted once either way. A
+    BoundSelector ``sel`` types into its element on both paths (BH1-49).
     Return a refusal reason terminally, or None after a complete fill."""
     import random
+    from bulk_downloader.synthetic_input_scheduler import BoundFieldLost, type_char
+    bound = getattr(sel, "field", None) is not None
+    if bound:
+        sel.field.length = len(value)
+
+    def refused():
+        try:
+            return refusal() if refusal is not None else None
+        except Exception:
+            return "cross-origin prefill refused: could not verify the current page"
+
+    def finished():
+        # BH1-49 r4: 'change' after the last character, on the same handle;
+        # then the page is checked again (the event may navigate).
+        try:
+            sel.field.finish()
+        except BoundFieldLost as e:
+            return str(e)
+        return refused()
+
     try:
         from bulk_downloader.synthetic_input_scheduler import InputSchedule
         sched = get_input_scheduler()
@@ -595,23 +644,23 @@ def _type_field_value(page, sel, value, refusal=None):
     except Exception:
         sched = None
     if sched is None:
-        def refused():
-            try:
-                return refusal() if refusal is not None else None
-            except Exception:
-                return "cross-origin prefill refused: could not verify the current page"
-
         for ch in value:
             why = refused()
             if why:
                 return why
-            page.keyboard.type(ch, delay=random.uniform(50, 150))
-        return refused()
+            try:
+                if not type_char(page, sel, ch, random.uniform(50, 150)):
+                    raise RuntimeError("no keyboard or bound field to type with")
+            except BoundFieldLost as e:
+                return str(e)
+        return finished() if bound else refused()
     res = sched.execute_schedule(page, plan, refusal=refusal)
     if res.get("refusal"):
         return res["refusal"]
     if res["characters_typed"] != len(value):
         raise RuntimeError(f"typed {res['characters_typed']} of {len(value)} characters")
+    if bound:
+        return finished()
 
 
 def _inter_field_pause():
