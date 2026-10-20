@@ -9,7 +9,7 @@ Five endpoints:
   POST  /api/captcha/resolved                   Body: {url[, site_id, clearance]}
                                                 Marks resolved + signals worker to retry;
                                                 a clearance needs the owning site_id
-  POST  /api/captcha/dismiss                    Body: {url[, site_id]}
+  POST  /api/captcha/dismiss                    Body: {url, site_id} (site_id required when the url has an owning site)
                                                 User gives up on this URL
 
 The dashboard polls /api/captcha/pending every 5s when the captcha panel
@@ -97,6 +97,7 @@ def _site_mismatch(data: dict, owner, writes_clearance: bool = False) -> bool:
 
 
 _SITE_MISMATCH = "site mismatch: body.site_id must name the site that owns the pending url"
+_SITE_REQUIRED = "site_id required: dismiss is scoped to the site that owns the pending url"
 
 
 @captcha_bp.route("/api/captcha/start_solve", methods=["POST"]) if captcha_bp else (lambda f: f)
@@ -219,6 +220,14 @@ def captcha_dismiss():
     if not url:
         return _err("body.url required")
     owner = _pending_site(url)                   # from the pending record, before it is dismissed
+    if owner and data.get("site_id") is None:
+        # BH1-46 (sac-fu1 residual): there is no per-request site principal, so
+        # a bare {url} names no requesting site. Dismissing on it let a caller
+        # acting for siteB drop siteA's pending entry AND evict siteA's cached
+        # clearance for that domain. Ambiguous -> refused; the entry and the
+        # clearance stay with their owner. A URL with no owning site keeps the
+        # legacy bare-url dismiss (nothing is cached under it).
+        return _err(_SITE_REQUIRED, 409)
     if _site_mismatch(data, owner):
         return _err(_SITE_MISMATCH, 409)
     from .egress_identity import clearance_scope_for_site

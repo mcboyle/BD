@@ -86,7 +86,7 @@ type MpPreview = {
 type Pending =
   | { kind: "captchaStart"; url: string; token: "" }
   | { kind: "captchaResolved"; url: string; token: "" }
-  | { kind: "captchaDismiss"; url: string; token: "" }
+  | { kind: "captchaDismiss"; url: string; site_id?: string; token: "" }
   | { kind: "templatesImport"; payload: unknown; merge: boolean; token: "" }
   | { kind: "marketplaceImport"; body: Record<string, unknown>; token: "" }
   // T4 (v3.66.207): bulk site creation from pasted CSV — one-step confirm;
@@ -788,8 +788,9 @@ export function ImportsCenter() {
     },
     onError: (e) => toast.error(e.message),
   });
-  const captchaDismiss = useMutation<OkResult, Error, string>({
-    mutationFn: (url) => apiPost<OkResult>("/api/captcha/dismiss", { url }),
+  const captchaDismiss = useMutation<OkResult, Error, { url: string; site_id?: string }>({
+    // BH1-46: dismiss is scoped to the owning site; a bare {url} is refused (409).
+    mutationFn: ({ url, site_id }) => apiPost<OkResult>("/api/captcha/dismiss", { url, site_id }),
     onSuccess: (res) => {
       okToast("Dismissed")(res);
       invalidateCaptcha();
@@ -933,7 +934,7 @@ export function ImportsCenter() {
         captchaResolved.mutate(pending.url);
         break;
       case "captchaDismiss":
-        captchaDismiss.mutate(pending.url);
+        captchaDismiss.mutate({ url: pending.url, site_id: pending.site_id });
         break;
       case "templatesImport":
         templatesImport.mutate({ payload: pending.payload, merge: pending.merge });
@@ -1047,7 +1048,7 @@ export function ImportsCenter() {
                         size="sm"
                         variant="destructive"
                         disabled={busy}
-                        onClick={() => arm({ kind: "captchaDismiss", url: p.url, token: "" })}
+                        onClick={() => arm({ kind: "captchaDismiss", url: p.url, site_id: p.site_id, token: "" })}
                       >
                         Dismiss
                       </Button>
