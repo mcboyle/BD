@@ -77,9 +77,13 @@ def test_no_token_reaches_any_queue_or_history_body(fresh_app):
 def test_display_url_masks_each_token_value_and_keeps_plain_urls():
     from bulk_downloader.db import queue_display_url
     assert queue_display_url(JOB) == "https://r.example/dl/a.mp4?token=***&page=2"
-    assert queue_display_url("https://u:pw@r.example/x?a=1&sig=2") == "https://***@r.example/x?a=***&sig=***"
     for v in (PLAIN, "https://plain.example/a/b", "", "not a url"):
         assert queue_display_url(v) == v, f"BD_SEC2_JOB_URL_TOKEN_PLAIN: {v!r} -> {queue_display_url(v)!r}"
+
+
+def test_display_url_masks_userinfo_and_a_single_letter_query_value():
+    from bulk_downloader.db import queue_display_url
+    assert queue_display_url("https://u:pw@r.example/x?a=1&sig=2") == "https://***@r.example/x?a=***&sig=***"
 
 
 def test_queue_export_includes_tokens_only_on_a_local_opt_in(fresh_app):
