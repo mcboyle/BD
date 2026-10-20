@@ -90,7 +90,11 @@ def test_c4_bare_url_resolve_and_dismiss_unchanged_control(client):
     # the dashboard (ImportsCenter.tsx) posts {url} only and carries no clearance
     assert client.post("/api/captcha/resolved", json={"url": URL_A}).status_code == 200
     assert _status(URL_A) == "resolved"
-    assert client.post("/api/captcha/dismiss", json={"url": URL_B}).status_code == 200
+    # BH1-46 re-pin: a bare-url dismiss of a site-owned pending is ambiguous (no
+    # requesting site) and refused; the owner's entry stays pending.
+    assert client.post("/api/captcha/dismiss", json={"url": URL_B}).status_code == 409
+    assert _status(URL_B) == "pending"
+    assert client.post("/api/captcha/dismiss", json={"url": URL_B, "site_id": "siteB"}).status_code == 200
     assert _status(URL_B) == "dismissed"
 
 
@@ -146,7 +150,7 @@ def test_cloak_save_keys_on_site_scope_not_bare_egress(cache):
     from bulk_downloader import cloak
     from bulk_downloader.egress_identity import clearance_scope_for_site
     ctx = _Ctx([{"name": "cf_clearance", "value": SECRET}, {"name": "session", "value": "x"}])
-    assert cloak.save_clearance_from_context(ctx, DOMAIN, egress_ip="198.51.100.9", config={"site_id": "siteA"})
+    assert cloak.save_clearance_from_context(ctx, DOMAIN, config={"site_id": "siteA"})
     got = (cache.get_clearance(clearance_scope_for_site("siteA"), DOMAIN),
            cache.get_clearance("198.51.100.9", DOMAIN), cache.get_clearance("UNKNOWN", DOMAIN))
     assert got == ([{"name": "cf_clearance", "value": SECRET}], None, None), (

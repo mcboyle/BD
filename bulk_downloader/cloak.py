@@ -635,7 +635,7 @@ def open_persistent_context(
     sandboxed = _apply_sandbox(args, sandbox, "open_persistent_context")
     extra = dict(extra)
     domain = extra.pop("domain", None)
-    egress_ip = extra.pop("egress_ip", None)
+    extra.pop("egress_ip", None)   # accepted for callers, unused: the clearance scope derives from the site (sac-fu1)
     backend = resolve_backend(config)
     shim, ns_env = _netns_launch_plan(netns, backend)
 
@@ -663,7 +663,7 @@ def open_persistent_context(
             # Playwright, so we return pw=None and let the caller close
             # the context normally.
             if domain:
-                _apply_clearance_to_context(context, domain=domain, egress_ip=egress_ip, config=config)
+                _apply_clearance_to_context(context, domain=domain, config=config)
             return context, None, CLOAKBROWSER
         except Exception as e:
             if not _WARNED_LAUNCH_FALLBACK:
@@ -715,7 +715,7 @@ def open_persistent_context(
             raise
         raise clarified from e
     if domain:
-        _apply_clearance_to_context(context, domain=domain, egress_ip=egress_ip, config=config)
+        _apply_clearance_to_context(context, domain=domain, config=config)
     return context, pw, PLAYWRIGHT
 
 
@@ -936,7 +936,6 @@ def cloaked_page(
 def _apply_clearance_to_context(
     context: Any,
     domain: str,
-    egress_ip: str | None = None,
     config: dict | None = None,
 ) -> bool:
     """Inject valid cached clearance tokens/cookies into browser context.
@@ -944,9 +943,9 @@ def _apply_clearance_to_context(
     Falls back non-blocking on empty cache. Read under the owning site's
     scope (egress_identity.clearance_scope_for_site), never the bare egress:
     keyed by egress alone every site on the domain shared one clearance
-    (sac-fu1, the shape sac-f9 removed from the relay). ``egress_ip`` is kept
-    for the callers' signature; the scope derives the site's own egress. No
-    site: nothing is read.
+    (sac-fu1, the shape sac-f9 removed from the relay). The scope derives the
+    site's own egress; the dormant (egress|UNKNOWN, domain) key and its
+    ``egress_ip`` argument are gone (BH1-46). No site: nothing is read.
     """
     try:
         from .egress_identity import clearance_scope_for_site
@@ -971,7 +970,6 @@ def _apply_clearance_to_context(
 def save_clearance_from_context(
     context: Any,
     domain: str,
-    egress_ip: str | None = None,
     config: dict | None = None,
     ttl_seconds: float = 7200.0,
 ) -> bool:

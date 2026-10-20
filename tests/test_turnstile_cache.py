@@ -268,7 +268,7 @@ def test_routes_ignore_a_client_supplied_egress_ip_and_scope_by_the_servers_iden
 
     # INVALIDATE: dismiss with the victim's IP named clears only the server-scoped entry
     captcha_relay.mark_captcha_needed("site-own", url, "turnstile")
-    res = client.post("/api/captcha/dismiss", json={"url": url, "egress_ip": victim_ip})
+    res = client.post("/api/captcha/dismiss", json={"url": url, "site_id": "site-own", "egress_ip": victim_ip})
     assert res.status_code == 200
     assert cache.get_clearance(own_scope, "protected.test") is None
     assert cache.get_clearance(victim_ip, "protected.test") == victim          # still there
