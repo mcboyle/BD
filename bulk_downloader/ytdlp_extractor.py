@@ -23,16 +23,18 @@ Shape (all pure/injectable so no live yt-dlp is needed to test):
   * ``make_ytdlp_extractor`` -- the ``fn(url, ctx) -> dict`` shim: resolve the
     yt-dlp binary (runtime gate; missing -> ``{}`` -> fall through), run the
     info cmd, parse the first JSON object, map it. A nonzero exit or unparseable
-    output degrades to ``{}`` (fall through, never raise).
+    output degrades to ``{}`` (fall through, never raise). The one raise: a
+    site-cfg ``proxy_url`` / ``vpn_socks_url`` that ``judge_proxy_url``
+    refuses -> ``OutboundRefused`` (``proxy-refused``) before any spawn.
   * ``register_ytdlp_extractor`` / ``maybe_register_from_config`` -- opt-in.
     A site that sets the *undeclared* site-cfg key ``ytdlp_extractor`` truthy
     registers a shim under its ``site_id`` via ``plugins.register_extractor``.
     Undeclared => invisible to the config/env inventory (a backend-only
     opt-in; no GLOBAL_CONFIG_SCHEMA / CFG_FIELDS / site_editor declaration).
 
-This module imports only stdlib at load time; the ``plugins`` edge is
-function-local (deferred to registration), so importing it is cheap and
-cycle-free.
+This module imports only stdlib at load time; the ``plugins`` and
+``outbound_guard`` edges are function-local (deferred to registration / the
+proxy judgement), so importing it is cheap and cycle-free.
 """
 from __future__ import annotations
 
@@ -224,7 +226,14 @@ def make_ytdlp_extractor(config: Optional[dict], *,
         if not ytdlp:
             return {}                       # runtime gate: no binary -> fall through
         cookie_file = (cfg.get("cookie_file") or "").strip()
-        proxy_url = (cfg.get("proxy_url") or cfg.get("vpn_socks_url") or "") or None
+        raw_proxy = cfg.get("proxy_url") or cfg.get("vpn_socks_url") or ""
+        proxy_url = _socks_remote_dns(str(raw_proxy)) or None
+        if proxy_url:
+            # BH1-34 r2 (BD-SEC-3 F14): judge the exact URL yt-dlp will mount.
+            # A refusal propagates (OutboundRefused, reason="proxy-refused"):
+            # no spawn, so neither a --proxy to it nor an unproxied probe.
+            from .outbound_guard import judge_proxy_url
+            judge_proxy_url(proxy_url)
         cmd = build_ytdlp_info_cmd(ytdlp=ytdlp, url=url,
                                    cookie_file=cookie_file, proxy_url=proxy_url)
         try:

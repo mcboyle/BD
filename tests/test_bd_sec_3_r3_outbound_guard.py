@@ -2137,3 +2137,276 @@ def test_redirect_hops_and_sandboxed_srcdoc_frames_are_judged_below_the_route(si
     hops = sorted(p for p in refused & guarded if p.startswith("/hop-"))
     assert not hops, f"BD-SEC-3-R8-A2-REDIRECT-HOP-REACHED-THE-WIRE ({backend}): {hops}"
     assert admitted <= guarded, f"BD-SEC-3-R8-NEG-ADMITTED-BLOCKED ({backend}): {sorted(admitted - guarded)}"
+
+
+# ---------------------------------------------------------------- F14: a proxy is judged before any transport mounts it
+# pm-B ruling BH1-34 Decision B. A proxy is the operator's own box: loopback / RFC1918 / ULA / CGNAT are admitted;
+# link-local (169.254.169.254, fe80::/10), fd00:ec2::254, multicast, unspecified and reserved are refused on every
+# resolved address; an unresolvable name fails closed; a refusal never shows userinfo and never falls back to direct.
+
+META_PROXY = "http://169.254.169.254:80"
+LAN_PROXY = "http://10.0.0.5:3128"
+CRED = "s3cr3tPXYpw"
+
+PROXY_ADMITTED = [
+    LAN_PROXY,
+    f"http://op:{CRED}@192.168.1.9:8080",
+    "socks5h://127.0.0.1:9050",
+    "socks5://[::1]:1080",
+    "https://[fd12:3456::1]:8443",
+    "http://100.64.0.1:3128",
+    "http://lan.example:3128",
+]
+PROXY_REFUSED = [
+    META_PROXY,
+    f"http://op:{CRED}@169.254.169.254:80",
+    "http://metadata.example:3128",
+    "http://mixed.example:3128",
+    "http://mapped.example:3128",
+    "socks5://imds6.example:1080",
+    "socks5://[fd00:ec2::254]:1080",
+    "http://[fe80::1]:3128",
+    "http://v6ll.example:3128",
+    "http://0.0.0.0:3128",
+    "http://224.0.0.1:3128",
+    "http://240.0.0.1:3128",
+    "http://nowhere.invalid:3128",
+    "http://10.0.0.5",
+    "ftp://10.0.0.5:21",
+    "10.0.0.5:3128",
+]
+
+
+@pytest.mark.parametrize("url", PROXY_ADMITTED)
+def test_f14_judge_proxy_url_admits_operator_lan_proxies(url):
+    assert og.judge_proxy_url(url) == url, f"BD-SEC-3-F14-PROXY-ADMIT-BROKEN: {url}"
+
+
+@pytest.mark.parametrize("url", PROXY_REFUSED)
+def test_f14_judge_proxy_url_refuses_and_redacts(url):
+    with pytest.raises(og.OutboundRefused) as ei:
+        og.judge_proxy_url(url)
+    e = ei.value
+    assert e.reason == "proxy-refused", f"BD-SEC-3-F14-PROXY-REASON: {url} -> {e.reason!r}"
+    assert CRED not in str(e) and CRED not in str(e.url), f"BD-SEC-3-F14-PROXY-USERINFO-LEAK: {e}"
+
+
+def test_f14_redaction_has_a_positive_control():
+    # The leak assert above can say yes: the raw URL carries the credential, the redacted one does not.
+    raw = f"http://op:{CRED}@169.254.169.254:80"
+    assert CRED in raw and CRED not in og.redact_proxy_url(raw)
+    assert og.redact_proxy_url(raw) == "http://***@169.254.169.254:80"
+
+
+def test_f14_guarded_transport_refuses_a_metadata_proxy_and_mounts_a_lan_one():
+    from bulk_downloader import ssrf_transport
+
+    with pytest.raises(og.OutboundRefused, match="proxy refused") as ei:
+        ssrf_transport.guarded_transport(ssrf_transport.PINNED, proxy=META_PROXY)
+    assert ei.value.reason == "proxy-refused"
+    assert ssrf_transport.guarded_transport(ssrf_transport.PINNED, proxy=LAN_PROXY) is not None
+
+
+def test_f14_egress_transport_client_refuses_a_metadata_proxy():
+    from bulk_downloader.egress_transport import HttpxEgressTransport
+
+    with pytest.raises(og.OutboundRefused, match="BD-SEC-3|proxy refused"):
+        HttpxEgressTransport(proxy_url=META_PROXY)
+    HttpxEgressTransport(proxy_url=LAN_PROXY)  # control: a LAN proxy still builds
+
+
+def test_f14_download_egress_refuses_and_never_returns_direct():
+    from bulk_downloader import download_egress as de
+
+    with pytest.raises(de.EgressCarrierError, match="proxy-refused"):
+        de.prepare_http_proxy(META_PROXY)
+    with pytest.raises(og.OutboundRefused):
+        de.effective_download_proxy(META_PROXY, "f14site", None)
+    assert de.prepare_http_proxy(LAN_PROXY).proxy_url == LAN_PROXY
+    assert de.effective_download_proxy(LAN_PROXY, "f14site", None) == LAN_PROXY
+
+
+@pytest.fixture
+def transport_rig(monkeypatch):
+    """runner_transport.TransportMixin on a bare object; guarded_transport records what it was asked to mount."""
+    import httpx
+
+    from bulk_downloader import runner_transport, ssrf_transport, vpn_runtime
+
+    class _Runner(runner_transport.TransportMixin):
+        pass
+
+    built = []
+
+    def recording_transport(policy, **kw):
+        built.append(kw.get("proxy"))
+        return httpx.MockTransport(lambda request: httpx.Response(204))
+
+    monkeypatch.setattr(ssrf_transport, "guarded_transport", recording_transport)
+    monkeypatch.setattr(vpn_runtime, "_site_to_tunnel", dict(vpn_runtime._site_to_tunnel))
+    monkeypatch.setattr(vpn_runtime, "_site_required", dict(vpn_runtime._site_required))
+    monkeypatch.delenv("BD_DISABLE_VPN_RUNTIME", raising=False)
+    r = object.__new__(_Runner)
+    r.site_id = "f14site"
+    r.config = {"name": "f14"}
+    r.events = []
+    r._update_job = lambda *a, **k: None
+    r.log_event = lambda kind, msg="", **k: r.events.append((kind, msg))
+    return types.SimpleNamespace(r=r, built=built, vpn_runtime=vpn_runtime)
+
+
+def test_f14_download_proxy_url_refuses_a_metadata_proxy_on_a_plain_site(transport_rig, capsys):
+    rig = transport_rig
+    assert not rig.vpn_runtime.is_vpn_required_for_site(rig.r.site_id)  # the not-required fallback branch
+    rig.r.config["proxy"] = f"http://op:{CRED}@169.254.169.254:80"
+    with pytest.raises(rig.vpn_runtime.EgressRefusedError) as ei:
+        got = rig.r._download_proxy_url()
+        pytest.fail(f"BD-SEC-3-F14-PROXY-MOUNTED: _download_proxy_url returned {got!r}")
+    assert ei.value.code == "proxy-refused", ei.value.code
+    assert CRED not in str(ei.value) and CRED not in capsys.readouterr().err
+
+
+def test_f14_download_proxy_url_control_a_lan_proxy_is_returned(transport_rig):
+    transport_rig.r.config["proxy"] = LAN_PROXY
+    assert transport_rig.r._download_proxy_url() == LAN_PROXY
+
+
+def _keeper(monkeypatch, proxy, recorder):
+    from bulk_downloader import session_keeper as sk, ssrf_transport
+
+    monkeypatch.setattr(ssrf_transport, "guarded_transport", recorder)
+    k = sk.SessionKeeper("f14keep", 0, {"proxy": proxy, "keep_alive_check_url": "http://public.example/"},
+                         lambda *a, **kw: None)
+    jar = __import__("http.cookiejar").cookiejar.CookieJar()
+    jar.set_cookie(__import__("http.cookiejar").cookiejar.Cookie(
+        0, "s", "v", None, False, "public.example", True, False, "/", True, False, None, False, None, None, {}))
+    monkeypatch.setattr(k, "_load_cookies", lambda: jar)
+    return k
+
+
+def test_f14_keepalive_heartbeat_refuses_a_metadata_proxy(monkeypatch):
+    import httpx
+
+    built = []
+
+    def rec(policy, **kw):
+        built.append(kw.get("proxy"))
+        return httpx.MockTransport(lambda request: httpx.Response(200, text="ok"))
+
+    verdict, why = _keeper(monkeypatch, META_PROXY, rec)._heartbeat_httpx_fallback()
+    assert not built, f"BD-SEC-3-F14-KEEPALIVE-PROXY-MOUNTED: {built}"
+    assert not verdict and "proxy-refused" in why, (verdict, why)
+    verdict, why = _keeper(monkeypatch, LAN_PROXY, rec)._heartbeat_httpx_fallback()
+    assert built == [LAN_PROXY], f"control: a LAN proxy is mounted ({built}; {why})"
+
+
+def test_f14_login_egress_refuses_a_metadata_proxy():
+    from bulk_downloader.login_impl.submit import _login_egress
+
+    proxy, _req, refusal = _login_egress({"proxy": f"http://op:{CRED}@169.254.169.254:80"}, "f14login")
+    assert proxy is None and refusal and refusal.startswith("proxy-refused"), (
+        f"BD-SEC-3-F14-LOGIN-PROXY-MOUNTED: {proxy!r} / {refusal!r}")
+    assert CRED not in refusal
+    proxy, _req, refusal = _login_egress({"proxy": LAN_PROXY}, "f14login")
+    assert refusal is None and proxy == {"server": LAN_PROXY}, (proxy, refusal)
+
+
+@pytest.fixture
+def browser_rig(monkeypatch):
+    """runner_browser.BrowserMixin._launch_browser with cloak's launch seams recorded (no browser starts)."""
+    import bulk_downloader.cloak as cloak
+    from bulk_downloader.runner_browser import BrowserMixin
+
+    class _Ctx:
+        pages = []
+
+        def add_init_script(self, *a, **k):
+            pass
+
+    class _Runner(BrowserMixin):
+        def __init__(self, config):
+            self.config, self.site_id, self.events = dict(config), "f14browser", []
+
+        def log_event(self, kind, message, url=None, extra=None):
+            self.events.append((kind, str(message)))
+
+        def _profile_dir(self, worker_idx=None):
+            return "/tmp/f14-profile-does-not-launch"
+
+        def _apply_persistent_cookie_file(self, ctx):
+            pass
+
+        def _install_stealth(self, ctx):
+            pass
+
+    launched = []
+    monkeypatch.setattr(cloak, "open_persistent_context", lambda **kw: (launched.append(kw), (_Ctx(), None, "playwright"))[1])
+    monkeypatch.setattr(cloak, "launch_browser", lambda **kw: (launched.append(kw), (object(), None, "playwright"))[1])
+    cloak.reset_cache_for_tests()
+    return types.SimpleNamespace(Runner=_Runner, launched=launched)
+
+
+def test_f14_browser_launch_refuses_a_metadata_proxy(browser_rig):
+    from bulk_downloader import vpn_runtime
+
+    r = browser_rig.Runner({"proxy": f"http://op:{CRED}@169.254.169.254:80", "use_persistent_profile": True})
+    with pytest.raises(vpn_runtime.EgressRefusedError) as ei:
+        r._launch_browser()
+    assert not browser_rig.launched, f"BD-SEC-3-F14-BROWSER-PROXY-LAUNCHED: {browser_rig.launched}"
+    assert ei.value.code == "proxy-refused" and CRED not in str(ei.value)
+
+
+def test_f14_browser_launch_control_a_lan_proxy_launches_on_it(browser_rig):
+    r = browser_rig.Runner({"proxy": LAN_PROXY, "use_persistent_profile": True})
+    r._launch_browser()
+    assert [kw.get("proxy") for kw in browser_rig.launched] == [{"server": LAN_PROXY}], browser_rig.launched
+
+
+def test_f14_browser_launch_judges_a_provider_supplied_proxy(browser_rig, monkeypatch):
+    from bulk_downloader import plugins, vpn_runtime
+
+    monkeypatch.setattr(plugins, "resolve_site_config", lambda sid, cfg: {**cfg, "proxy": META_PROXY})
+    r = browser_rig.Runner({"proxy": LAN_PROXY, "use_persistent_profile": True})
+    with pytest.raises(vpn_runtime.EgressRefusedError):
+        r._launch_browser()
+    assert not browser_rig.launched, f"BD-SEC-3-F14-PROVIDER-PROXY-LAUNCHED: {browser_rig.launched}"
+
+
+# ---------------------------------------------------------------- F14 provenance: an imported file never sets `proxy`
+STRIP_WARNING = "proxy stripped on import; re-enter in site editor"
+
+
+def test_f14_config_import_strips_proxy_and_warns(fresh_app):
+    from bulk_downloader import app as A
+
+    r = fresh_app.post("/api/config/import?mode=merge",
+                       json={"sites": [{"name": "f14-imported", "start_url": "https://public.example/",
+                                        "proxy": META_PROXY}]})
+    assert r.status_code == 200, r.get_data(as_text=True)[:300]
+    got = [c.get("proxy") for c in A.s_cfg.values() if c.get("name") == "f14-imported"]
+    assert got == [""], f"BD-SEC-3-F14-IMPORT-PROXY-STORED: {got}"
+    assert any(STRIP_WARNING in w for w in r.get_json().get("warnings", [])), r.get_json()
+
+
+def test_f14_config_import_merge_keeps_the_operators_proxy(fresh_app):
+    from bulk_downloader import app as A
+
+    sid = fresh_app.post("/api/sites", json={"name": "f14-merge"}).get_json()["id"]
+    assert fresh_app.put(f"/api/sites/{sid}", json={"proxy": LAN_PROXY}).status_code == 200
+    r = fresh_app.post("/api/config/import?mode=merge", json={"sites": [{"name": "f14-merge", "proxy": META_PROXY}]})
+    assert r.status_code == 200, r.get_data(as_text=True)[:300]
+    assert A.s_cfg[sid]["proxy"] == LAN_PROXY, f"BD-SEC-3-F14-MERGE-PROXY-REPLACED: {A.s_cfg[sid]['proxy']!r}"
+
+
+def test_f14_site_import_strips_proxy_and_editor_save_keeps_it(fresh_app):
+    from bulk_downloader import app as A
+
+    r = fresh_app.post("/api/sites/import", json={"config": {"name": "f14-site", "proxy": META_PROXY}})
+    assert r.status_code == 200, r.get_data(as_text=True)[:300]
+    new = A.s_cfg[r.get_json()["id"]]
+    assert not new.get("proxy"), f"BD-SEC-3-F14-SITE-IMPORT-PROXY-STORED: {new.get('proxy')!r}"
+    assert STRIP_WARNING in r.get_json()["warnings"], r.get_json()["warnings"]
+    # control: the operator's own editor save keeps a proxy (provenance = the site editor)
+    sid = fresh_app.post("/api/sites", json={"name": "f14-editor"}).get_json()["id"]
+    assert fresh_app.put(f"/api/sites/{sid}", json={"proxy": LAN_PROXY}).status_code == 200
+    assert A.s_cfg[sid]["proxy"] == LAN_PROXY

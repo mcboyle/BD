@@ -15,6 +15,25 @@ import pytest
 from bulk_downloader import proxy_pool as pp
 
 
+# BH1-34 / RULING-pm-B B.1: a proxy host must resolve (fail closed otherwise). These
+# fixture proxy names resolve to a LAN literal through outbound_guard's declared seam.
+_F14_PROXY_HOSTS = frozenset({'a', 'b', 'explicit'})
+
+
+@pytest.fixture(autouse=True)
+def _f14_fixture_proxy_hosts_resolve(monkeypatch):
+    import socket
+    from bulk_downloader import outbound_guard as og
+    real = og._resolve
+
+    def resolve(host, port):
+        if host in _F14_PROXY_HOSTS:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.9", port))]
+        return real(host, port)
+
+    monkeypatch.setattr(og, "_resolve", resolve)
+
+
 # ── select_proxy: round-robin over healthy members ──────────────────
 
 def test_select_round_robins_all_healthy():
@@ -129,12 +148,12 @@ def test_no_pool_no_explicit_is_unchanged():
 
 
 def test_pool_selected_when_no_explicit_proxy():
-    s = _stub({"proxy_pool": ["http://a", "http://b"]})
+    s = _stub({"proxy_pool": ["http://a:3128", "http://b:3128"]})
     got = [s._download_proxy_url() for _ in range(3)]
-    assert got == ["http://a", "http://b", "http://a"]   # rotates + persists state
+    assert got == ["http://a:3128", "http://b:3128", "http://a:3128"]   # rotates + persists state
 
 
 def test_explicit_proxy_wins_over_pool():
-    s = _stub({"proxy": "http://explicit", "proxy_pool": ["http://a", "http://b"]})
-    assert s._download_proxy_url() == "http://explicit"
-    assert s._download_proxy_url() == "http://explicit"   # pool never consulted
+    s = _stub({"proxy": "http://explicit:3128", "proxy_pool": ["http://a:3128", "http://b:3128"]})
+    assert s._download_proxy_url() == "http://explicit:3128"
+    assert s._download_proxy_url() == "http://explicit:3128"   # pool never consulted

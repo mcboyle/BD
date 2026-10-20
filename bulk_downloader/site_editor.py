@@ -683,6 +683,12 @@ def import_config(payload: Any, *, known_fields: set | None = None) -> dict:
     else:
         clean = dict(cfg)
 
+    # BD-SEC-3 F14 provenance: a site proxy comes only from the operator's own
+    # site editor; an imported file never sets one (it is re-entered there).
+    if clean.get("proxy") not in ("", None):
+        clean["proxy"] = ""
+        warnings.append("proxy stripped on import; re-enter in site editor")
+
     # If the export stripped secrets, surface that the operator must
     # re-enter them.
     # q-import-export L8: export_config writes a list of field names; any

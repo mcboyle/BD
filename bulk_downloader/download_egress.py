@@ -335,6 +335,13 @@ __all__ = [
 ]
 
 
+def _judge_proxy(proxy_url: str) -> str:
+    """``outbound_guard.judge_proxy_url`` (imported here: outbound_guard pulls in httpx)."""
+    from .outbound_guard import judge_proxy_url
+
+    return judge_proxy_url(proxy_url)
+
+
 class EgressCarrierError(RuntimeError):
     """A resolved proxy cannot safely be carried by an HTTP-only subprocess."""
 
@@ -387,6 +394,13 @@ def prepare_http_proxy(proxy_url: Optional[str],
     callers must not fall back to an unproxied spawn.
     """
     proxy = (proxy_url or "").strip()
+    if proxy:
+        # BD-SEC-3 F14: the subprocess carrier is a proxy mount too; a refused
+        # proxy is never handed to ffmpeg/yt-dlp and never replaced by direct.
+        try:
+            _judge_proxy(proxy)
+        except ValueError as exc:
+            raise EgressCarrierError(f"proxy-refused: {exc}") from exc
     if not proxy or proxy.lower().startswith(("http://", "https://")):
         return PreparedHttpProxy(proxy or None)
     if proxy.lower().startswith(("socks5://", "socks5h://")):
@@ -448,6 +462,9 @@ def effective_download_proxy(
     # place every download client passes through, so db_log can stamp the
     # record with that carrier's measured exit IP without any caller changing.
     if explicit:
+        # BD-SEC-3 F14: an operator/site proxy is judged before any client mounts
+        # it; ``OutboundRefused(reason="proxy-refused")`` propagates (fail closed).
+        _judge_proxy(explicit)
         return bind_site_carrier(site_id, explicit)
     if socks_for_site is None:
         return bind_site_carrier(site_id, None)

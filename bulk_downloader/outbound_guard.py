@@ -239,6 +239,81 @@ def url_refusal(
     return None
 
 
+PROXY_SCHEMES = ("http", "https", "socks5", "socks5h")
+# RFC 3986 authority: unreserved, pct-encoded, sub-delims, ':' '@' and the IP-literal brackets.
+_AUTHORITY_CHARS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~%!$&'()*+,;=:@[]"
+)
+
+
+def redact_proxy_url(url) -> str:
+    """``url`` with any ``user:password@`` replaced by ``***@`` -- the only form a refusal shows."""
+    text = str(getattr(url, "url", url) or "")
+    try:
+        parts = urllib.parse.urlsplit(text.strip())
+        netloc = parts.netloc
+    except ValueError:
+        netloc = ""
+    if "@" in netloc:
+        return text.strip().replace(netloc, "***@" + netloc.rsplit("@", 1)[1], 1)
+    if "@" in text:  # unparseable: never echo what might be a credential
+        return "***@" + text.rsplit("@", 1)[1]
+    return text
+
+
+def judge_proxy_url(url) -> str:
+    """Judge an operator/site ``proxy`` before any transport mounts it (BD-SEC-3 F14).
+
+    A proxy is the operator's own box, so ``LAN_OK`` applies: loopback, RFC1918, ULA and
+    CGNAT are admitted; link-local (169.254.169.254, fe80::/10), fd00:ec2::254, multicast,
+    unspecified and reserved are refused on EVERY resolved address, and a name that does not
+    resolve is refused (fail closed).  Scheme must be http/https/socks5/socks5h and the port
+    explicit.  Returns ``url`` unchanged (credentials kept for the transport); a refusal is
+    ``OutboundRefused(reason="proxy-refused")`` whose message and ``url`` carry no userinfo."""
+    text = str(getattr(url, "url", url) or "").strip()
+    shown = redact_proxy_url(text)
+
+    def refuse(why: str, cause=None):
+        raise OutboundRefused(
+            f"proxy refused: {why} ({shown})", url=shown, reason="proxy-refused"
+        ) from cause
+
+    try:
+        parts = urllib.parse.urlsplit(text)
+        scheme = (parts.scheme or "").lower()
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        refuse("invalid proxy URL")
+    if scheme not in PROXY_SCHEMES:
+        refuse(f"scheme {scheme or '(none)'!r} is not one of {'/'.join(PROXY_SCHEMES)}")
+    if not host:
+        refuse("no host")
+    if port is None:
+        refuse("no explicit port")
+    # BH1-34 r3 F1b: judge the host the transport connects to.  yt-dlp/gallery-dl/requests parse
+    # with urllib3, whose authority ends at '\'; urlsplit's ends at '/?#' and drops tab/CR/LF.
+    # Fail closed on any authority char outside RFC 3986, then on any urllib3/urlsplit host mismatch.
+    authority = text.split("://", 1)[1]
+    for stop in "/?#":
+        authority = authority.split(stop, 1)[0]
+    if not set(authority) <= _AUTHORITY_CHARS:
+        refuse("non-RFC 3986 character in the authority")
+    try:
+        from urllib3.util import parse_url
+
+        transport_host = parse_url(text).host
+    except Exception as exc:  # LocationParseError, or urllib3 missing: fail closed
+        refuse("the transport cannot parse the proxy URL", exc)
+    if (transport_host or "").strip("[]").lower() != host.lower():
+        refuse("the transport would connect to a different host than the one judged")
+    try:
+        check_host(host, port, LAN_OK, url=shown)
+    except OutboundRefused as exc:
+        refuse(str(exc).removeprefix("outbound refused: "), exc)
+    return url
+
+
 def _allowed(policy: str) -> Callable:
     def address_allowed(addr, host):
         why = address_refusal(addr, host, policy)

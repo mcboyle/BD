@@ -16,6 +16,25 @@ except Exception as _e:
     _VPN_RUNTIME_AVAILABLE = False
 
 
+def _refuse_launch_proxy(site_id, why, cause=None):
+    """Raise the refusal for a browser-launch proxy: no launch, never a direct one.
+    ``EgressRefusedError`` (a ``VPNRequiredError``) takes the path every launch
+    caller already fails closed on; ``code`` is the reason token."""
+    msg = f"egress refused for {site_id!r}: proxy-refused: {why}"
+    if _VPN_RUNTIME_AVAILABLE:
+        raise vpn_runtime.EgressRefusedError(msg, code="proxy-refused") from cause
+    raise RuntimeError(msg) from cause
+
+
+def _judged_launch_proxy(site_id, proxy_url):
+    """``outbound_guard.judge_proxy_url`` for a Playwright launch proxy (BD-SEC-3 F14)."""
+    from .outbound_guard import OutboundRefused, judge_proxy_url
+    try:
+        return judge_proxy_url(proxy_url)
+    except OutboundRefused as e:
+        _refuse_launch_proxy(site_id, str(e), e)
+
+
 # Row 899: adaptive-streaming manifest detection (HLS .m3u8 / DASH .mpd).
 # Player pages fetch these via async Fetch/XHR that a static scraper never
 # sees; only a live CDP Network listener catches them during playback setup.
@@ -1003,6 +1022,7 @@ class BrowserMixin:
             except Exception as e:
                 sys.stderr.write(f"  vpn proxy resolution raised (continuing): {e}\n")
         if proxy_url:
+            _judged_launch_proxy(self.site_id, proxy_url)  # BD-SEC-3 F14
             try:
                 from urllib.parse import urlparse
                 pp = urlparse(proxy_url)
@@ -1014,7 +1034,8 @@ class BrowserMixin:
                 launch_kwargs["proxy"] = proxy_dict
                 sys.stderr.write(f"  using proxy {pp.scheme}://{pp.hostname} (creds={'yes' if pp.username else 'no'})\n")
             except Exception as e:
-                sys.stderr.write(f"  proxy config parse error (ignored): {e}\n")
+                # Never "(ignored)": that launched the browser on the clear interface.
+                _refuse_launch_proxy(self.site_id, f"proxy config parse error ({type(e).__name__})", None)
         flow = (f"manual download[{self.site_id}]" if profile_override
                 else f"worker[{self.site_id}/{worker_idx or 0}]")
         if use_persistent:
@@ -1040,6 +1061,12 @@ class BrowserMixin:
                 _pl.fire_lifecycle("before_launch",ctx_kwargs,self.site_id)
             except Exception:
                 pass
+            # BD-SEC-3 F14: a provider/hook proxy is judged as the base one is,
+            # outside the except above so a refusal cannot be swallowed.
+            _launch_proxy = ctx_kwargs.get("proxy")
+            if _launch_proxy:
+                _judged_launch_proxy(self.site_id, _launch_proxy.get("server")
+                                     if isinstance(_launch_proxy, dict) else _launch_proxy)
             extra=dict(ctx_kwargs)
             extra.pop("headless",None)
             args_val=extra.pop("args",None)

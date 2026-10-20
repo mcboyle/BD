@@ -203,3 +203,70 @@ def test_c_keeper_navigation_to_a_lan_site_still_works(monkeypatch, tmp_path, si
     verdict = _keeper_navigate(monkeypatch, tmp_path, sink.redirect("public.example", "lan.example", "/ok"))
     assert sink.paths()[-1] == "/ok", (sink.hits, verdict)
     assert "navigate ok" in verdict[1], verdict
+
+
+# ---------------------------------------------------------------- pm-B BH1-34 Decision A: the deep_http LAN opt-in
+# allow_private_hosts stays an opt-in for the operator's LAN.  OFF refuses every non-public answer; ON admits RFC1918
+# (and, pinned here, loopback -- hooks._host_ok_for_hook's own allowance, ::1 via deep_http's re-judge) but still
+# refuses metadata, CGNAT, unspecified, multicast, a name that resolves to metadata and a cross-origin redirect.
+DEEP_OFF_REFUSED = ["http://192.168.1.20/", "http://10.1.2.3/", "http://127.0.0.1/", "http://[::1]/",
+                    "http://[fd12:3456::1]/", "http://169.254.169.254/", "http://lan.example/"]
+DEEP_ON_ADMITTED = ["http://192.168.1.20/", "http://10.1.2.3/", "http://lan.example/",
+                    "http://127.0.0.1/", "http://[::1]/"]
+DEEP_ON_REFUSED = ["http://169.254.169.254/latest/meta-data/", "http://[fd00:ec2::254]/", "http://100.64.0.1/",
+                   "http://0.0.0.0/", "http://224.0.0.1/", "http://metadata.example/", "http://[fe80::1]/",
+                   "http://[::ffff:169.254.169.254]/", "http://nowhere.invalid/"]
+
+
+@pytest.mark.parametrize("url", DEEP_OFF_REFUSED)
+def test_decision_a_off_refuses_every_non_public_host(url):
+    from bulk_downloader import deep_http
+    from bulk_downloader.provider_resolve_impl._common import SSRFBlocked
+
+    with pytest.raises(SSRFBlocked):
+        deep_http._check(url, False)
+
+
+@pytest.mark.parametrize("url", DEEP_ON_ADMITTED)
+def test_decision_a_on_admits_the_lan_and_pins_loopback(url):
+    from bulk_downloader import deep_http
+
+    deep_http._check(url, True)  # raises SSRFBlocked if the opt-in stopped admitting it
+
+
+@pytest.mark.parametrize("url", DEEP_ON_REFUSED)
+def test_decision_a_on_still_refuses_metadata_and_never_ranges(url):
+    from bulk_downloader import deep_http
+    from bulk_downloader.provider_resolve_impl._common import SSRFBlocked
+
+    with pytest.raises(SSRFBlocked):
+        deep_http._check(url, True)
+        pytest.fail(f"BD-SEC-3-DECISION-A-ON-ADMITTED: {url}")
+
+
+def test_decision_a_public_host_admitted_both_ways():
+    from bulk_downloader import deep_http
+
+    deep_http._check("http://public.example/", False)
+    deep_http._check("http://public.example/", True)
+
+
+def test_decision_a_on_refuses_a_cross_origin_redirect_to_a_lan_host(sink, monkeypatch):
+    from bulk_downloader import deep_http
+    from bulk_downloader.provider_resolve_impl._common import SSRFBlocked
+
+    monkeypatch.setenv("BD_HTTP_PROXY", "")  # direct egress: the sink's log is the measurement
+    other = Sink()
+    try:
+        # positive control: a same-origin hop IS followed, so the probe can say yes
+        with deep_http.guarded_open(sink.redirect("127.0.0.1", "127.0.0.1", "/secret"), timeout=5,
+                                    allow_private_hosts=True) as resp:
+            assert b"SECRET-BODY" in resp.read()
+        assert "/secret" in sink.paths()
+        for to in (f"http://127.0.0.1:{other.port}/secret", f"http://lan.example:{sink.port}/secret"):
+            url = sink.url("127.0.0.1", "/redir?to=" + to)
+            with pytest.raises(SSRFBlocked, match="cross-origin redirect refused"):
+                deep_http.guarded_open(url, timeout=5, allow_private_hosts=True)
+        assert "/secret" not in other.paths(), f"BD-SEC-3-DECISION-A-CROSS-ORIGIN-FOLLOWED: {other.paths()}"
+    finally:
+        other.close()

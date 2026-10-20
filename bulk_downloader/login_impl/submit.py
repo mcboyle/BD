@@ -2046,6 +2046,13 @@ def _login_egress(config, site_id):
     the host's clear-net address (test2 2026-10-02T14:13Z, /badlogin)."""
     explicit = (config.get("proxy") or "").strip()
     if explicit:
+        # BD-SEC-3 F14: judged before it is mounted; a refused proxy refuses the
+        # login (no launch), never a clear-net one.
+        from ..outbound_guard import OutboundRefused, judge_proxy_url
+        try:
+            judge_proxy_url(explicit)
+        except OutboundRefused as e:
+            return None, False, f"proxy-refused: {e}; refusing to log in unproxied"
         from urllib.parse import urlparse
         try:
             pp = urlparse(explicit)

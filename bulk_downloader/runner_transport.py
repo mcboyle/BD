@@ -35,6 +35,7 @@ from .constants import (
 )
 from . import staging_claim
 from .dedup import HeaderDuplicateRejected
+from .outbound_guard import OutboundRefused, judge_proxy_url
 from .download_egress import (
     EgressCarrierError, effective_download_proxy, prepare_http_proxy,
 )
@@ -1701,12 +1702,22 @@ class TransportMixin:
                         f"the required tunnel's state could not be read: "
                         f"{type(e).__name__}: {e}", "vpn_proxy_unresolved") from e
             explicit = picked or ""
+        if explicit:
+            # BD-SEC-3 F14: judged BEFORE the resolution below, whose
+            # not-vpn_required fallback would otherwise return this very proxy.
+            # A refused proxy refuses the egress; it never degrades to direct.
+            try:
+                judge_proxy_url(explicit)
+            except OutboundRefused as e:
+                raise _egress_refusal(self, str(e), "proxy-refused") from e
         try:
             proxy_url = effective_download_proxy(
                 explicit or None, self.site_id, resolver)
         except Exception as e:
             if _VPN_RUNTIME_AVAILABLE and isinstance(e, vpn_runtime.VPNRequiredError):
                 raise  # fail closed -- never fall back to clear-net egress
+            if isinstance(e, OutboundRefused):
+                raise _egress_refusal(self, str(e), "proxy-refused") from e
             if required:
                 raise _egress_refusal(self,
                     f"the site is vpn_required and its egress could not be "

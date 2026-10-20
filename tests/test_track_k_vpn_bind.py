@@ -25,6 +25,27 @@ The structural guards assert runner.py actually routes its payload paths through
 import os
 import re
 
+import pytest
+
+
+# BH1-34 / RULING-pm-B B.1: a proxy host must resolve (fail closed otherwise). These
+# fixture proxy names resolve to a LAN literal through outbound_guard's declared seam.
+_F14_PROXY_HOSTS = frozenset({'p', 'explicit'})
+
+
+@pytest.fixture(autouse=True)
+def _f14_fixture_proxy_hosts_resolve(monkeypatch):
+    import socket
+    from bulk_downloader import outbound_guard as og
+    real = og._resolve
+
+    def resolve(host, port):
+        if host in _F14_PROXY_HOSTS:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.9", port))]
+        return real(host, port)
+
+    monkeypatch.setattr(og, "_resolve", resolve)
+
 
 def _runner_src():
     here = os.path.dirname(os.path.abspath(__file__))

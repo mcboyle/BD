@@ -18,6 +18,7 @@ from typing import Any, Dict, Iterator, Optional
 import httpx
 
 from bulk_downloader.provider_resolve_impl._common import SSRFBlocked
+from bulk_downloader.outbound_guard import judge_proxy_url
 from bulk_downloader.ssrf_transport import (
     PINNED,
     PUBLIC_ONLY,
@@ -224,7 +225,8 @@ class HttpxEgressTransport(BaseEgressTransport):
 
         transport_kwargs: Dict[str, Any] = {"verify": verify_ssl}
         if proxy_url:
-            transport_kwargs["proxy"] = proxy_url
+            # BD-SEC-3 F14: OutboundRefused(reason="proxy-refused"); no direct client.
+            transport_kwargs["proxy"] = judge_proxy_url(proxy_url)
 
         if policy == PUBLIC_ONLY:
             self._client = httpx.Client(

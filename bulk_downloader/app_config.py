@@ -412,6 +412,7 @@ def api_config_import():
 
     _stored_by_name = {_name_of(c): c for c in dict(_app_s_cfg()).values()}
     normalized = []
+    _proxy_stripped = []
     for raw in sites:
         if not isinstance(raw,dict):
             continue
@@ -420,6 +421,13 @@ def api_config_import():
                 else str(_n) if _n is not None else "").strip()
         cfg = {k: raw.get(k, "") for k in CFG_FIELDS}
         cfg["name"] = name or f"Imported {len(normalized) + 1}"
+        # BD-SEC-3 F14 provenance: a site proxy comes only from the operator's
+        # site editor, never from an imported file (a merged site keeps the
+        # proxy it already has, below). A withheld marker is no value: it keeps
+        # the operator's stored proxy (restore_withheld), so it passes.
+        if cfg.get("proxy") not in ("", None) and not is_withheld_marker(cfg["proxy"]):
+            cfg["proxy"] = ""
+            _proxy_stripped.append(cfg["name"])
         # BD-SEC-2 r3-restack r2 (lens R247-D F1): a withheld marker from a
         # default export keeps the value stored for the site of the same name
         # (either mode).  The checks below judge a copy resolved from the
@@ -511,6 +519,7 @@ def api_config_import():
                 for secret_key in SECRET_FIELDS:
                     if not cfg.get(secret_key) and old_cfg.get(secret_key):
                         cfg[secret_key] = old_cfg[secret_key]
+                cfg["proxy"] = old_cfg.get("proxy", "")  # F14: never the file's
                 for _key, _value in cfg.items():
                     if (_key not in SECRET_FIELDS and isinstance(_value, (dict, list))
                             and _key in old_cfg):
@@ -788,6 +797,9 @@ def api_config_import():
             "mode": mode,
             "reenter": reenter,
             **({"credentials": credentials} if credentials else {}),
+            **({"warnings": [
+                "proxy stripped on import; re-enter in site editor: "
+                + ", ".join(_proxy_stripped)]} if _proxy_stripped else {}),
         })
 
 def register_routes(app) -> int:

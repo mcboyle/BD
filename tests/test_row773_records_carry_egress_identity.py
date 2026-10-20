@@ -23,6 +23,25 @@ import pytest
 # observe an egress. That is a property of the tree, not of one module.
 BD_GATE_SCOPE = "repo-wide"
 
+
+# BH1-34 / RULING-pm-B B.1: a proxy host must resolve (fail closed otherwise). These
+# fixture proxy names resolve to a LAN literal through outbound_guard's declared seam.
+_F14_PROXY_HOSTS = frozenset({'proxy.example'})
+
+
+@pytest.fixture(autouse=True)
+def _f14_fixture_proxy_hosts_resolve(monkeypatch):
+    import socket
+    from bulk_downloader import outbound_guard as og
+    real = og._resolve
+
+    def resolve(host, port):
+        if host in _F14_PROXY_HOSTS:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.9", port))]
+        return real(host, port)
+
+    monkeypatch.setattr(og, "_resolve", resolve)
+
 UNKNOWN = "UNKNOWN"
 NO_EGRESS_IDENTITY = "record carries no egress identity"
 
