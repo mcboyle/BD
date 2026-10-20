@@ -10,18 +10,18 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1972**
+- internal import edges: **1977**
 - tools: 238 · with internal edge: 137 · with tool→package edge: 77
 - blueprints: 163 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
 
-- `bulk_downloader/db.py`: 133
+- `bulk_downloader/db.py`: 134
 - `bulk_downloader/global_config.py`: 62
 - `bulk_downloader/constants.py`: 34
 - `bulk_downloader/ssrf_transport.py`: 33
+- `bulk_downloader/egress_withhold.py`: 28
 - `bulk_downloader/app.py`: 26
-- `bulk_downloader/egress_withhold.py`: 26
 - `bulk_downloader/plugins.py`: 23
 - `bulk_downloader/cookies.py`: 22
 - `bulk_downloader/capture_artifact_redact.py`: 21
@@ -42,7 +42,7 @@ Graph version: 1
 - **a11y** (`app_a11y.py`) — routes 3, providers 1
 - **account_pool** (`app_account_pool.py`) — routes 1, providers 1
 - **accounts** (`app_accounts.py`) — routes 1, providers 1
-- **activity** (`app_activity.py`) — routes 3, providers 2
+- **activity** (`app_activity.py`) — routes 3, providers 4
 - **ai** (`app_ai.py`) — routes 8, providers 3
 - **alerts** (`app_alerts.py`) — routes 6, providers 2
 - **analyzer** (`app_analyzer.py`) — routes 5, providers 3
@@ -92,7 +92,7 @@ Graph version: 1
 - **envfile_editor** (`app_envfile_editor.py`) — routes 2, providers 2
 - **eol** (`app_eol.py`) — routes 2, providers 2
 - **events_all** (`app_events_all.py`) — routes 1, providers 1
-- **export** (`app_export.py`) — routes 3, providers 1
+- **export** (`app_export.py`) — routes 3, providers 2
 - **extension** (`app_extension.py`) — routes 1, providers 2
 - **fed** (`app_fed.py`) — routes 12, providers 2
 - **file** (`app_file.py`) — routes 1, providers 0
