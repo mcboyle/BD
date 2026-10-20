@@ -1075,35 +1075,35 @@ Schema version: 2
 ## `bulk_downloader/login_impl/_common.py` (29 entries)
 
 ```
-- L0007 `log_url` — A URL as it may appear in a diagnostic: scheme/host/path kept, EVERY
-- L0025 `_selector_text` `[private]` — Return the CSS selector carried by a plain or structured chain step.
-- L0034 `_first_positive_size_match` `[private]` — Return the first visible, positive-size match for ``selector``.
-- L0099 `_visible_login_field` `[private]` — True when a selector has a visible, positive-size match that is not
-- L0119 `_fire_auto_login_trigger` `[private]` — Open an SPA login modal that is not mounted until clicked.
-- L0176 `resolve_login_trigger` — dl95-eporner-4-live-1: resolve login_trigger, gap-filling from template defaults
-- L0209 `_fire_login_trigger_if_needed` `[private]` — Reveal a configured modal login form when no username field is usable.
-- L0245 `_all_visible` `[private]` — Return the first visible match from the candidate list. Tries each
-- L0264 `_wait_attached` `[private]` — Wait for ATTACHMENT. The only thing attached may be the decoy, and
-- L0270 `_wait_visible` `[private]` — Wait for VISIBILITY, which is what a field must be before we fill
-- L0276 `_signal_tabindex` `[private]` — For a form input ``tabindex="-1"`` is a STANDALONE trap signal.
-- L0283 `_signal_aria_hidden` `[private]` — A field announced as hidden to assistive tech is not for a human.
-- L0290 `_signal_css_hidden` `[private]` — The SHIPPED style vocabulary, consulted rather than restated.
-- L0302 `_signal_hidden_attr` `[private]` — The ``hidden`` attribute: no shipped equivalent, browser-only fact.
-- L0309 `_signal_type_hidden` `[private]` — ``type=hidden``: likewise browser-only.
-- L0316 `_signal_offscreen_box` `[private]` — A negative bounding box -- the ``left:-9999px`` decoy whose inline
-- L0341 `_is_honeypot_field` `[private]` — Return ``(is_decoy, reason)`` for a Playwright input locator.
-- L0437 `_is_search_field` `[private]` — Return ``(is_search, reason)`` for a Playwright input locator.
-- L0455 `_search_field_reason` `[private]` — dl95-eporner-4 (main's name): why ``loc`` is a site SEARCH input, or
-- L0463 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
-- L0576 `get_input_scheduler` — Access the synthetic user input scheduler.
-- L0582 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
-- L0617 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
-- L0628 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
-- L0725 `_forced_click_hit_test` `[private]` — {state: clear|covered|no-box|offscreen|no-hit|error, [hit, cover|error]} for a forced click on loc.
-- L0732 `_forced_click_refusal` `[private]` — One refusal line: a covered control names its cover; any other state says the centre was not hit.
-- L0741 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
-- L0808 `_css_escape_for_id` `[private]`
-- L0817 `_ms_since` `[private]`
+- L0009 `log_url` — A URL as it may appear in a diagnostic: scheme/host/path kept, EVERY
+- L0027 `_selector_text` `[private]` — Return the CSS selector carried by a plain or structured chain step.
+- L0036 `_first_positive_size_match` `[private]` — Return the first visible, positive-size match for ``selector``.
+- L0101 `_visible_login_field` `[private]` — True when a selector has a visible, positive-size match that is not
+- L0121 `_fire_auto_login_trigger` `[private]` — Open an SPA login modal that is not mounted until clicked.
+- L0178 `resolve_login_trigger` — dl95-eporner-4-live-1: resolve login_trigger, gap-filling from template defaults
+- L0211 `_fire_login_trigger_if_needed` `[private]` — Reveal a configured modal login form when no username field is usable.
+- L0247 `_all_visible` `[private]` — Return the first visible match from the candidate list. Tries each
+- L0266 `_wait_attached` `[private]` — Wait for ATTACHMENT. The only thing attached may be the decoy, and
+- L0272 `_wait_visible` `[private]` — Wait for VISIBILITY, which is what a field must be before we fill
+- L0282 `_signal_tabindex` `[private]` — For a form input ``tabindex="-1"`` is a STANDALONE trap signal.
+- L0289 `_signal_aria_hidden` `[private]` — A field announced as hidden to assistive tech is not for a human.
+- L0296 `_signal_css_hidden` `[private]` — The SHIPPED style vocabulary, consulted rather than restated.
+- L0308 `_signal_hidden_attr` `[private]` — The ``hidden`` attribute: no shipped equivalent, browser-only fact.
+- L0315 `_signal_type_hidden` `[private]` — ``type=hidden``: likewise browser-only.
+- L0322 `_signal_offscreen_box` `[private]` — A negative bounding box -- the ``left:-9999px`` decoy whose inline
+- L0347 `_is_honeypot_field` `[private]` — Return ``(is_decoy, reason)`` for a Playwright input locator.
+- L0443 `_is_search_field` `[private]` — Return ``(is_search, reason)`` for a Playwright input locator.
+- L0461 `_search_field_reason` `[private]` — dl95-eporner-4 (main's name): why ``loc`` is a site SEARCH input, or
+- L0469 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
+- L0604 `get_input_scheduler` — Access the synthetic user input scheduler.
+- L0610 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
+- L0666 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
+- L0677 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
+- L0774 `_forced_click_hit_test` `[private]` — {state: clear|covered|no-box|offscreen|no-hit|error, [hit, cover|error]} for a forced click on loc.
+- L0781 `_forced_click_refusal` `[private]` — One refusal line: a covered control names its cover; any other state says the centre was not hit.
+- L0790 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
+- L0857 `_css_escape_for_id` `[private]`
+- L0866 `_ms_since` `[private]`
 ```
 
 
@@ -1171,43 +1171,43 @@ Schema version: 2
 ## `bulk_downloader/login_impl/submit.py` (37 entries)
 
 ```
-- L0039 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
-- L0051 `_same_brand_origin` `[private]` — Row 722 (G17): do the login page and the page the submit landed on
-- L0066 `_prefill_origin_refusal` `[private]` — o1698: may do_login type the configured credentials into `page`?
-- L0091 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
-- L0120 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0186 `login_abort_check`
-- L0195 `_login_abort_reason` `[private]`
-- L0206 `_click_turnstile_checkbox` `[private]` — Row 722 (vip4k.com): a Cloudflare Turnstile widget in CHECKBOX mode
-- L0313 `_click_human_button` `[private]` — A visible button/role=button whose whole text is an 'I am human' /
-- L0348 `_is_cloudflare_challenge_page` `[private]` — True when the page is a Cloudflare managed-challenge interstitial
-- L0393 `_is_challenge_interstitial` `[private]` — O1567: a challenge page that stands INSTEAD of the login form --
-- L0419 `clear_cloudflare_challenge` — Row 722 (adulttime): every login URL answers 307->403 with a
-- L0528 `_captcha_mount_name` `[private]` — The captcha mount on ``page`` ("reCAPTCHA", ...), or "" -- never raises.
-- L0559 `_captcha_challenge_visible` `[private]` — The captcha whose image challenge is on screen ("reCAPTCHA"), or "" -- never raises.
-- L0570 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0612 `_late_rejected_landing` `[private]` — The URL of a rejected-login landing the page reached within ``polls``
-- L0641 `_carries_password_field` `[private]` — True when a request body sends the named password field: a form field
-- L0660 `_watch_credential_posts` `[private]` — O1567 fx-blacked-relogin: record every POST, from any page of the
-- L0695 `_trace_documents` `[private]` — fx-vixen-challenge-trace: journal every top-level document response of
-- L0736 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
-- L0751 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
-- L0835 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
-- L0851 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L1041 `_hit_test_control` `[private]` — Hit-test the locator's first match at its centre: {state: gone|no-box|offscreen|no-hit|clear|covered,
-- L1051 `_covered_cover` `[private]` — The cover's description when the locator's centre is covered, else None (every other state is left
-- L1071 `_clear_submit_cover` `[private]` — Hit-test the submit control; close one cover standing over it.
-- L1175 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
-- L1232 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
-- L1720 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L1791 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
-- L1893 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
-- L1913 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
-- L1960 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
-- L1976 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
-- L1997 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L2035 `_login_egress` `[private]` — tpl95-site-ma-brazzers-2 (O1658): the login browser's egress, resolved as the
-- L2096 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0040 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
+- L0052 `_same_brand_origin` `[private]` — Row 722 (G17): do the login page and the page the submit landed on
+- L0067 `_prefill_origin_refusal` `[private]` — o1698: may do_login type the configured credentials into `page`?
+- L0092 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
+- L0121 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
+- L0187 `login_abort_check`
+- L0196 `_login_abort_reason` `[private]`
+- L0207 `_click_turnstile_checkbox` `[private]` — Row 722 (vip4k.com): a Cloudflare Turnstile widget in CHECKBOX mode
+- L0314 `_click_human_button` `[private]` — A visible button/role=button whose whole text is an 'I am human' /
+- L0349 `_is_cloudflare_challenge_page` `[private]` — True when the page is a Cloudflare managed-challenge interstitial
+- L0394 `_is_challenge_interstitial` `[private]` — O1567: a challenge page that stands INSTEAD of the login form --
+- L0420 `clear_cloudflare_challenge` — Row 722 (adulttime): every login URL answers 307->403 with a
+- L0529 `_captcha_mount_name` `[private]` — The captcha mount on ``page`` ("reCAPTCHA", ...), or "" -- never raises.
+- L0560 `_captcha_challenge_visible` `[private]` — The captcha whose image challenge is on screen ("reCAPTCHA"), or "" -- never raises.
+- L0571 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0613 `_late_rejected_landing` `[private]` — The URL of a rejected-login landing the page reached within ``polls``
+- L0642 `_carries_password_field` `[private]` — True when a request body sends the named password field: a form field
+- L0661 `_watch_credential_posts` `[private]` — O1567 fx-blacked-relogin: record every POST, from any page of the
+- L0696 `_trace_documents` `[private]` — fx-vixen-challenge-trace: journal every top-level document response of
+- L0737 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
+- L0752 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
+- L0836 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
+- L0852 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L1042 `_hit_test_control` `[private]` — Hit-test the locator's first match at its centre: {state: gone|no-box|offscreen|no-hit|clear|covered,
+- L1052 `_covered_cover` `[private]` — The cover's description when the locator's centre is covered, else None (every other state is left
+- L1072 `_clear_submit_cover` `[private]` — Hit-test the submit control; close one cover standing over it.
+- L1176 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
+- L1233 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
+- L1721 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L1792 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
+- L1894 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
+- L1914 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
+- L1961 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
+- L1977 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
+- L1998 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
+- L2036 `_login_egress` `[private]` — tpl95-site-ma-brazzers-2 (O1658): the login browser's egress, resolved as the
+- L2097 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
