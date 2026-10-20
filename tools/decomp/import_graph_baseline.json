@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6936,
+  "edge_count": 6939,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3005,6 +3005,15 @@
     ],
     "tests/test_bh1_67_export_token_egress.py": [
       "bulk_downloader/db.py"
+    ],
+    "tests/test_bh1_71_r2_nested_trigger.py": [
+      "bulk_downloader/egress_withhold.py"
+    ],
+    "tests/test_bh1_71_r3_nested_auth_line_end.py": [
+      "bulk_downloader/egress_withhold.py"
+    ],
+    "tests/test_bh1_71_withhold_text_forms.py": [
+      "bulk_downloader/egress_withhold.py"
     ],
     "tests/test_bh_wave1_config.py": [
       "bulk_downloader/embeddings_client.py",
