@@ -58,7 +58,7 @@ def _records(resp):
 
 def test_comma_quote_and_newline_cells_stay_one_six_column_record(site):
     _log("https://example.test/plain")
-    _log("https://example.test/v?a=1,2", filename='a,b "q".mp4',
+    _log("https://example.test/v?q=1,2", filename='a,b "q".mp4',
          message="err, line1\nline2\r\nline3")
     resp, code = _export()
     assert code == 200 and resp.mimetype == "text/csv"
@@ -66,7 +66,7 @@ def test_comma_quote_and_newline_cells_stay_one_six_column_record(site):
     assert recs[0] == COLS
     assert [len(r) for r in recs] == [6, 6, 6]
     newest = recs[1]
-    assert newest[0] == "https://example.test/v?a=1,2"
+    assert newest[0] == "https://example.test/v?q=1,2"
     assert newest[2] == 'a,b "q".mp4'
     assert newest[4] == "err, line1\nline2\r\nline3"
     assert recs[2][:5] == ["https://example.test/plain", "done", "f.mp4", "10", "ok"]
@@ -80,9 +80,33 @@ def test_formula_lead_cells_are_neutralized_in_history_export(site, lead):
     _log(payload, filename=payload, message=payload)
     recs = _records(_export()[0])
     assert len(recs) == 2 and len(recs[1]) == 6
-    for col in (0, 2, 4):
+    for col in (0, 2):
         assert recs[1][col] == "'" + payload, COLS[col]
         assert recs[1][col][0] not in FORMULA_LEADS
+    # the message is masked first (sec2-job-url-token), then neutralized
+    assert recs[1][4][0] not in FORMULA_LEADS, "message"
+    assert "evil.test" not in recs[1][4], "message"
+
+
+@pytest.mark.parametrize("lead", FORMULA_LEADS, ids=repr)
+def test_url_free_formula_message_is_neutralized_in_history_export(site, lead):
+    # "=" and "@" are URL-ish to withhold_text: a lone lead, then the formula
+    payload = lead + " SUM(1,2)"
+    _log("https://example.test/plain", message=payload)
+    recs = _records(_export()[0])
+    assert len(recs) == 2 and len(recs[1]) == 6
+    assert recs[1][4] == "'" + payload
+
+
+def test_formula_lead_secrets_are_masked_then_neutralized_in_history_export(site):
+    secret = "=https://x.test/?token=SECRETCANARY"
+    _log(secret, message="-H X: " + secret)
+    resp, code = _export()
+    body = resp.get_data(as_text=True)
+    assert code == 200 and "SECRETCANARY" not in body, (
+        f"BD_SEC_MASK_210A567D5_LEAK: {body!r}")
+    rec = _records(resp)[1]
+    assert rec[0][0] not in FORMULA_LEADS and rec[4][0] not in FORMULA_LEADS, rec
 
 
 def test_ordinary_cells_are_exported_unchanged(site):

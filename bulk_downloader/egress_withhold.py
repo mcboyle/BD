@@ -55,7 +55,11 @@ FREE_TEXT_FIELDS = frozenset({
 
 # Query names a plain routing URL may carry. Anything else (token, sig, k, t,
 # pw, ...) makes the URL withheld: a name allow-list, never a secret deny-list.
-PLAIN_QUERY_NAMES = frozenset({"page", "p", "sort", "order", "orderby", "q", "query", "search", "tag", "tags", "category", "cat", "type", "view", "lang", "limit", "offset", "per_page", "year", "month", "filter", "id", "start", "size", "a"})
+PLAIN_QUERY_NAMES = frozenset({
+    "page", "p", "sort", "order", "orderby", "q", "query", "search", "tag",
+    "tags", "category", "cat", "type", "view", "lang", "limit", "offset",
+    "per_page", "year", "month", "filter", "id", "start", "size",
+})
 # Notifier hosts: the host or any subdomain of it (www.discord.com) is never
 # a plain routing URL. A path segment naming a hook (/hooks/, /webhook/) is
 # not plain on any host either; a token-in-path webhook on a host that is in

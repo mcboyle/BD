@@ -201,7 +201,9 @@ def test_u10_queue_bulk_cancel_uses_canonical_update_path():
     )
     assert handler
     body = handler.group(0)
-    assert "_update_job(job_url, \"stopped\"" in body or "_update_job(url, \"stopped\"" in body, "bulk_cancel must use runner._update_job for state transition"
+    assert "_update_job(job_url, \"stopped\"" in body, (
+        "bulk_cancel must use runner._update_job for state transition"
+    )
 
 
 # ── Frontend files ──────────────────────────────────────────────────

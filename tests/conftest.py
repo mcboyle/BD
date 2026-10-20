@@ -851,8 +851,6 @@ _QUARANTINE = _load_quarantine()
 # quarantine.tsv, which these rows join once it is in a cut's OWNS; reason, owner and
 # expiry are in the ledger row named. The fix row removes its own line.
 _QUARANTINE.update({
-    "tests/test_sec2_job_url_token_r1.py::test_display_url_masks_each_token_value_and_keeps_plain_urls":
-        "FF-BH1-33 harness-work/O1789/dispatch-D5-D/cuts/bh1-33/RED-LEDGER.md#Q1",
 })
 
 
