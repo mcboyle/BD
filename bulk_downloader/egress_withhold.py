@@ -251,10 +251,46 @@ def _token(m) -> str:
 # a part of a token the pass withholds: a trigger glued inside a withheld token
 # leaves that token PLACEHOLDER, a withheld credential token is all MASK. Any
 # case; one pass, linear time.
-_CREDENTIAL_TEXT = re.compile(
-    r"authorization[\"']?[ \t]*[:=]\s*(\S[^\r\n]*)"
-    r"|bearer(?:\s*[:=][\s:=]*|\s+)(\S+)"
-    r"|token[\"']?[ \t]*=[\s=]*(\S+)", re.IGNORECASE)
+# BH1-71: the trigger may be a JSON key (``"access_token": "X"``, ``"bearer":
+# "X"``), ``token:`` and ``X-Api-Key:`` are triggers too, the separator may be
+# a fullwidth / ratio / small colon or fullwidth / small equals, a dash or em
+# dash between whitespace, or ``+`` after Bearer, and the whitespace around it
+# may be NBSP, a newline, or a zero-width / BOM / soft-hyphen code point (not
+# ``\s`` in Python ``re``). A dash is a separator after a header name, never
+# after the prose word ``token`` (``the token - it expired`` stays prose).
+# Each branch keeps exactly one group (lastindex).
+_WS = r"[\s\u00ad\u115f\u1160\u180e\u200b-\u200f\u2060-\u2064\u2800\u3164\ufeff\uffa0]"
+_SEP = r"[:=\uff1a\u2236\ufe55\ua789\uff1d\ufe66]"
+_DASH = r"[\-\u2010-\u2015]"
+_AUTH_HEAD = rf"authorization[\"']?{_WS}*(?:{_SEP}|{_WS}{_DASH}+){_WS}*"
+_AUTH = rf"{_AUTH_HEAD}(\S[^\r\n]*)"
+
+
+def _one_token(cred: str) -> str:
+    return (
+        rf"bearer(?:[\"']?{_WS}*{_SEP}(?:{_WS}|{_SEP}|>)*|{_WS}+{_DASH}+{_WS}*|{_WS}+|\+)({cred})"
+        rf"|token[\"']?{_WS}*{_SEP}(?:{_WS}|{_SEP}|>)*({cred})"
+        rf"|(?:x-)?api[-_]?key[\"']?{_WS}*(?:{_SEP}(?:{_WS}|{_SEP}|>)*|{_WS}{_DASH}+{_WS}*)({cred})")
+
+
+# The lookahead names the branches' first two letters so ``re`` skips every
+# other position at C speed (text without a trigger scans faster than at BASE).
+_CREDENTIAL_TEXT = re.compile(rf"(?=[abtx][uepo-])(?:{_AUTH}|{_one_token(r'\S+')})", re.IGNORECASE)
+# BH1-71 r2: the captured credential may itself hold a trigger (``token:
+# Bearer X``, ``"access_token": "Bearer X"``, ``token: Authorization: Basic
+# X``, ``token: plainBearer X``): the mask runs on through every trigger that
+# starts inside it to that trigger's own credential, so a trigger never
+# shields the value after it. The nested scan looks for a trigger word only
+# inside the credential masked so far, matches there and captures one
+# character (the credential's start: a token credential then runs to the end
+# of its token, an Authorization credential to the end of its line). BH1-71
+# r3: inside an Authorization value a nested Authorization trigger counts too
+# when its credential starts past the end of the line (``Authorization: x
+# authorization:`` + newline + X); one on the same line is already masked, so
+# the rest of a line is read once and the scan stays one forward pass.
+_TRIGGER_WORD = re.compile(r"authorization|bearer|token|(?:x-)?api", re.IGNORECASE)
+_NESTED = re.compile(rf"{_AUTH_HEAD}(\S)|{_one_token(r'\S')}", re.IGNORECASE)
+_LINE_REST = re.compile(r"[^\r\n]*")
 
 
 def _token_start(value: str, i: int, lo: int) -> int:
@@ -267,14 +303,46 @@ def _withheld(value: str, i: int) -> bool:
     return _token(_TOKEN.match(value, i)) == PLACEHOLDER
 
 
-def _free_text(value: str) -> str:
-    out, pos = [], 0
-    for m in _CREDENTIAL_TEXT.finditer(value):
+def _credential_end(value: str, m) -> int:
+    """End of m's credential, carried through every nested trigger."""
+    end, scan, in_auth = m.end(), m.start(m.lastindex), m.lastindex == 1
+    while w := _TRIGGER_WORD.search(value, scan, end):
+        n = _NESTED.match(value, w.start())
+        if n is None:
+            scan = w.start() + 1
+            continue
+        scan = n.start(n.lastindex)
+        if n.lastindex == 1:
+            if not in_auth or scan >= end:
+                end, in_auth = max(end, _LINE_REST.match(value, scan).end()), True
+        elif scan >= end:
+            end, in_auth = _TOKEN.match(value, scan).end(), False
+    return end
+
+
+def _free_text(value: str, lo: int = 0) -> str:
+    """value[lo:] withheld; value[:lo] is served context (a kept segment) that
+    is scanned for a trigger but never written: a credential a kept segment's
+    trailing trigger introduces (``token=`` + ``X``) is still MASK (BH1-71)."""
+    out, pos = [], lo
+    m = _CREDENTIAL_TEXT.search(value)
+    while m is not None:
+        end = _credential_end(value, m)
+        if end <= lo:
+            m = _CREDENTIAL_TEXT.search(value, end)
+            continue
+        if m.start() < lo:
+            cred = max(lo, m.start(m.lastindex))
+            while cred < end and value[cred].isspace():
+                cred += 1
+            out.append(_TOKEN.sub(_token, value[lo:cred]) + MASK)
+            pos, m = end, _CREDENTIAL_TEXT.search(value, end)
+            continue
         start, cred = _token_start(value, m.start(), pos), m.start(m.lastindex)
         held = _token_start(value, cred, start)
         out.append(_TOKEN.sub(_token, value[pos:start]))
         if held == start and _withheld(value, start):
-            rest = value[_TOKEN.match(value, start).end():m.end()]
+            rest = value[_TOKEN.match(value, start).end():end]
             body = rest.lstrip()
             out.append(PLACEHOLDER + (rest[:len(rest) - len(body)] + MASK if body else rest))
         elif held == start:
@@ -282,7 +350,7 @@ def _free_text(value: str) -> str:
         else:
             out.append(_TOKEN.sub(_token, value[start:held]))
             out.append(MASK if _withheld(value, held) else value[held:cred] + MASK)
-        pos = m.end()
+        pos, m = end, _CREDENTIAL_TEXT.search(value, end)
     out.append(_TOKEN.sub(_token, value[pos:]))
     return "".join(out)
 
@@ -506,15 +574,15 @@ def _withhold_except(value, keep: tuple):
     still withheld on their own."""
     if not keep or not isinstance(value, str):
         return withhold_text(value)
-    out, i = [], 0
+    out, i, ctx = [], 0, ""
     while True:
         hits = [(j, -len(s), s) for s in keep for j in (value.find(s, i),) if j >= 0]
         if not hits:
             break
         j, _, seg = min(hits)
-        out += [withhold_text(value[i:j]), seg]
-        i = j + len(seg)
-    out.append(withhold_text(value[i:]))
+        out += [_free_text(ctx + value[i:j], len(ctx)), seg]
+        i, ctx = j + len(seg), seg
+    out.append(_free_text(ctx + value[i:], len(ctx)))
     return "".join(out)
 
 
