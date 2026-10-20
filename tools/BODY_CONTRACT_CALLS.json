@@ -2947,6 +2947,20 @@
   "file": "src/routes/Queue.tsx",
   "fn": "apiPost",
   "keys": [
+   "site_id",
+   "url"
+  ],
+  "path": "/api/queue/v2/${}",
+  "sample": {
+   "site_id": "x",
+   "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/routes/Queue.tsx",
+  "fn": "apiPost",
+  "keys": [
    "jobs"
   ],
   "path": "/api/queue/v2/bulk_cancel",
