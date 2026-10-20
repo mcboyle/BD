@@ -1305,6 +1305,22 @@ def api_update(sid):
                         "error": "sites_config not saved; the change was not applied"}), 500
     if _ignored:
         _cred_flags["ignored_fields"] = len(_ignored)
+    # BH1-47 A2: a retyped, reordered or removed account leaves its old
+    # account-N key behind. Saved now, so no rollback needs it: reap the keys
+    # the pre-edit rows referenced that no config references any more.
+    # Best-effort: what cannot be removed is named in the reply, never a 500.
+    if (_rollback.get("accounts") or []) and "accounts" in data:
+        try:
+            _vault_removed, _vault_retained = _reap_site_vault_entries(
+                sid, {"accounts": _rollback.get("accounts")}, s_cfg,
+                inventory=False, event="updated")
+        except Exception as _reap_err:  # noqa: BLE001
+            _vault_removed, _vault_retained = [], [("*", type(_reap_err).__name__)]
+        if _vault_removed:
+            _cred_flags["vault_removed"] = _vault_removed
+        if _vault_retained:
+            _cred_flags["vault_retained"] = [
+                {"key": k, "error": why} for k, why in _vault_retained]
     # v3.43.16: sync session keeper to the updated config. If the user
     # toggled keep_alive_enabled or changed credentials, we update the
     # keeper's config in place (it picks up the change on next check)
@@ -1373,14 +1389,17 @@ def api_delete(sid):
         return resp
 
 
-def _reap_site_vault_entries(sid, old_cfg, remaining_cfg, keep_refs_of=None):
+def _reap_site_vault_entries(sid, old_cfg, remaining_cfg, keep_refs_of=None,
+                             inventory=True, event="deleted"):
     """plaintext-secret-class F7: remove the deleted site's vault ciphertext.
 
     Candidates are the site's own keys (``bulkdl-site-<sid>`` and
     ``bulkdl-site-<sid>-account-N`` in the vault inventory) plus every
     ``@cred:bulkdl-site-*`` key the old config referenced. A key another
     remaining site still references, or one a config in ``keep_refs_of``
-    references (config replace: the staged replacement), stays. Returns (removed, retained):
+    references (config replace: the staged replacement), stays.
+    ``inventory=False`` (account update) limits the candidates to the old
+    config's references. Returns (removed, retained):
     key names only, never a value; retained pairs each key with the reason.
     """
     from . import secrets_store as ss
@@ -1393,13 +1412,14 @@ def _reap_site_vault_entries(sid, old_cfg, remaining_cfg, keep_refs_of=None):
         backend = ss.get_backend()
         if getattr(backend, "name", "") == "plaintext":
             unreachable = "secrets backend is plaintext, not the vault"
-        else:
+        elif inventory:
             candidates.update(
                 k for k in backend.list_keys()
                 if k == own or k.startswith(own + "-account-"))
     except Exception as e:  # noqa: BLE001
         unreachable = f"vault inventory failed: {type(e).__name__}"
-        candidates.add(own)
+        if inventory:
+            candidates.add(own)
     in_use = (set(ss.password_reference_keys(remaining_cfg))
               | set(ss.password_reference_keys(keep_refs_of)))
     for key in sorted(candidates - in_use):
@@ -1413,8 +1433,8 @@ def _reap_site_vault_entries(sid, old_cfg, remaining_cfg, keep_refs_of=None):
             retained.append((key, type(e).__name__))
     for key, why in retained:
         logging.getLogger(__name__).warning(
-            "site %s deleted but vault entry %s was not removed: %s",
-            sid, key, why)
+            "site %s %s but vault entry %s was not removed: %s",
+            sid, event, key, why)
     return removed, retained
 
 
