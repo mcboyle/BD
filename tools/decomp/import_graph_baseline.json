@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 6898,
+  "edge_count": 6904,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -165,7 +165,9 @@
       "bulk_downloader/account_health.py"
     ],
     "bulk_downloader/app_activity.py": [
+      "bulk_downloader/app_sites_queue.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/egress_withhold.py",
       "bulk_downloader/exports.py"
     ],
     "bulk_downloader/app_ai.py": [
@@ -401,6 +403,7 @@
       "bulk_downloader/egress_withhold.py"
     ],
     "bulk_downloader/app_export.py": [
+      "bulk_downloader/app_sites_queue.py",
       "bulk_downloader/exports.py"
     ],
     "bulk_downloader/app_extension.py": [
@@ -1475,7 +1478,9 @@
       "bulk_downloader/lock_monitor.py"
     ],
     "bulk_downloader/exports.py": [
-      "bulk_downloader/batch_ops.py"
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/egress_withhold.py"
     ],
     "bulk_downloader/extension_vault.py": [
       "bulk_downloader/registrable_domain.py"
@@ -2967,6 +2972,9 @@
     ],
     "tests/test_bh1_64_withhold_text_credentials.py": [
       "bulk_downloader/egress_withhold.py"
+    ],
+    "tests/test_bh1_67_export_token_egress.py": [
+      "bulk_downloader/db.py"
     ],
     "tests/test_bh_wave1_config.py": [
       "bulk_downloader/embeddings_client.py",

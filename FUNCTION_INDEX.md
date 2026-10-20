@@ -1028,45 +1028,45 @@ Schema version: 2
 - L3237 `queue_headers_masked` — A NEW dict: the names of ``headers`` with every value QUEUE_HEADER_MASK
 - L3246 `queue_headers_entry` — One load_urls entry, "url<TAB>Name=value...", for a URL and its headers
 - L3261 `_display_query` `[private]`
-- L3274 `queue_display_url` — The form of a job URL a client is shown: every query (and fragment
-- L3296 `queue_row_id` — A job's stable row id: derived from its URL, so no column or migration
-- L3302 `queue_url_masked` — True for a display URL that withheld something (it cannot be fetched).
-- L3307 `queue_resolve_keys` — Each key a client sent -> the job URL it names among ``urls``: the URL
-- L3335 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
-- L3423 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
-- L3465 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
-- L3471 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
-- L3477 `queue_delete_site` — Called when a site is removed.
-- L3492 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
-- L3514 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
-- L3538 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
-- L3560 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
-- L3585 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
-- L3650 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
-- L3662 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
-- L3676 `queue_count` — Return the number of queue rows for a site. With `status` set,
-- L3689 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
-- L3702 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
-- L3715 `session_event_record` — Append one row to session_history. event_type is one of:
-- L3760 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
-- L3773 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L3823 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L3917 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L3924 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L3935 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L3947 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L4047 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L4064 `_ensure_site_run_intent_table` `[private]`
-- L4071 `run_intent_set` — Record whether the operator/automation wants ``site_id`` running.
-- L4088 `run_intent_is_running` — True only when a readable row says the site was asked to run. An
-- L4106 `_ensure_site_window_park_table` `[private]`
-- L4113 `window_park_set` — Record whether the download window parked ``site_id``. Returns False
-- L4130 `window_park_is_set` — True only when a readable row says the window parked the site. An
-- L4143 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L4154 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L4174 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
-- L4193 `db_bulk_ingest_staging`
-- L4204 `db_staging_ingest_stats`
+- L3278 `queue_display_url` — The form of a job URL a client is shown: every query (and fragment
+- L3304 `queue_row_id` — A job's stable row id: derived from its URL, so no column or migration
+- L3310 `queue_url_masked` — True for a display URL that withheld something (it cannot be fetched).
+- L3315 `queue_resolve_keys` — Each key a client sent -> the job URL it names among ``urls``: the URL
+- L3343 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
+- L3431 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
+- L3473 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
+- L3479 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
+- L3485 `queue_delete_site` — Called when a site is removed.
+- L3500 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
+- L3522 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
+- L3546 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
+- L3568 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
+- L3593 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
+- L3658 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
+- L3670 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
+- L3684 `queue_count` — Return the number of queue rows for a site. With `status` set,
+- L3697 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
+- L3710 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
+- L3723 `session_event_record` — Append one row to session_history. event_type is one of:
+- L3768 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
+- L3781 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
+- L3831 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L3925 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L3932 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L3943 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L3955 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L4055 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L4072 `_ensure_site_run_intent_table` `[private]`
+- L4079 `run_intent_set` — Record whether the operator/automation wants ``site_id`` running.
+- L4096 `run_intent_is_running` — True only when a readable row says the site was asked to run. An
+- L4114 `_ensure_site_window_park_table` `[private]`
+- L4121 `window_park_set` — Record whether the download window parked ``site_id``. Returns False
+- L4138 `window_park_is_set` — True only when a readable row says the window parked the site. An
+- L4151 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L4162 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L4182 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L4201 `db_bulk_ingest_staging`
+- L4212 `db_staging_ingest_stats`
 ```
 
 
