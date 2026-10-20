@@ -39,7 +39,7 @@ class OpenVault:
     def is_unlocked(self): return True
     def set(self, key, value): vault[key] = value
     def get(self, key): return vault.get(key)
-    def delete(self, key): vault.pop(key, None)
+    def delete(self, key): return vault.pop(key, None) is not None
 
 class LockedVault(OpenVault):
     def is_unlocked(self): return False
@@ -48,6 +48,8 @@ if arg.get("vault") == "open":
     SS.get_backend = lambda: OpenVault()
 elif arg.get("vault") == "locked":
     SS.get_backend = lambda: LockedVault()
+elif arg.get("vault") == "plaintext":
+    SS.get_backend = lambda: SS.PlaintextBackend()
 
 def clean(sid):
     c = {k: A.DEFAULTS.get(k, "") for k in A.CFG_FIELDS}
@@ -328,6 +330,48 @@ def test_s03_s27_control_the_same_retype_with_a_good_save_lands(tmp_path):
     assert got["status"] == 200, got["body"]
     (row,) = got["disk"]["accounts"]
     assert row["username"] == "b" and got["vault"].get(row["password"][len("@cred:"):]) == "PB2", (row, got["vault"])
+
+
+def _held_by(got):
+    return {a["username"]: got["vault"].get(a["password"][len("@cred:"):]) for a in got["memory"]["accounts"]}
+
+
+def test_a2_save_ok_deletes_the_prior_account_key(tmp_path):
+    # "a" removed, "b" retyped: b lands on a free key; neither old key is referenced any more.
+    patch = {"accounts": [{"username": "b", "password": "PB2"}]}
+    got = _child(tmp_path, "put", {"patch": patch, "vault": "open", "stored": _AB, "preload": _AB_VAULT})
+    assert got["status"] == 200, got["body"]
+    assert _held_by(got) == {"b": "PB2"}, got["vault"]
+    assert set(got["vault"]) == {got["disk"]["accounts"][0]["password"][len("@cred:"):]}, (
+        f"{TAG}-A2-ORPHAN-ACCOUNT-KEY-LEFT {sorted(got['vault'])}")
+    assert sorted(got["body"].get("vault_removed") or []) == sorted(_AB_VAULT), got["body"]
+
+
+def test_a2_control_failed_save_keeps_the_prior_key(tmp_path):
+    patch = {"accounts": [{"username": "b", "password": "PB2"}]}
+    got = _child(tmp_path, "put", {"patch": patch, "vault": "open", "stored": _AB, "preload": _AB_VAULT,
+                                   "block": True})
+    assert got["status"] == 500, got["body"]
+    assert _held_by(got) == {"a": "PA", "b": "PB"}, f"{TAG}-A2-ROLLBACK-KEY-REAPED {got['vault']}"
+
+
+def test_a2_a_key_another_remaining_row_references_is_not_deleted(tmp_path):
+    # Reorder only: every prior key is still referenced, by another row index than before.
+    patch = {"accounts": [{"username": "b"}, {"username": "a"}]}
+    got = _child(tmp_path, "put", {"patch": patch, "vault": "open", "stored": _AB, "preload": _AB_VAULT})
+    assert got["status"] == 200, got["body"]
+    assert _held_by(got) == {"a": "PA", "b": "PB"}, f"{TAG}-A2-REFERENCED-KEY-REAPED {got['vault']}"
+    assert not got["body"].get("vault_removed"), got["body"]
+
+
+def test_a2_plaintext_backend_delete_is_best_effort_and_flagged(tmp_path):
+    # "a" removed on a plaintext backend: its key cannot be deleted; the save still lands and says so.
+    patch = {"accounts": [{"username": "b"}]}
+    got = _child(tmp_path, "put", {"patch": patch, "vault": "plaintext", "stored": _AB})
+    assert got["status"] == 200 and got["body"].get("ok") is True, got["body"]
+    assert [a["username"] for a in got["disk"]["accounts"]] == ["b"], got["disk"]["accounts"]
+    kept = [r.get("key") for r in got["body"].get("vault_retained") or []]
+    assert kept == ["bulkdl-site-c2-account-0"], f"{TAG}-A2-UNREAPED-KEY-NOT-FLAGGED {got['body']}"
 
 
 # ------------------------------------------------------------------ LOW: S04 S06 S15
