@@ -135,9 +135,9 @@
       "sha256": "b17bbdc703e1399c9d61d4c8a6499f7f5490dce396ea1f6af7ed0b45318c0fcc"
     },
     {
-      "bytes": 6014,
+      "bytes": 6010,
       "key": "tests/test_v3_43_33_ai_login.py::test_ai_failure_falls_back_silently::src[pos:pos + 6000]::1",
-      "sha256": "6cacc555f44c74c0ca8eae261e4fa8f988118319d941f78c56de731b488fb5d5"
+      "sha256": "547d94df35dec57a2ba55d8153a3f0760abec301f1942f05fb4a8a205eb3f2c1"
     },
     {
       "bytes": 500,
