@@ -626,9 +626,14 @@ def test_click_failure_rechecks_before_fallback_fill(typed, foreign):
     ok, why = _common._try_fill(
         page, ["#first", "#later"], SECRET, "password",
         refusal=lambda: submit._prefill_origin_refusal(page, LOGIN, None))
-    assert ok is (not foreign), f"O1698_FALLBACK_REFUSAL: {why} {fills}"
-    assert fills == ([""] if foreign else ["", SECRET]), (
-        f"O1698_FALLBACK_REFUSAL: unexpected values {fills}")
+    # BH1-49 r3 (OWNS-AMEND-2): a failed click aborts the entry on both
+    # origins; the base fallback fill(SECRET) re-resolved the Locator.
+    assert ok is False, f"O1698_FALLBACK_REFUSAL: {why} {fills}"
+    assert fills == [""], f"O1698_FALLBACK_REFUSAL: unexpected values {fills}"
+    assert SECRET not in why, "O1698_FALLBACK_REFUSAL: the secret is in the reason"
+    if not foreign:
+        assert why.startswith("credential entry aborted: bound field lost (click"), (
+            f"O1698_FALLBACK_ABORT: {why}")
     assert typed == []
 
 

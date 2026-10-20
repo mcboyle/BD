@@ -13,6 +13,7 @@ from ..log import login_site, login_site_id, site_tag
 from ..cookies import pw_to_json
 from ..interstitial import LOGIN_LOCKOUT_LANGUAGE, _origin
 from ._common import (
+    BOUND_FIELD_LOST,
     _css_escape_for_id,
     _fire_login_trigger_if_needed,
     _inter_field_pause,
@@ -2654,6 +2655,11 @@ def do_login(config, allow_manual_takeover=False):
             if why:
                 _fill_refused.append(why)
             return why
+        def _bound_lost(ok, info):
+            # BH1-49 r2: a lost keystroke binding refuses the whole login
+            # like the origin check: no staged retry, no re-resolve.
+            if not ok and str(info).startswith(BOUND_FIELD_LOST):
+                _fill_refused.append(info)
 
         # ── Try to fill username. If we can't even find the username field,
         # the form might be entirely custom — but the page IS loaded, so
@@ -2667,6 +2673,7 @@ def do_login(config, allow_manual_takeover=False):
                 return _hand_off(_prefill_why)
             _hard_close(); return False,_prefill_why,[]
         ok,info=_try_fill(page,uf_candidates,username,"username",refusal=_fill_refusal)
+        _bound_lost(ok,info)
         if _fill_refused:
             if allow_manual_takeover:
                 return _hand_off(_fill_refused[0])
@@ -2700,6 +2707,7 @@ def do_login(config, allow_manual_takeover=False):
                 return _hand_off(_prefill_why)
             _hard_close(); return False,_prefill_why,[]
         ok,info=_try_fill(page,pf_candidates,password,"password",refusal=_fill_refusal)
+        _bound_lost(ok,info)
         if _fill_refused:
             if allow_manual_takeover:
                 return _hand_off(_fill_refused[0])
@@ -2723,6 +2731,8 @@ def do_login(config, allow_manual_takeover=False):
                     page,sb_candidates,pf_candidates,password,refusal=_stg_refusal)
             except Exception as _stg_e:
                 s_ok,s_info=False,f"staged retry errored: {_stg_e}"
+            if not s_ok and str(s_info).startswith(BOUND_FIELD_LOST):
+                _stg_refused.append(s_info)
             if _stg_refused:
                 sys.stderr.write(f"  {site_tag()}login: {_stg_refused[0]}\n")
                 if allow_manual_takeover:
@@ -3174,12 +3184,14 @@ def do_login(config, allow_manual_takeover=False):
                 elif _form_back:
                     sys.stderr.write(f"  {site_tag()}login: challenge cleared but the login form is "
                                      "back; re-submitting once\n")
-                    _ok_u,_=_try_fill(page,uf_candidates,username,"username (re-submit)",refusal=_fill_refusal)
+                    _ok_u,_info_u=_try_fill(page,uf_candidates,username,"username (re-submit)",refusal=_fill_refusal)
+                    _bound_lost(_ok_u,_info_u)
                     if _fill_refused:
                         if allow_manual_takeover:
                             return _hand_off(_fill_refused[0])
                         _hard_close(); return False,_fill_refused[0],[]
-                    _ok_p,_=_try_fill(page,pf_candidates,password,"password (re-submit)",refusal=_fill_refusal)
+                    _ok_p,_info_p=_try_fill(page,pf_candidates,password,"password (re-submit)",refusal=_fill_refusal)
+                    _bound_lost(_ok_p,_info_p)
                     if _fill_refused:
                         if allow_manual_takeover:
                             return _hand_off(_fill_refused[0])
