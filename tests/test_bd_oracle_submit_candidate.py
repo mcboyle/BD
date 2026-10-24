@@ -19,7 +19,10 @@ import pytest
 BD_GATE_SCOPE = "module"
 
 CANDIDATE = os.environ.get("BD_BD_ORACLE_SUBMIT_CANDIDATE", "")
-pytestmark = pytest.mark.skipif(not CANDIDATE, reason="candidate opt-in required")
+pytestmark = pytest.mark.skipif(
+    not CANDIDATE or not Path(CANDIDATE).is_file(),
+    reason="candidate opt-in required (set BD_BD_ORACLE_SUBMIT_CANDIDATE to an existing file)",
+)
 
 BUTTON = {"x": 10.0, "y": 20.0}
 

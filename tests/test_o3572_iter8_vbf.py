@@ -1,13 +1,19 @@
 """Behavioral controls for the O3572 iter8 harness candidate."""
 import importlib
 import os
+import socket
 import sys
 from pathlib import Path
 
 import pytest
 
 BD_GATE_SCOPE = "module"
-CANDIDATE = Path(os.environ.get("BD_ITER8_VBF_CANDIDATE", "/home/mboyle/bd-persist/harness-work/FIX/o3572-iter8-vbf-r3"))
+_CAND_ENV = os.environ.get("BD_ITER8_VBF_CANDIDATE", "")
+CANDIDATE = Path(_CAND_ENV) if _CAND_ENV else Path("/nonexistent")
+pytestmark = pytest.mark.skipif(
+    not _CAND_ENV or not (CANDIDATE / "arm.py").is_file() or socket.gethostname() != "wrk-test04",
+    reason="candidate opt-in on wrk-test04 (.82) required (set BD_ITER8_VBF_CANDIDATE on wrk-test04)",
+)
 
 @pytest.fixture(scope="module")
 def arm():

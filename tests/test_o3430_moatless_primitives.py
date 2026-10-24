@@ -7,10 +7,12 @@ from pathlib import Path
 import pytest
 
 BD_GATE_SCOPE = "module"
-CANDIDATE = Path(os.environ.get(
-    "BD_MOATLESS_CANDIDATE",
-    "/home/mboyle/bd-persist/harness-work/O1789/local-agent-reliability/ws/MOATLESS",
-))
+_CAND_ENV = os.environ.get("BD_MOATLESS_CANDIDATE", "")
+CANDIDATE = Path(_CAND_ENV) if _CAND_ENV else Path("/nonexistent")
+pytestmark = pytest.mark.skipif(
+    not _CAND_ENV or not (CANDIDATE / "moatless_primitives.py").is_file(),
+    reason="candidate opt-in required (set BD_MOATLESS_CANDIDATE to a dir with moatless_primitives.py)",
+)
 
 MODULE = '''"""Module doc."""
 import os
